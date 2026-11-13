@@ -56,7 +56,7 @@ pub fn decode(d: &[u8]) -> Option<Sample> {
 
 fn decode_frame(f: &[u8]) -> Option<Vec<u8>> {
     let size = f.len();
-    let checksum = f.chunks_exact(2).fold(0u16, |c, w| c ^ u16::from_le_bytes([w[0], w[1]]));
+    let checksum = f.as_chunks::<2>().0.iter().fold(0u16, |c, w| c ^ u16::from_le_bytes([w[0], w[1]]));
     if checksum != 0xACED {
         return None;
     }
@@ -129,7 +129,7 @@ fn residuals(mode: i32, count: usize, src: &[u8]) -> Vec<u8> {
 
 /// Linear prediction: each sample is corrected by the weighted previous `order` samples.
 fn predict(order: usize, out: &mut [u8], factors: &[u8]) {
-    let k: Vec<i32> = factors.chunks_exact(2).map(|w| i16::from_le_bytes([w[0], w[1]]) as i32).collect();
+    let k: Vec<i32> = factors.as_chunks::<2>().0.iter().map(|w| i16::from_le_bytes([w[0], w[1]]) as i32).collect();
     for i in 0..out.len() {
         let mut acc = 0i32;
         for (j, &f) in k.iter().enumerate().take(order) {

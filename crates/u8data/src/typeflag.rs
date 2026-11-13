@@ -83,7 +83,9 @@ pub struct TypeFlags(pub Vec<ShapeInfo>, Vec<[u8; 8]>);
 impl TypeFlags {
     pub fn parse(d: &[u8]) -> Self {
         Self(
-            d.chunks_exact(8)
+            d.as_chunks::<8>()
+                .0
+                .iter()
                 .map(|b| ShapeInfo {
                     flags: b[0] as u16 | ((b[1] & 0x0F) as u16) << 8 | if b[5] & 0x10 != 0 { flag::EDITOR } else { 0 },
                     family: b[1] >> 4,
@@ -98,7 +100,7 @@ impl TypeFlags {
                     equip: b[2] & 0x0F,
                 })
                 .collect(),
-            d.chunks_exact(8).map(|b| b.try_into().unwrap()).collect(),
+            d.as_chunks::<8>().0.to_vec(),
         )
     }
     /// The raw 8 bytes (usecode reads individual bits).

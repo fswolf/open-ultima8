@@ -45,7 +45,9 @@ impl Skf {
         let flex = Flex::parse(d)?;
         let list = flex.get(0).unwrap_or_default();
         let events = list
-            .chunks_exact(6)
+            .as_chunks::<6>()
+            .0
+            .iter()
             .map(|c| Event { frame: u16le(c, 0), action: u16le(c, 2), data: u16le(c, 4) })
             .take_while(|e| e.frame != 0xFFFF)
             .collect();
@@ -79,7 +81,12 @@ impl Skf {
                 let stereo = d[8] == 2;
                 // Signed 8-bit to our unsigned; stereo mixed down.
                 let pcm: Vec<u8> = if stereo {
-                    d[34..].chunks_exact(2).map(|s| ((s[0] as i8 as i16 + s[1] as i8 as i16) / 2 + 128) as u8).collect()
+                    d[34..]
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|s| ((s[0] as i8 as i16 + s[1] as i8 as i16) / 2 + 128) as u8)
+                        .collect()
                 } else {
                     d[34..].iter().map(|&s| (s as i8 as i16 + 128) as u8).collect()
                 };

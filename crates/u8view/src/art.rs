@@ -22,7 +22,9 @@ impl GumpArt {
         let shapes = ShapeArchive::new(u8data::flex::Flex::parse(read("STATIC/U8GUMPS.FLX")?).ok()?);
         let areas = read("STATIC/GUMPAGE.DAT")
             .unwrap_or_default()
-            .chunks_exact(8)
+            .as_chunks::<8>()
+            .0
+            .iter()
             .map(|r| {
                 let v = |k: usize| i16::from_le_bytes([r[k], r[k + 1]]) as i32;
                 [v(0), v(2), v(4) - v(0), v(6) - v(2)]

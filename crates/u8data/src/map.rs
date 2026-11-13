@@ -84,7 +84,9 @@ impl Globs {
                     let Some(d) = f.get(i) else { return vec![] };
                     let n = if d.len() >= 2 { u16le(d, 0) as usize } else { 0 };
                     d[2..]
-                        .chunks_exact(6)
+                        .as_chunks::<6>()
+                        .0
+                        .iter()
                         .take(n)
                         .map(|b| GlobItem { x: b[0], y: b[1], z: b[2], shape: u16le(b, 3), frame: b[5] })
                         .collect()
@@ -98,7 +100,7 @@ impl Globs {
 /// (Crusader stores coords halved; U8 does not.)
 pub fn load_fixed(d: &[u8], globs: &Globs, tf: &TypeFlags) -> Vec<Item> {
     let mut out = Vec::with_capacity(d.len() / 16);
-    for r in d.chunks_exact(16) {
+    for r in d.as_chunks::<16>().0.iter() {
         let it = Item::parse(r);
         if tf.get(it.shape).family == family::GLOBEGG {
             for g in globs.0.get(it.quality as usize).into_iter().flatten() {
@@ -129,7 +131,7 @@ pub fn load_nonfixed(d: &[u8], tf: &TypeFlags) -> Vec<Item> {
 pub fn load_nonfixed_with_contents(d: &[u8], tf: &TypeFlags) -> Vec<(Item, Vec<u8>)> {
     let mut out: Vec<(Item, Vec<u8>)> = Vec::new();
     let mut depth = 0;
-    for r in d.chunks_exact(16) {
+    for r in d.as_chunks::<16>().0.iter() {
         let it = Item::parse(r);
         while depth > 0 && it.x != depth {
             depth -= 1;
@@ -263,7 +265,9 @@ pub fn cache_slot_free(d: &[u8], slot: usize) -> bool {
 /// The raw NONFIXED records that follow a container (see [`load_nonfixed_with_contents`]): each
 /// `x` is the nesting depth (1 = directly inside), `y` the window position. Returns (depth, item).
 pub fn parse_contents(raw: &[u8]) -> Vec<(usize, Item)> {
-    raw.chunks_exact(16)
+    raw.as_chunks::<16>()
+        .0
+        .iter()
         .map(|r| {
             let it = Item::parse(r);
             let c = contained(0, it);
