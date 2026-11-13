@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="docs/open-u8-banner.jpg" width="100%" alt="Open Ultima VIII: Pagan — the title in gold over a firelit coast, beside a burning pentagram">
+  <img src="docs/open-u8-banner.jpg" width="100%" alt="Open Ultima VIII: Pagan: the title in gold over a firelit coast, beside a burning pentagram">
 </p>
 
 <p align="center">
-  <b>Ultima VIII: Pagan</b>, rebuilt to play on today's computers — Linux, Windows and macOS.<br>
+  <b>Ultima VIII: Pagan</b>, rebuilt to play on today's computers: Linux, Windows and macOS.<br>
   A new engine written in Rust that runs the original game's own data and scripts,<br>
   with modern upscaling, smooth zoom and a lot of small quality-of-life fixes.
 </p>
@@ -27,12 +27,12 @@
 
 Pagan is a great game that's awkward to play now: DOSBox, a 320×200 picture stretched to a modern
 screen, and a few rough edges the original shipped with. Open Ultima8 runs the game natively and
-aims to play **exactly like the original** — same scripts, same rules, same saves — while making
+aims to play **exactly like the original** (same scripts, same rules, same saves) while making
 it look and handle as if it were made this decade.
 
 - **One-to-one with the original.** Your saved games load, and new saves use the original's format.
   People keep their schedules, scripts run as written and combat follows the original's rules.
-- **Sharp at any size.** Several upscalers — crisp pixels, xBRZ, xBR, CRT scanlines — and a
+- **Sharp at any size.** Several upscalers (crisp pixels, xBRZ, xBR, CRT scanlines) and a
   smooth zoom from 1× to 8×. Windows, speech and menus keep their own size.
 - **Smooth movement.** The Avatar glides instead of hopping a pixel at a time; mouse and keyboard
   both work.
@@ -68,7 +68,7 @@ it look and handle as if it were made this decade.
 2. **Point it at your game.** Any of these works:
    - copy the program into your Ultima 8 folder (the one with `STATIC`, `USECODE` and `SOUND` in it);
    - or put your game files in a folder called `U8` next to the program;
-   - or just run it — if it can't find the game it asks you to pick the folder, and remembers it.
+   - or just run it. If it can't find the game it asks you to pick the folder, and remembers it.
 3. **Play.** It loads your current game; **Esc** opens the game's menu (new game, the
    diary to load and save, options).
 
@@ -84,14 +84,14 @@ system places, in the game folder, or from `$U8_SOUNDFONT`. On Fedora:
 
 ## Controls
 
-The mouse works as in the original: the pointer is an arrow out from the Avatar — the further
+The mouse works as in the original: the pointer is an arrow out from the Avatar, and the further
 out, the faster you go.
 
 | Mouse | Does |
 |---|---|
-| hold **right** | move towards the pointer — short arrow: careful step (won't walk off ledges), medium: walk, long: run |
+| hold **right** | move towards the pointer. Short arrow: careful step (won't walk off ledges), medium: walk, long: run |
 | tap **right** | one careful step |
-| **both buttons** | jump — short arrow: straight up, medium: forward, long while running: a running leap. Fall short of a ledge and you catch it: towards it pulls up, away lets go |
+| **both buttons** | jump. Short arrow: straight up, medium: forward, long while running: a running leap. Fall short of a ledge and you catch it: towards it pulls up, away lets go |
 | **left click** / **double-click** | look at / use (doors, levers, signs, people, a body to search it) |
 | **left click** in combat | swing towards the pointer; hold to block |
 | **double right-click** on the Avatar | draw or put away your weapon |
@@ -104,7 +104,7 @@ out, the faster you go.
 | **arrows / WASD** | walk (hold **Shift** to run) |
 | **Space** | jump |
 | **C** | weapon out / away |
-| **1–9** | pick a reply |
+| **1-9** | pick a reply |
 | **I / Z** | backpack / paperdoll (equipment and stats) |
 | **J** | the diary: save and load |
 | **Esc** | the game menu; first puts away pages and speech |
@@ -112,16 +112,16 @@ out, the faster you go.
 | **F7 / F8** | quick save / quick load |
 | **Alt-X** or **Ctrl-Q** | quit |
 | **Alt-H** | swap mouse buttons (left-handed) |
-| **+ / −** | zoom |
+| **+ / -** | zoom |
 | **F1** | reply style: numbered list, or the original's red choices over the speaker |
 | **F2** | look (upscaler) |
 | **F3 / F4** | see inside buildings / roofs |
 | **F6** | follow the Avatar / free camera |
 | **F9** | stop all scripts (if a scene ever leaves you stuck) |
-| **F10 · [ ]** | colour fix (if the picture looks washed out) · brightness |
+| **F10 / [ ]** | colour fix (if the picture looks washed out) / brightness |
 | **F11** | full screen |
-| **P · Shift-P** | music · sound effects on/off |
-| **N · Shift-N** | next · previous song |
+| **P / Shift-P** | music / sound effects on/off |
+| **N / Shift-N** | next / previous song |
 
 **In windows:** click looks, double-click uses (opens bags), drag things between windows, onto
 the paperdoll to wear or wield them, or out into the world. Drag a window by its frame;
@@ -138,7 +138,7 @@ Saves use the original's format, in the game's own `SAVEGAME` folder, and the di
 original's saves too. Anything the engine doesn't model yet is kept exactly as it was loaded.
 The first time a slot made by the original is overwritten, a backup is kept as `U8SAVE.nnn.bak`.
 The few things the original's format has no room for (progress towards your next stat point,
-hunger, hanging from a ledge…) go in a small `U8SAVE.nnn.ou8` beside the save.
+hunger, hanging from a ledge...) go in a small `U8SAVE.nnn.ou8` beside the save.
 
 ## What works
 
@@ -154,14 +154,14 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 | Flex archives, palette, shapes, typeflags | ✅ |
 | Map loading (FIXED.DAT + GLOB.FLX), isometric depth sort | ✅ |
 | Upscaling (F2 or Options → Look): nearest (crisp at any zoom) / smooth / xBRZ per sprite (seamless, made on the CPU) / xBR and CRT scanlines on the GPU (worked out per screen pixel, any zoom, no CPU cost). In nearest and xBRZ the world is drawn at the zoom, so walking glides by fractions of a game pixel when zoomed in | ✅ |
-| Zoom: mouse wheel or +/−, 1× to 8× in steps that pass every whole size (eases smoothly; about the pointer with a free camera; big screens don't zoom out past 1920×1200 of world); crisp pixels at in-between sizes (sharp bilinear on the GPU); windows, speech and menus keep their own size (Options → Interface) | ✅ |
+| Zoom: mouse wheel or +/-, 1× to 8× in steps that pass every whole size (eases smoothly; about the pointer with a free camera; big screens don't zoom out past 1920×1200 of world); crisp pixels at in-between sizes (sharp bilinear on the GPU); windows, speech and menus keep their own size (Options → Interface) | ✅ |
 | Translucent effect pixels (xform palette), editor-only markers hidden | ✅ |
 | wgpu viewer (scroll the world) | ✅ |
 | NONFIXED items + NPCs from your save (GAMEDAT) | ✅ |
-| Scenery animation (fire, waterfalls, the hourglass's script) — TYPEFLAG types 1–6 as ScummVM runs them | ✅ |
+| Scenery animation (fire, waterfalls, the hourglass's script), TYPEFLAG types 1-6 as ScummVM runs them | ✅ |
 | ANIM.DAT actor animations; Avatar walk/run with basic collision, stairs, cutaway | ✅ |
 | Usecode VM: look, use, doors, signs/books, conversations with choices | ✅ |
-| Jumping (ANIM.DAT height arcs); climbing onto ledges 16–72 high from a standing jump (strength and dexterity grow with the height) | ✅ |
+| Jumping (ANIM.DAT height arcs); climbing onto ledges 16-72 high from a standing jump (strength and dexterity grow with the height) | ✅ |
 | Eggs: teleporters between maps, usecode triggers, NPC/egg "fast area" events; maps keep their state | ✅ |
 | Game clock (continues from your save; a game hour is 15 real minutes) + NPC schedules | ✅ |
 | Saved games: load and save (original format), the diary (J), quick save/load (F7/F8); new game with its opening scene | ✅ |
@@ -171,15 +171,15 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 | NPCs walk where scripts send them, step by step with their walk animation, routing round walls, furniture and people | ✅ |
 | Inventory windows: backpack (I), paperdoll with stats (Z), bags and chests (double-click); look/use things inside; the health and mana gauge (the paperdoll's stats button) | ✅ |
 | Moving things: drag between bags, out onto the floor or a table, and back; saved. Coins dropped on coins (or a reagent on the same reagent) make one pile, up to 666; dropping part of a pile asks how many with the original's slider (arrows or its buttons, drag the knob, Enter/OK; Esc or right click: never mind) | ✅ |
-| The world noticing: pressure plates go down underfoot — the Avatar's, monsters', anyone's in the fast area — (or under something put on them) and spring back, lava, water (deep water drowns, as in the original) and webs react to what touches them; things on top of something picked up fall; taking what isn't the Avatar's in sight of people (640 units) — guards shout "Thief!"; once carried, things are the Avatar's; people scripts send to another map are there when you arrive | ✅ |
+| The world noticing: pressure plates go down underfoot (the Avatar's, monsters', anyone's in the fast area, or under something put on them) and spring back, lava, water (deep water drowns, as in the original) and webs react to what touches them; things on top of something picked up fall; taking what isn't the Avatar's in sight of people (640 units) and guards shout "Thief!"; once carried, things are the Avatar's; people scripts send to another map are there when you arrive | ✅ |
 | Equipping: drag armour or a weapon onto the paperdoll to wear or wield it, off to take it off; weight limit (4 × STR, the patched game's) | ✅ |
 | Combat stance: draw the weapon (C, double right-click on the Avatar), red arrows, advance / retreat / turn, swing, kick (magic leggings kick harder), block (a fifth of STR off a blow, no stagger); the wielded weapon drawn in hand (WPNOVLAY.DAT) | ✅ |
-| Hitting, as ScummVM's reading of the original has it: swings strike the person (or web, door, breakable…) in reach; damage from U8.EXE's weapon table and STR; defences, Slayer, undead-bane, fire (halves armour), 3% off per point of ARMR (worn armour + weapon bonus), a DEX roll to hit; STR and DEX grow with use; people stagger, die and stay down; scripts' hits (traps) hurt too; the Avatar can die (then the diary opens to load) | ✅ |
+| Hitting, as ScummVM's reading of the original has it: swings strike the person (or web, door, breakable...) in reach; damage from U8.EXE's weapon table and STR; defences, Slayer, undead-bane, fire (halves armour), 3% off per point of ARMR (worn armour + weapon bonus), a DEX roll to hit; STR and DEX grow with use; people stagger, die and stay down; scripts' hits (traps) hurt too; the Avatar can die (then the diary opens to load) | ✅ |
 | People fighting back (ScummVM's reading of the original's combat): struck, they turn on the striker; scripts set targets and sides; fighters close in round furniture, turn, swing when in their weapon's reach and pause between swings by DEX; guards, monsters and townsfolk hit, defend and resist by kind (u8monsters numbers); playing dead | ✅ |
 | Monster eggs: creatures hatch where the scripts say (into free NPC slots, as the original's saves have them), loiter or fight, and are put away when out of range; the dead leave loot (double-click a body to search it), skeletons rise again | ✅ |
 | Seekers blow apart (pieces flung about), changelings wait in ambush as trees and spring out when you come close; the Avatar bleeds from real blows; combat music when fighting (the fanfare when an enemy falls, a lament when the Avatar dies) and the game's songs after; dropping something out of reach throws it (harder with STR, truer with DEX) | ✅ |
-| Magic: Necromancy (the Key of the Necromancer makes spells from reagents in a bag), Theurgy's foci, Sorcery's charged foci, Thaumaturgy, spell scrolls, the recall item — all run by the game's own scripts; a tester's save and the original's cheat menu to try them (see Testing saves) | ✅ |
-| Hanging from ledges (a jump that falls short catches the edge: towards it pulls up, away lets go); walking or jumping off an edge falls (not steered on the way down); a fall that hurts 6+ knocks the Avatar flat — it gets up shaking its head, easier to hit till then | ✅ |
+| Magic: Necromancy (the Key of the Necromancer makes spells from reagents in a bag), Theurgy's foci, Sorcery's charged foci, Thaumaturgy, spell scrolls, the recall item, all run by the game's own scripts; a tester's save and the original's cheat menu to try them (see Testing saves) | ✅ |
+| Hanging from ledges (a jump that falls short catches the edge: towards it pulls up, away lets go); walking or jumping off an edge falls (not steered on the way down); a fall that hurts 6+ knocks the Avatar flat; it gets up shaking its head, easier to hit till then | ✅ |
 | The films (STATIC/EINTRO.SKF before a new game and from the menu, ENDGAME.SKF when the game is won and from the menu): pictures, fades, music, effects, the Guardian's lines with subtitles; any key or click skips | ✅ |
 | Music: MUSIC.FLX XMIDI → MT-32→GM map → SoundFont synth | ✅ |
 | Sound effects (SOUND.FLX, Sonarc) placed in the world; ambient loops (fires, wind) | ✅ |
@@ -196,13 +196,13 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 
 - Upscaling, zoom, smooth movement and the modern interface options.
 - Books and scrolls in a modern typeface (the page art and paging are the original's).
-- Background loops (fires, water drips) at half volume — the original plays them twice as loud as
+- Background loops (fires, water drips) at half volume. The original plays them twice as loud as
   everything else.
 - Speech and sound from another floor (the hall under the roof you're on) are hidden.
 - The health and mana gauge is drawn twice as big.
 - The Spell of Resurrection book shows its own text (some versions of the game show the wrong book).
 
-Everything else aims to match the original; if something plays differently, that's a bug —
+Everything else aims to match the original; if something plays differently, that's a bug, so
 please [report it](../../issues).
 </details>
 
@@ -221,7 +221,7 @@ Catacombs, the Hall of the Mountain King, Argentrock Isle, Carthax Lake or Daemo
 ## Discord
 
 While Discord is running, your profile shows where you are ("In Tenebrae"), what you're doing
-(exploring, in combat, talking, reading…), health and mana, and how long you've played. Turn it
+(exploring, in combat, talking, reading...), health and mana, and how long you've played. Turn it
 off in Options → Discord status. It only talks to the Discord app on your own computer.
 
 ## Building from source
@@ -284,7 +284,7 @@ u8tool U8 speech 80 list                # recorded lines (speech 80 0 out.wav)
 
 ```
 crates/u8data     the game's file formats
-crates/u8engine   the game itself: world, rules, the script VM — no pixels, no window
+crates/u8engine   the game itself: world, rules, the script VM (no pixels, no window)
 crates/u8render   pixels: sprites, upscalers, the isometric painter, text
 crates/u8view     the game you play (winit + wgpu + cpal)
 crates/u8tool     the command-line tool
@@ -295,7 +295,7 @@ How the pieces fit and where to add things: [ARCHITECTURE.md](ARCHITECTURE.md).
 ## Credits
 
 - What's known about the game's file formats and engine comes from the **Pentagram** and
-  **ScummVM** projects — thank you.
+  **ScummVM** projects. Thank you!
 - Book text is set in **EB Garamond** by Georg Duffner (SIL Open Font License;
   [crates/u8view/assets/OFL.txt](crates/u8view/assets/OFL.txt)).
 - Ultima VIII: Pagan was made by Origin Systems. Ultima is a trademark of Electronic Arts. This
