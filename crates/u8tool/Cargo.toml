@@ -1,0 +1,12 @@
+[package]
+name = "u8tool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+u8data = { path = "../u8data" }
+u8engine = { path = "../u8engine" }
+u8render = { path = "../u8render" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+anyhow = "1"

@@ -1,0 +1,7 @@
+/target
+/out
+/U8/
+/u8/
+/dist
+/Claude outputs/
+*.wav

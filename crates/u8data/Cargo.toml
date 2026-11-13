@@ -1,0 +1,14 @@
+[package]
+name = "u8data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = "2"
+rustysynth = { version = "1.3", optional = true }
+
+[features]
+default = ["synth"]
+# SoundFont playback of the decoded music (music::Sequencer).
+synth = ["dep:rustysynth"]

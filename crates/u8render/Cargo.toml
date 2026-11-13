@@ -1,0 +1,10 @@
+[package]
+name = "u8render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+u8data = { path = "../u8data", default-features = false }
+u8engine = { path = "../u8engine" }
+xbrz-rs = "0.1"

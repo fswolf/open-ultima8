@@ -1,0 +1,110 @@
+# Every push and pull request: checks and tests. Every push to main (and a manual run): the
+# Linux, Windows and macOS packages, as downloads on the run's page (Actions tab). A tag like
+# v0.2.0: the same packages attached to a GitHub release of that name.
+name: build
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: "rustfmt, clippy" }
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev libxkbcommon-dev libwayland-dev
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # (The tests that need the game's data are #[ignore]d: there's no U8 here.)
+      - run: cargo test --workspace
+
+  linux:
+    needs: check
+    if: github.event_name != 'pull_request'
+    # (The oldest supported Ubuntu: the binaries then run on most distros' glibc.)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - run: ./build-dist.sh linux
+      - uses: actions/upload-artifact@v4
+        with: { name: open-ultima8-linux, path: "dist/linux/*.tar.gz" }
+
+  windows:
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # (The .exe gets its icon from crates/u8view/build.rs.)
+      - run: cargo build --release -p u8view -p u8tool
+      - name: Package
+        shell: bash
+        run: |
+          v=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -1)
+          d=open-ultima8-$v-windows
+          mkdir -p dist/$d
+          cp target/release/u8view.exe target/release/u8tool.exe dist/$d/
+          for f in README.md LICENSE ARCHITECTURE.md crates/u8view/assets/OFL.txt; do [ -f $f ] && cp $f dist/$d/; done
+          cd dist && 7z a -tzip -bso0 $d.zip $d
+      - uses: actions/upload-artifact@v4
+        with: { name: open-ultima8-windows, path: "dist/*.zip" }
+
+  macos:
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "aarch64-apple-darwin,x86_64-apple-darwin" }
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          cargo build --release -p u8view -p u8tool --target aarch64-apple-darwin
+          cargo build --release -p u8view -p u8tool --target x86_64-apple-darwin
+      # The same package build-dist-osx.sh makes: Open Ultima8.app (universal, with its icon) and
+      # u8tool, ad-hoc signed (unnotarized: right-click → Open the first time).
+      - name: Package
+        run: |
+          v=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -1)
+          d=open-ultima8-$v-macos
+          app="dist/$d/Open Ultima8.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          for b in u8view u8tool; do
+            lipo -create -output dist/$b target/aarch64-apple-darwin/release/$b target/x86_64-apple-darwin/release/$b
+          done
+          mv dist/u8view "$app/Contents/MacOS/"
+          mv dist/u8tool dist/$d/
+          cp icon/open-u8.icns "$app/Contents/Resources/"
+          sed "s/@VERSION@/$v/" packaging/macos/Info.plist > "$app/Contents/Info.plist"
+          codesign --force --deep -s - "$app"
+          codesign --force -s - dist/$d/u8tool
+          for f in README.md LICENSE ARCHITECTURE.md crates/u8view/assets/OFL.txt; do [ -f $f ] && cp $f dist/$d/; done
+          tar -C dist -czf dist/$d.tar.gz $d
+      - uses: actions/upload-artifact@v4
+        with: { name: open-ultima8-macos, path: "dist/*.tar.gz" }
+
+  release:
+    needs: [linux, windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: packages, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: packages/*
+          generate_release_notes: true

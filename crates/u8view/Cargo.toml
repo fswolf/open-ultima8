@@ -1,0 +1,38 @@
+[package]
+name = "u8view"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+u8data = { path = "../u8data" }
+u8engine = { path = "../u8engine" }
+u8render = { path = "../u8render" }
+wgpu = "30"
+winit = "0.30"
+pollster = "0.4"
+anyhow = "1"
+# Book and scroll text in a real typeface (EB Garamond, assets/OFL.txt).
+ab_glyph = "0.2"
+# Discord Rich Presence (local IPC; nothing over the network from us).
+discord-rich-presence = "1.1"
+# The window icon (icon/open-u8-128.png).
+png = "0.18"
+# The folder picker when the game data isn't found (xdg portal on Linux, native elsewhere).
+rfd = "0.18"
+cpal = { version = "0.18", optional = true }
+
+[features]
+default = ["audio"]
+# Music output. On Linux this needs ALSA headers: `sudo dnf install alsa-lib-devel` (Fedora).
+audio = ["dep:cpal"]
+
+[dev-dependencies]
+# (Checks the shader compiles, to SPIR-V for Vulkan too, without a GPU.)
+naga = { version = "30", features = ["wgsl-in", "spv-out"] }
+# (Reads what the Discord test sends.)
+serde_json = "1"
+
+[build-dependencies]
+# The .exe's icon (icon/open-u8.ico) on Windows builds.
+embed-resource = "3"

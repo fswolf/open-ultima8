@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Open Ultima8
+GenericName=Ultima VIII: Pagan
+Comment=Play Ultima VIII: Pagan (your own copy of the game data)
+Exec=u8view
+Icon=open-ultima8
+StartupWMClass=open-ultima8
+Terminal=false
+Categories=Game;RolePlaying;
