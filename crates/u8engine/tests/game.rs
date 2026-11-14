@@ -456,13 +456,20 @@ fn a_door_opened_where_the_avatar_stands_sends_it_back_first() {
         .find_map(|door| {
             let shut = g.world.get(door)?;
             g.trigger(door, u8engine::usecode::event::USE);
-            tick(&mut g, 30, &Input::default());
-            let open = g.world.get(door)?;
-            ((open.x, open.y, open.shape) != (shut.x, shut.y, shut.shape)).then_some((door, shut, open))
+            // The first step of its swing (where the Avatar will be in the way).
+            let open = (0..60).find_map(|_| {
+                g.update(1.0 / 30.0, &Input::default());
+                g.world.get(door).filter(|o| (o.x, o.y, o.shape) != (shut.x, shut.y, shut.shape))
+            })?;
+            tick(&mut g, 60, &Input::default());
+            Some((door, shut, open))
         })
         .expect("a door that opens");
-    g.world.set(&g.data, door, shut);
-    let at = (open.x - 8, open.y - 8, open.z);
+    let _ = open;
+    // Afresh (its script remembers it opened), the Avatar a little into the room, in the
+    // swing: one step back clears it.
+    let Some(mut g) = game(40) else { return };
+    let at = (shut.x - 40, shut.y - 8, shut.z);
     g.put_avatar(40, at);
     assert!(g.trigger(door, u8engine::usecode::event::USE));
     tick(&mut g, 150, &Input::default());
@@ -537,4 +544,15 @@ fn a_scripted_walk_is_one_step_each_foot_in_turn() {
     let x2 = walk(&mut g);
     assert_eq!(x1, start.0 - second, "the second half of the cycle first");
     assert_eq!(x2, x1 - first, "then the other foot");
+}
+
+/// The clock runs as the DOS game's: KERNEL.DAT's counter at 60 a second, 27000 to the game
+/// hour, so a real minute is 8 game minutes.
+#[test]
+#[ignore]
+fn a_real_minute_is_eight_game_minutes() {
+    let Some(mut g) = game(40) else { return };
+    let start = g.minutes();
+    (0..60 * 30).for_each(|_| _ = g.update(1.0 / 30.0, &Input::default()));
+    assert_eq!(g.minutes() - start, 8);
 }

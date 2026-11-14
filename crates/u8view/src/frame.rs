@@ -496,19 +496,22 @@ impl App {
 }
 
 impl App {
-    /// The Avatar's death, as the DOS game's: the death song; 12 seconds on, the colours back to
-    /// normal and the tombstone, put away only by a key (clicks don't); then the game menu, which
-    /// stays open until a game is loaded or begun.
+    /// The Avatar's death, as the DOS game's: the death song as it falls; 10 seconds after the
+    /// fall, the colours back to normal and the tombstone, put away only by a key (clicks don't);
+    /// then the game menu, which stays open until a game is loaded or begun.
     fn dying(&mut self, now: Instant) {
+        let falling = self.game.world.is_acting(AVATAR);
         self.death = match self.death {
             Death::Alive => {
                 #[cfg(feature = "audio")]
                 if let Some(a) = &mut self.audio {
                     a.death();
                 }
-                Death::Dead(now)
+                Death::Falling
             }
-            Death::Dead(t) if now - t >= DEATH_PAUSE && !self.menu_open() => {
+            Death::Falling if falling => Death::Falling,
+            Death::Falling => Death::Fallen(now),
+            Death::Fallen(t) if now - t >= DEATH_PAUSE && !self.menu_open() => {
                 if let Some(s) = &mut self.game.scripts {
                     s.vm.fade = Default::default();
                 }

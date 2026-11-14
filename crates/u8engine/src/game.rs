@@ -27,10 +27,14 @@ pub use items::Place;
 pub const TICK_HZ: f32 = 30.0;
 /// Ticks between fast-area checks.
 const FAST_AREA_EVERY: u32 = 10;
-/// Real seconds per game day: a game hour is 15 real minutes, as in the original.
-pub const DAY_SECONDS: u32 = 24 * 15 * 60;
-/// Ticks per game minute.
-const TICKS_PER_MINUTE: u32 = DAY_SECONDS * TICK_HZ as u32 / (24 * 60);
+/// Real seconds per game day: a game hour is 7½ real minutes, as in the DOS game (its clock,
+/// KERNEL.DAT's counter, runs at 60 a second, 27000 to the hour; ScummVM counts 30, so its days
+/// last twice as long).
+pub const DAY_SECONDS: u32 = 24 * 450;
+/// The clock's counts a second (the original's 60 Hz timer: two for each of our ticks).
+const CLOCK_HZ: u32 = 60;
+/// Clock counts per game minute.
+const TICKS_PER_MINUTE: u32 = DAY_SECONDS * CLOCK_HZ / (24 * 60);
 /// Clock for a new game without a save: 9 in the morning of day one.
 const NEW_GAME_TICKS: u32 = 9 * 60 * TICKS_PER_MINUTE;
 /// Never simulate more than this much time in one update (after a stall, skip rather than race).
@@ -310,7 +314,7 @@ impl Game {
                 self.trigger(id, event::CACHED_IN);
             }
         }
-        self.clock += 1;
+        self.clock += CLOCK_HZ / TICK_HZ as u32;
         for id in self.world.tick_acting(&self.data) {
             self.fall(id);
         }
@@ -395,6 +399,11 @@ impl Game {
 
     /// Where the view should centre (world coordinates), while it follows the game: on the
     /// Avatar, or wherever a cutscene points it. None if what it follows isn't on this map.
+    /// Have the view follow the Avatar again (as after a scene).
+    pub fn follow_avatar(&mut self) {
+        self.camera.reset();
+    }
+
     pub fn camera(&self) -> Option<(i32, i32, i32)> {
         self.camera.focus(&self.world)
     }

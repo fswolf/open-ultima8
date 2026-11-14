@@ -116,6 +116,7 @@ impl App {
             if let Some(a) = &mut self.audio {
                 a.play_track(back);
             }
+            self.open_menu(menu::Page::Main); // back where it was rolled from
         }
         self.dirty = true;
     }

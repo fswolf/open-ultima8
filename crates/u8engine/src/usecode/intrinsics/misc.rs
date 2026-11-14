@@ -46,8 +46,11 @@ pub fn game_hours(c: &mut Ctx) -> u32 {
     c.vm.minutes / 60
 }
 
+/// getCurrentTimerTick: a 60 Hz count (ScummVM's: "ticks of a 60Hz timer, with the default
+/// animrate of 30Hz"), two for each of our game ticks. Scripts wait on it (the drowned Avatar's
+/// ripples, 50 apart: 5/6 of a second).
 pub fn timer_tick(c: &mut Ctx) -> u32 {
-    c.vm.ticks
+    c.vm.ticks.wrapping_mul(2)
 }
 
 pub fn family_of_type(c: &mut Ctx) -> u32 {
@@ -117,7 +120,8 @@ pub fn num_processes(c: &mut Ctx) -> u32 {
     c.vm.count_procs(item, ty)
 }
 
-/// Real minutes and seconds of game time since the start (the game clock runs 30 ticks a second).
+/// Minutes and seconds of game time since the start, as ScummVM's: 900 "seconds" to the game
+/// hour (the clock counts 27000 to the hour).
 pub fn time_in_minutes(c: &mut Ctx) -> u32 {
     c.vm.clock / (30 * 60)
 }

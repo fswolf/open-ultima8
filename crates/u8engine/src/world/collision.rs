@@ -62,9 +62,10 @@ impl World {
     }
 
     /// Is there room for something of `shape` with its base at `at` (nothing solid in the
-    /// way; it may hang in the air)?
+    /// way; it may hang in the air)? Only solid things need room: as ScummVM's isValidPosition,
+    /// something blocks only if both are solid (a drowned Avatar's ripples spread over its body).
     pub fn clear_at(&self, gd: &GameData, shape: u32, at: (i32, i32, i32)) -> bool {
-        !self.room(gd, shape, at, None).0
+        gd.typeflags.get(shape).flags & u8data::typeflag::flag::SOLID == 0 || !self.room(gd, shape, at, None).0
     }
 
     /// The first solid thing in the way of something of `shape` moving to `at` from height

@@ -371,12 +371,10 @@ impl ScriptUi {
         self.panels.iter().any(|p| matches!(p, Panel::Ask { .. }))
     }
 
-    /// What's open to read now goes away only with a key.
+    /// What was last opened to read goes away only with a key.
     pub fn keys_only(&mut self) {
-        for p in &mut self.panels {
-            if let Panel::Read(r) = p {
-                r.keys_only = true;
-            }
+        if let Some(Panel::Read(r)) = self.panels.iter_mut().rev().find(|p| matches!(p, Panel::Read(_))) {
+            r.keys_only = true;
         }
     }
 

@@ -9,6 +9,9 @@
 //!   F1 text style · F2 upscaler · F3 cutaway · F4 roofs · F5 editor view · F6 follow/free camera
 //!   F7 / F8 quick save / load · F9 stop all scripts · F10 colour fix · F11 fullscreen · F12 frame time · [ ] gamma
 //!   P music on/off (Shift+P effects) · N next song (Shift = previous) · 9/0 volume
+// A game, not a console program: no terminal window behind it on Windows (debug builds keep it,
+// for their messages).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod art;
 #[cfg(feature = "audio")]
 mod audio;
@@ -73,17 +76,18 @@ const SCRIPT_WAKE: Duration = Duration::from_millis(33);
 const HEARING: f32 = 480.0;
 const DOUBLE_CLICK: Duration = Duration::from_millis(450);
 
-/// The tombstone comes this long after the Avatar dies, however it died (the DOS game, timed:
-/// 12 s after a deadly fall, 13 after a splash into deep water, whose drowning takes a moment).
-const DEATH_PAUSE: Duration = Duration::from_secs(12);
+/// The tombstone comes this long after the Avatar's death animation has played (the DOS game at
+/// its proper speed, timed: 9.8 s; ScummVM waits 5).
+const DEATH_PAUSE: Duration = Duration::from_secs(10);
 /// The tombstone: its gump (U8GUMPS 27, read in font 11) and words, as AvatarDeathProcess.
 const TOMBSTONE: (u16, &str) = (27, "HERE LIES*THE AVATAR*REST IN PEACE");
 
-/// The Avatar's death, step by step: dead (since when); the tombstone up; the menu.
+/// The Avatar's death, step by step: falling; fallen (since when); the tombstone up; the menu.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Death {
     Alive,
-    Dead(Instant),
+    Falling,
+    Fallen(Instant),
     Tombstone,
     Over,
 }
@@ -571,6 +575,17 @@ fn pick_data() -> Option<PathBuf> {
 }
 
 fn main() -> Result<()> {
+    // With no terminal (Windows), a failure to start is shown in a message box instead.
+    start().inspect_err(|e| {
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("Open Ultima8")
+            .set_description(format!("{e:#}"))
+            .show();
+    })
+}
+
+fn start() -> Result<()> {
     let mut a: Vec<String> = std::env::args().skip(1).collect();
     if a.iter().any(|s| s == "-h" || s == "--help") {
         println!("usage: u8view [U8 data dir] [map] [--save N]");

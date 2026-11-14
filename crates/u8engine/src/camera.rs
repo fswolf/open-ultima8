@@ -35,7 +35,12 @@ impl Camera {
     /// The point to centre on (None: following something that isn't on this map).
     pub fn focus(&self, world: &World) -> Option<(i32, i32, i32)> {
         match (self.follow, &self.glide) {
-            (Some(id), None) => world.get(id).map(|it| (it.x, it.y, it.z + EYE)),
+            // Something put away to the map's origin (the Avatar drowning: its body goes to
+            // 0,0,0) leaves the view where it last was, as the DOS game's.
+            (Some(id), None) => match world.get(id) {
+                Some(it) if (it.x, it.y, it.z) == (0, 0, 0) => Some(self.at),
+                it => it.map(|it| (it.x, it.y, it.z + EYE)),
+            },
             _ => Some(self.at),
         }
     }
@@ -63,7 +68,10 @@ impl Camera {
     }
 
     /// One game tick. Returns the process of a glide that just arrived.
-    pub fn tick(&mut self) -> Option<Pid> {
+    pub fn tick(&mut self, world: &World) -> Option<Pid> {
+        if self.glide.is_none() && self.follow.is_some() {
+            self.at = self.focus(world).unwrap_or(self.at); // (kept for when it goes away)
+        }
         let g = self.glide.as_mut()?;
         g.tick += 1;
         let t = g.tick.min(SCROLL_TICKS) as f32 / SCROLL_TICKS as f32;

@@ -265,7 +265,13 @@ fn the_dead_leave_loot_and_skeletons_rise() {
     let bones = hatch(&mut g, 119).expect("room by the Avatar");
     g.receive_hit(bones, AVATAR, 2, 999, dmg::PIERCE);
     assert!(g.stats.get(bones).unwrap().dead);
-    tick(&mut g, 31.0);
+    // (As it gets up: after that the fight wears it down.)
+    for _ in 0..31 * 30 {
+        if !g.stats.get(bones).unwrap().dead {
+            break;
+        }
+        tick(&mut g, 1.0 / 30.0);
+    }
     let s = g.stats.get(bones).unwrap();
     assert!(!s.dead && (35..=45).contains(&s.hp), "risen: {s:?}");
     assert!(g.world.in_combat(bones));
@@ -384,4 +390,39 @@ fn changelings_wait_as_trees() {
         g.world.last_anim(c) == 21
     });
     assert!(back, "back into shape");
+}
+
+/// Walking off the end of the Docks' pier: deep water drowns the Avatar (the water's script puts
+/// the body away at 0,0,0) and the view stays over the water, as the DOS game's, instead of
+/// following the body to the map's corner.
+#[test]
+#[ignore]
+fn drowning_leaves_the_view_over_the_water() {
+    let Some(dir) = std::env::var_os("U8_DATA") else { return };
+    let mut g = Game::open(std::path::Path::new(&dir), Some(0), None).unwrap(); // the Docks
+    g.vm().unwrap().kill_all(); // no opening scene: the view follows the Avatar
+    g.follow_avatar();
+    let mut a = g.world.get(AVATAR).unwrap();
+    (a.x, a.y, a.z) = (11720, 6450, 48); // on the pier, near its open end
+    g.world.set(&g.data, AVATAR, a);
+    let (mut last, mut rings) = (None, std::collections::BTreeMap::new());
+    for t in 0..240 {
+        g.follow_avatar(); // (whatever the opening scene's left running says)
+        g.update(1.0 / 30.0, &Input { dir: Some(5), ..Default::default() });
+        if !g.avatar_dead() {
+            last = g.camera();
+        }
+        for id in g.world.objects().filter(|&id| g.world.get(id).is_some_and(|it| it.shape == 476)) {
+            rings.entry(id).or_insert(t);
+        }
+    }
+    // Four ripples spread out over the body, one every 5/6 of a second (50 ticks of the scripts'
+    // 60 Hz timer; the first with the splash).
+    let starts: Vec<i32> = rings.values().copied().collect();
+    assert_eq!(starts.len(), 4, "{starts:?}");
+    assert!(starts.windows(2).all(|w| (25..=27).contains(&(w[1] - w[0]))), "{starts:?}");
+    assert!(g.avatar_dead(), "drowned");
+    assert_eq!(g.world.get(AVATAR).map(|a| (a.x, a.y, a.z)), Some((0, 0, 0)), "the body put away");
+    let (at, was) = (g.camera().unwrap(), last.unwrap());
+    assert!((at.0 - was.0).abs() < 64 && (at.1 - was.1).abs() < 64, "the view stays: {at:?} vs {was:?}");
 }

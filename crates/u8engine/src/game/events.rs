@@ -96,7 +96,7 @@ impl Game {
                 }
             }
         }
-        done.extend(self.camera.tick());
+        done.extend(self.camera.tick(&self.world));
         if let Some(s) = &mut self.scripts {
             done.into_iter().for_each(|p| s.vm.finish(p, 0));
         }

@@ -150,7 +150,7 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
 - **`game::Game`** — a session (`Game::open(root, slot, map)`, `snapshot`, `save`): data + world + avatar + scripts. `update(dt, &Input)` advances
   movement and game ticks (30 Hz: scenery animation every TYPEFLAG-speed ticks → eggs → fast area → schedules →
   walks → loitering → the risen → fights → scripts) on fixed steps. It keeps the game clock (`minutes()`; continues from the save's kernel
-  frame counter, a game hour is 15 real minutes) and runs every NPC's `schedule` event each game hour; `trigger(id, event)` runs look/use; `teleport(map, id)` takes the Avatar along;
+  frame counter, 60 a second: a game hour is 7½ real minutes) and runs every NPC's `schedule` event each game hour; `trigger(id, event)` runs look/use; `teleport(map, id)` takes the Avatar along;
   `load_map` swaps worlds and stops scripts. On entering a map, map items (not actors) get
   `cachedIn` (music objects pick the song); a new game hatches the FIRST egg (the opening). Maps you leave are kept as they were, so opened
   doors stay open when you come back. Files: `game.rs` (the session, `update`, the tick), in `game/`:

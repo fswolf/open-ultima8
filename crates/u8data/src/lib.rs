@@ -98,7 +98,8 @@ pub struct GameData {
     /// The weapon table compiled into U8.EXE (damage, bonuses, how each is held); empty if the
     /// EXE isn't in the install.
     pub weapons: weapons::Weapons,
-    /// Game ticks played (30 per second) when the save was made, from GAMEDAT/KERNEL.DAT.
+    /// The game clock when the save was made (60 a second, 27000 to the game hour), from
+    /// GAMEDAT/KERNEL.DAT.
     pub ticks: Option<u32>,
     /// Global flags (GAMEDAT/FLAG.DAT) for the scripts.
     pub flags: Option<Vec<u8>>,

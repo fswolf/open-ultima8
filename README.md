@@ -163,7 +163,7 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 | Usecode VM: look, use, doors, signs/books, conversations with choices | ✅ |
 | Jumping (ANIM.DAT height arcs); climbing onto ledges 16-72 high from a standing jump (strength and dexterity grow with the height) | ✅ |
 | Eggs: teleporters between maps, usecode triggers, NPC/egg "fast area" events; maps keep their state | ✅ |
-| Game clock (continues from your save; a game hour is 15 real minutes) + NPC schedules | ✅ |
+| Game clock (continues from your save; a game hour is 7½ real minutes, as in the DOS game) + NPC schedules | ✅ |
 | Saved games: load and save (original format), the diary (J), quick save/load (F7/F8); new game with its opening scene | ✅ |
 | Original controls (mouse arrow: step/walk/run/jump), game menu (Esc) with options remembered between runs | ✅ |
 | Cutscene camera (scenes hold the view, glide it and centre it on whoever's talking) | ✅ |
