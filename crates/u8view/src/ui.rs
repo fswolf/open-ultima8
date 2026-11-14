@@ -61,6 +61,8 @@ struct Readable {
     /// The page in the first box.
     first: usize,
     sign: bool,
+    /// Put away by a key only (the Avatar's tombstone: clicks don't, in the DOS game).
+    keys_only: bool,
     last_click: Option<Instant>,
 }
 
@@ -104,13 +106,23 @@ impl Readable {
                 let size = (img.w as i32, img.h as i32);
                 let pages = Pages::Game(vec![img]);
                 let boxes = vec![at];
-                return Self { pid, gump: gump as u32, boxes, size, pages, first: 0, sign: true, last_click: None };
+                return Self {
+                    pid,
+                    gump: gump as u32,
+                    boxes,
+                    size,
+                    pages,
+                    first: 0,
+                    sign: true,
+                    keys_only: false,
+                    last_click: None,
+                };
             }
         };
         let pages = Pages::Type { lines: type_font.pages(text, lay.page), drawn: None };
         let size = (lay.page.0 as i32, lay.page.1 as i32);
         let boxes = lay.boxes.to_vec();
-        Self { pid, gump: lay.gump, boxes, size, pages, first: 0, sign: false, last_click: None }
+        Self { pid, gump: lay.gump, boxes, size, pages, first: 0, sign: false, keys_only: false, last_click: None }
     }
 
     /// Turn the page; false if there was no more.
@@ -319,6 +331,9 @@ impl ScriptUi {
         }
         if let Some(i) = self.panels.iter().position(|p| matches!(p, Panel::Read(_))) {
             let Panel::Read(r) = &mut self.panels[i] else { unreachable!() };
+            if r.keys_only {
+                return true;
+            }
             let now = Instant::now();
             let double = r.last_click.is_some_and(|t| now - t < crate::DOUBLE_CLICK);
             if double || !r.next() {
@@ -354,6 +369,15 @@ impl ScriptUi {
     /// Is a conversation asking for a reply?
     pub fn asking(&self) -> bool {
         self.panels.iter().any(|p| matches!(p, Panel::Ask { .. }))
+    }
+
+    /// What's open to read now goes away only with a key.
+    pub fn keys_only(&mut self) {
+        for p in &mut self.panels {
+            if let Panel::Read(r) = p {
+                r.keys_only = true;
+            }
+        }
     }
 
     /// Is something open to read? (It's drawn at the screen's full resolution.)
@@ -678,5 +702,19 @@ mod tests {
         shot(&mut ui, &mut d.art, "grave");
         ui.click(5, 5, &mut vm);
         assert!(!ui.blocking(), "a click puts it away");
+        // The Avatar's own tombstone: as the DOS game, clicks don't put it away; a key does.
+        let ev = UiEvent::Read {
+            pid: Pid::MAX,
+            kind: ReadKind::Grave,
+            item: 0,
+            gump: 27,
+            text: "HERE LIES*THE AVATAR*REST IN PEACE".into(),
+        };
+        ui.push(ev, &d.pal, None, Some(&d.art));
+        ui.keys_only();
+        ui.click(5, 5, &mut vm);
+        ui.click(5, 5, &mut vm);
+        assert!(ui.reading(), "clicks, even double, leave it");
+        assert!(ui.read_key(false, &mut vm) && !ui.reading(), "a key puts it away");
     }
 }

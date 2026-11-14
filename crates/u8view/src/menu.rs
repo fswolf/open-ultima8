@@ -117,6 +117,8 @@ pub struct Menu {
     root: PathBuf,
     /// The quit question came from the main menu (No goes back there, not out).
     quit_from_menu: bool,
+    /// The Avatar is dead: the main menu can't be put away, only a game loaded or begun.
+    pub stay: bool,
 }
 
 impl Menu {
@@ -134,6 +136,7 @@ impl Menu {
             options: vec![],
             root: root.to_path_buf(),
             quit_from_menu: false,
+            stay: false,
         })
     }
 
@@ -164,6 +167,7 @@ impl Menu {
             Some(Page::Name) => {} // a name is needed to begin
             _ if self.edit.is_some() => self.edit = None,
             Some(Page::Quit) if !self.quit_from_menu => self.close(),
+            Some(Page::Main) if self.stay => {}
             Some(Page::Main) | None => self.close(),
             Some(_) => self.page = Some(Page::Main),
         }

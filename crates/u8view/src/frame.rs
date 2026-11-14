@@ -146,22 +146,7 @@ impl App {
             }
         }
         if self.game.avatar_dead() {
-            // Dead: say so, then (once the fall has played) offer the diary to load a game.
-            match self.dead_since {
-                None => {
-                    self.dead_since = Some(now);
-                    self.notice("Thou art dead.");
-                    #[cfg(feature = "audio")]
-                    if let Some(a) = &mut self.audio {
-                        a.death();
-                    }
-                }
-                Some(t) if now - t > DEATH_PAUSE && !self.menu_open() => {
-                    self.dead_since = Some(now + Duration::from_secs(3600)); // just the once
-                    self.open_menu(menu::Page::Diary(menu::Diary::Read));
-                }
-                _ => {}
-            }
+            self.dying(now);
         }
         if status.map_changed {
             self.on_map_loaded(); // walked through a teleporter
@@ -507,6 +492,50 @@ impl App {
             win.set_title(&title);
             self.title = title;
         }
+    }
+}
+
+impl App {
+    /// The Avatar's death, as the DOS game's: the death song; 12 seconds on, the colours back to
+    /// normal and the tombstone, put away only by a key (clicks don't); then the game menu, which
+    /// stays open until a game is loaded or begun.
+    fn dying(&mut self, now: Instant) {
+        self.death = match self.death {
+            Death::Alive => {
+                #[cfg(feature = "audio")]
+                if let Some(a) = &mut self.audio {
+                    a.death();
+                }
+                Death::Dead(now)
+            }
+            Death::Dead(t) if now - t >= DEATH_PAUSE && !self.menu_open() => {
+                if let Some(s) = &mut self.game.scripts {
+                    s.vm.fade = Default::default();
+                }
+                let (gump, text) = TOMBSTONE;
+                let read = UiEvent::Read {
+                    pid: u8engine::usecode::Pid::MAX,
+                    kind: u8engine::usecode::ReadKind::Grave,
+                    item: 0,
+                    gump,
+                    text: text.into(),
+                };
+                self.event(read);
+                if let Some(u) = &mut self.ui {
+                    u.keys_only();
+                }
+                self.dirty = true;
+                Death::Tombstone
+            }
+            Death::Tombstone if !self.ui.as_ref().is_some_and(|u| u.reading()) => {
+                self.open_menu(menu::Page::Main);
+                if let Some(m) = &mut self.menu {
+                    m.stay = true;
+                }
+                Death::Over
+            }
+            d => d,
+        };
     }
 }
 

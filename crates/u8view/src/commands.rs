@@ -33,7 +33,10 @@ impl App {
         match Game::open(&self.root, Some(slot), None) {
             Ok(g) => {
                 self.game = g;
-                self.dead_since = None;
+                self.death = Death::Alive;
+                if let Some(m) = &mut self.menu {
+                    m.stay = false;
+                }
                 self.painter = Painter::new();
                 self.held.clear();
                 self.on_map_loaded();

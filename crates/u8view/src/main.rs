@@ -73,8 +73,20 @@ const SCRIPT_WAKE: Duration = Duration::from_millis(33);
 const HEARING: f32 = 480.0;
 const DOUBLE_CLICK: Duration = Duration::from_millis(450);
 
-/// After the Avatar dies, the diary opens this much later (its fall plays first).
-const DEATH_PAUSE: Duration = Duration::from_millis(2500);
+/// The tombstone comes this long after the Avatar dies, however it died (the DOS game, timed:
+/// 12 s after a deadly fall, 13 after a splash into deep water, whose drowning takes a moment).
+const DEATH_PAUSE: Duration = Duration::from_secs(12);
+/// The tombstone: its gump (U8GUMPS 27, read in font 11) and words, as AvatarDeathProcess.
+const TOMBSTONE: (u16, &str) = (27, "HERE LIES*THE AVATAR*REST IN PEACE");
+
+/// The Avatar's death, step by step: dead (since when); the tombstone up; the menu.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Death {
+    Alive,
+    Dead(Instant),
+    Tombstone,
+    Over,
+}
 /// How far (across, up/down) the Avatar can be from a thing whose window stays open.
 const WINDOW_RANGE: (i32, i32) = (1024, 256);
 /// The paperdoll's fonts: white names, green digits.
@@ -166,8 +178,8 @@ struct App {
     film: Option<films::Showing>,
     /// "How many?" for part of a pile being dropped (the game waits).
     slider: Option<slider::Slider>,
-    /// When the Avatar died (the game is over until a save is loaded).
-    dead_since: Option<Instant>,
+    /// How far the Avatar's death has got (the game is over until a save is loaded).
+    death: Death,
     /// Left button down at this position; becomes a drag once it moves a few pixels.
     press: Option<(f64, f64)>,
     dragging: bool,
@@ -279,7 +291,7 @@ impl App {
             roll: None,
             film: None,
             slider: None,
-            dead_since: None,
+            death: Death::Alive,
             press: None,
             dragging: false,
             pan: None,
