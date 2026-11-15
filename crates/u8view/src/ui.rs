@@ -1,16 +1,20 @@
 //! On-screen script UI: speech barks over items, conversation choices, and readable text.
 use crate::art::GumpArt;
 use crate::pagefont::PageFont;
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use u8data::{
     font::{Fonts, TextImage},
     palette::Palette,
 };
-use u8engine::usecode::{Pid, ReadKind, UiEvent, Vm};
+use u8engine::usecode::{Pid, ReadKind, UiEvent, Vm, ASK_TIMEOUT};
+use u8engine::world::AVATAR;
 use u8render::{text, Canvas};
 
 /// Speech wraps at this width (game pixels), as in the original.
 const BARK_WIDTH: u32 = 194;
+/// And a page of it is this high (ScummVM's BarkGump: five lines).
+const BARK_HEIGHT: u32 = 55;
 /// Notices from the viewer itself.
 const SPEECH_FONT: usize = 8;
 
@@ -33,8 +37,7 @@ const OPTION_HOVER_FONT: usize = 8;
 /// The original's conversation choices: red, bulleted, flowed above the Avatar's head.
 const CLASSIC_FONT: usize = 6;
 const CLASSIC_HOVER_FONT: usize = 5;
-const CLASSIC_WIDTH: i32 = 200;
-const BULLET: [u8; 4] = [210, 30, 24, 255];
+const CLASSIC_WIDTH: i32 = 160;
 
 /// How the original shows something to read (ScummVM's BookGump, ScrollGump, ReadableGump):
 /// U8GUMPS shape, page size and where pages go in it (a book has two side by side). The text
@@ -196,16 +199,20 @@ enum Panel {
         pid: Pid,
         item: u16,
         img: TextImage,
-        until: Instant,
+        /// Game time this page stays up for.
+        left: Duration,
+        /// The pages still to come, each with its time (long speech, as the original pages it).
+        more: VecDeque<(TextImage, Duration)>,
     },
     Ask {
         pid: Pid,
-        item: u16,
         options: Vec<String>,
         imgs: Vec<Choice>,
         classic: Vec<Choice>,
         rects: Vec<[i32; 4]>,
         hover: Option<usize>,
+        /// Game time it has waited for an answer (see [`ASK_TIMEOUT`]).
+        waited: Duration,
     },
     Read(Readable),
     /// A message from the viewer itself ("Game saved."), at the top for a moment.
@@ -249,30 +256,46 @@ impl ScriptUi {
     pub fn push(&mut self, ev: UiEvent, pal: &Palette, spoken: Option<f32>, art: Option<&GumpArt>) {
         match ev {
             UiEvent::Bark { pid, item, text } => {
-                let text = text.trim().to_string();
                 let font = speech_font(item);
-                let lines = self.fonts.wrap(font, &text, BARK_WIDTH);
-                let img = self.fonts.render_left(font, &lines, pal);
-                // Long enough to read: ~70 ms per character, 1.5–8 s; or as long as it's spoken.
-                let read = (text.len() as u64 * 70).clamp(1500, 8000);
-                let ms = spoken.map_or(read, |s| read.max((s * 1000.0) as u64 + 300));
-                self.panels.push(Panel::Bark { pid, item, img, until: Instant::now() + Duration::from_millis(ms) });
+                let mut pages: VecDeque<_> = self.bark_pages(font, text.trim(), pal, spoken).into();
+                let (img, left) = pages
+                    .pop_front()
+                    .unwrap_or_else(|| (self.fonts.render_set(font, &[], pal, 0, false), Duration::ZERO));
+                self.panels.push(Panel::Bark { pid, item, img, left, more: pages });
             }
-            UiEvent::Ask { pid, item, options } => {
-                let choices = |fonts: &Fonts, (a, b): (usize, usize), numbered: bool| -> Vec<Choice> {
+            UiEvent::Ask { pid, options, .. } => {
+                let choices = |fonts: &Fonts, (a, b): (usize, usize)| -> Vec<Choice> {
                     options
                         .iter()
                         .enumerate()
                         .map(|(i, o)| {
-                            let t =
-                                vec![if numbered { format!("{}. {}", i + 1, o.trim()) } else { o.trim().to_string() }];
+                            let t = vec![format!("{}. {}", i + 1, o.trim())];
                             (fonts.render(a, &t, pal, None), fonts.render(b, &t, pal, None))
                         })
                         .collect()
                 };
-                let imgs = choices(&self.fonts, (OPTION_FONT, OPTION_HOVER_FONT), true);
-                let classic = choices(&self.fonts, (CLASSIC_FONT, CLASSIC_HOVER_FONT), false);
-                self.panels.push(Panel::Ask { pid, item, options, imgs, classic, rects: vec![], hover: None });
+                let imgs = choices(&self.fonts, (OPTION_FONT, OPTION_HOVER_FONT));
+                // The original's: "@ " (its bullet) and the answer, in the Avatar's speech font.
+                let classic = options
+                    .iter()
+                    .map(|o| {
+                        let t = [format!("@ {}", o.trim())];
+                        let f = &self.fonts;
+                        (
+                            f.render_set(CLASSIC_FONT, &t, pal, 0, false),
+                            f.render_set(CLASSIC_HOVER_FONT, &t, pal, 0, false),
+                        )
+                    })
+                    .collect();
+                self.panels.push(Panel::Ask {
+                    pid,
+                    options,
+                    imgs,
+                    classic,
+                    rects: vec![],
+                    hover: None,
+                    waited: Duration::ZERO,
+                });
             }
             UiEvent::Read { pid, kind, gump, text, .. } => {
                 let r = Readable::new((&self.fonts, &self.type_font), pal, pid, (kind, gump), &text, art);
@@ -294,6 +317,38 @@ impl ScriptUi {
         self.panels.push(Panel::Notice { img, until: Instant::now() + Duration::from_millis(2500) });
     }
 
+    /// Speech laid out as the original does (ScummVM's BarkGump: a text box 194 × 55, so five
+    /// lines a page), each page with how long it stays up: in the classic style the original's
+    /// time (measured in DOS at text speed 5: about 2.9 s plus 16 ms a letter: "Hello there."
+    /// 3.2 s, 81 letters 4.2 s); in the modern one at least ~70 ms a letter to read it, up to
+    /// 8 s. Recorded speech keeps each page up for its share of it (the last 0.3 s longer).
+    fn bark_pages(&self, font: usize, text: &str, pal: &Palette, spoken: Option<f32>) -> Vec<(TextImage, Duration)> {
+        let mut pages = vec![];
+        let mut rest = text;
+        while !rest.is_empty() || pages.is_empty() {
+            let (lines, used) = self.fonts.typeset(font, rest, BARK_WIDTH, BARK_HEIGHT, false, false);
+            // (At least a letter, so it always moves on; never inside a multi-byte one.)
+            let used = (used.max(1)..=rest.len()).find(|&i| rest.is_char_boundary(i)).unwrap_or(rest.len());
+            let n = rest[..used].trim().len() as u64;
+            let mut ms = 2900 + 16 * n;
+            if self.style == Style::Modern {
+                ms = ms.max((n * 70).min(8000));
+            }
+            if let Some(s) = spoken {
+                ms = ms.max((s * 1000.0) as u64 * n / text.len().max(1) as u64);
+            }
+            pages.push((self.fonts.render_set(font, &lines, pal, 0, false), Duration::from_millis(ms)));
+            rest = rest[used..].trim_start();
+            if lines.is_empty() {
+                break;
+            }
+        }
+        if let (Some(_), Some(last)) = (spoken, pages.last_mut()) {
+            last.1 += Duration::from_millis(300);
+        }
+        pages
+    }
+
     /// Retire notices whose time is up (while the game is paused). True if any went.
     pub fn expire_notices(&mut self) -> bool {
         let now = Instant::now();
@@ -302,14 +357,30 @@ impl ScriptUi {
         before != self.panels.len()
     }
 
-    /// Retire barks whose time is up. Returns true if anything changed.
-    pub fn expire(&mut self, vm: &mut Vm) -> bool {
-        let now = Instant::now();
+    /// Retire barks whose time is up, and questions left unanswered for [`ASK_TIMEOUT`] of game
+    /// time `dt` (an empty answer, as the original gives). Returns true if anything changed.
+    pub fn expire(&mut self, vm: &mut Vm, dt: f32) -> bool {
+        let (now, step) = (Instant::now(), Duration::from_secs_f32(dt));
         let before = self.panels.len();
-        self.panels.retain(|p| match p {
-            Panel::Bark { pid, until, .. } if *until <= now => {
-                vm.finish(*pid, 0);
-                false
+        self.panels.retain_mut(|p| match p {
+            Panel::Bark { pid, img, left, more, .. } => {
+                *left = left.saturating_sub(step);
+                if !left.is_zero() {
+                    return true;
+                }
+                match more.pop_front() {
+                    Some((next, t)) => (*img, *left) = (next, t),
+                    None => vm.finish(*pid, 0),
+                }
+                !left.is_zero()
+            }
+            Panel::Ask { pid, waited, .. } => {
+                *waited += step;
+                let over = *waited >= ASK_TIMEOUT;
+                if over {
+                    vm.answer_nothing(*pid);
+                }
+                !over
             }
             Panel::Notice { until, .. } => *until > now,
             _ => true,
@@ -412,7 +483,13 @@ impl ScriptUi {
     /// Clicking skips speech. Returns true if there was any.
     pub fn skip_barks(&mut self, vm: &mut Vm) -> bool {
         let mut used = false;
-        self.panels.retain(|p| match p {
+        self.panels.retain_mut(|p| match p {
+            // Onto the next page, if there is one (ScummVM's BarkGump::onMouseDown).
+            Panel::Bark { img, left, more, .. } if !more.is_empty() => {
+                (*img, *left) = more.pop_front().unwrap();
+                used = true;
+                true
+            }
             Panel::Bark { pid, .. } => {
                 vm.finish(*pid, 0);
                 used = true;
@@ -459,8 +536,9 @@ impl ScriptUi {
         }
     }
 
-    /// Draw over the frame. The canvas is `vw*ss × vh*ss`; `rect_of` gives where an item is
-    /// drawn, in the same game pixels (to put speech over it).
+    /// Draw over the frame. The canvas is `vw*ss × vh*ss`; `rect_of` gives where an item is, in
+    /// the same game pixels: speech goes centred on it with its bottom on the rect's top (on the
+    /// map a point over the head, the rect reaching down to the feet).
     pub fn draw(
         &mut self,
         canvas: &mut Canvas,
@@ -477,50 +555,36 @@ impl ScriptUi {
                     let Some(r) = rect_of(*item) else { continue };
                     let (w, h) = (img.w as i32, img.h as i32);
                     let x = fit(r[0] + r[2] / 2 - w / 2, w, vw);
-                    let y = fit(r[1] - h - 2, h, vh);
+                    let y = fit(r[1] - h, h, vh);
                     text::draw_plain(canvas, ss, img, x, y); // speech fonts carry their own outline
                 }
-                Panel::Ask { item, classic, rects, hover, .. } if self.style == Style::Classic => {
-                    // Greedy rows of "■ choice" up to CLASSIC_WIDTH, centred over the asker's head.
-                    let (gap, bullet) = (8, 7);
-                    let mut rows: Vec<Vec<usize>> = vec![vec![]];
-                    let mut used = 0;
-                    for (k, (a, _)) in classic.iter().enumerate() {
-                        let w = bullet + a.w as i32;
-                        if used > 0 && used + gap + w > CLASSIC_WIDTH {
-                            rows.push(vec![]);
-                            used = 0;
+                Panel::Ask { classic, rects, hover, .. } if self.style == Style::Classic => {
+                    // As ScummVM's AskGump: left to right 4 apart, a new row past 160 wide, rows
+                    // a line apart; over the Avatar's head as its speech would be (below its
+                    // feet if that's off the top, as DOS does), kept on screen.
+                    let skip = self.fonts.line_skip(CLASSIC_FONT) as i32;
+                    let mut at = Vec::with_capacity(classic.len());
+                    let (mut px, mut py, mut w) = (0, 0, 0);
+                    for (a, _) in classic.iter() {
+                        if px > 0 && px + a.w as i32 > CLASSIC_WIDTH {
+                            (px, py) = (0, py + skip);
                         }
-                        used += if used > 0 { gap } else { 0 } + w;
-                        rows.last_mut().unwrap().push(k);
+                        at.push((px, py));
+                        w = w.max(px + a.w as i32);
+                        px += a.w as i32 + 4;
                     }
-                    let lh = classic.iter().map(|(a, _)| a.h as i32).max().unwrap_or(8) + 2;
-                    let row_w = |r: &[usize]| {
-                        r.iter().map(|&k| bullet + classic[k].0.w as i32).sum::<i32>()
-                            + gap * (r.len() as i32 - 1).max(0)
+                    let h = py + classic.last().map_or(0, |(a, _)| a.h as i32);
+                    let (x0, y0) = match rect_of(AVATAR) {
+                        Some(r) if r[1] - h >= 0 => (r[0] + r[2] / 2 - w / 2, r[1] - h),
+                        Some(r) => (r[0] + r[2] / 2 - w / 2, r[1] + r[3] + 4),
+                        None => ((vw - w) / 2, low(h, vh)),
                     };
-                    let widest = rows.iter().map(|r| row_w(r)).max().unwrap_or(0);
-                    let total = lh * rows.len() as i32;
-                    let (cx, top) = match rect_of(*item) {
-                        Some(r) => (r[0] + r[2] / 2, r[1] - total - 4),
-                        None => (vw / 2, low(total, vh)),
-                    };
-                    let x0 = fit(cx - widest / 2, widest, vw);
-                    let mut y = fit(top, total, vh);
+                    let (x0, y0) = (fit(x0, w, vw), fit(y0, h, vh));
                     rects.clear();
-                    rects.resize(classic.len(), [0; 4]);
-                    for r in &rows {
-                        let mut x = x0 + (widest - row_w(r)) / 2;
-                        for &k in r {
-                            let (a, b) = &classic[k];
-                            let by = y + a.h as i32 / 2 - 2;
-                            text::block(canvas, ss, [x - 1, by - 1, 5, 5], [0, 0, 0, 255]);
-                            text::block(canvas, ss, [x, by, 3, 3], BULLET);
-                            text::draw(canvas, ss, if *hover == Some(k) { b } else { a }, x + bullet, y);
-                            rects[k] = [x - 1, y - 1, bullet + a.w as i32 + 2, a.h as i32 + 2];
-                            x += bullet + a.w as i32 + gap;
-                        }
-                        y += lh;
+                    for (k, ((a, b), (dx, dy))) in classic.iter().zip(at).enumerate() {
+                        let (x, y) = (x0 + dx, y0 + dy);
+                        text::draw_plain(canvas, ss, if *hover == Some(k) { b } else { a }, x, y);
+                        rects.push([x, y, a.w as i32, a.h as i32]);
                     }
                 }
                 Panel::Ask { imgs, rects, hover, .. } => {
@@ -622,6 +686,79 @@ mod tests {
 
     /// A book opens on the book gump, two pages at a time, `~` breaking lines; a click turns
     /// the pages, and a click past the last (or a double click) puts it away.
+    /// Speech in the original's box (194 wide, five lines a page) and time: a short line stays
+    /// about 3 s (DOS: "Hello there." 3.2 s); a long one pages, and a click turns the page.
+    #[test]
+    #[ignore]
+    fn speech_pages_and_stays_as_long_as_the_originals() {
+        let Some(Data { fonts, pal, uc, .. }) = data() else { return };
+        let (mut vm, mut ui) = (Vm::new(&uc, None), ScriptUi::new(fonts));
+        ui.style = Style::Classic;
+        let short = ui.bark_pages(8, "Hello there.", &pal, None);
+        assert_eq!(short.len(), 1);
+        assert!((3.0..3.3).contains(&short[0].1.as_secs_f32()), "{:?}", short[0].1);
+        assert_eq!(short[0].0.h, 11, "one line");
+        let long = "So many words that they won't fit in the speech box at once, it has to turn its page. ".repeat(4);
+        let pages = ui.bark_pages(8, long.trim(), &pal, None);
+        assert!(pages.len() >= 2 && pages.iter().all(|(img, _)| img.h <= BARK_HEIGHT), "{}", pages.len());
+        assert_eq!(pages[0].0.h, 4 * 10 + 11, "five lines, 10 apart");
+        ui.push(UiEvent::Bark { pid: 1, item: 2, text: long.clone() }, &pal, None, None);
+        let first = match &ui.panels[0] {
+            Panel::Bark { more, .. } => more.len(),
+            _ => panic!(),
+        };
+        assert!(ui.skip_barks(&mut vm) && !ui.is_empty(), "a click turns the page");
+        assert!(matches!(&ui.panels[0], Panel::Bark { more, .. } if more.len() == first - 1));
+        // In the modern style a long page stays up long enough to read.
+        ui.style = Style::Modern;
+        assert!(ui.bark_pages(8, long.trim(), &pal, None)[0].1 > pages[0].1);
+    }
+
+    /// The original's replies: "@ answer" left to right 4 apart, a new row past 160 wide, rows
+    /// 10 apart, flush left, over the Avatar (below it when there's no room above).
+    #[test]
+    #[ignore]
+    fn classic_replies_flow_in_rows_over_the_avatar() {
+        let Some(Data { fonts, pal, .. }) = data() else { return };
+        let mut ui = ScriptUi::new(fonts);
+        ui.style = Style::Classic;
+        let options = ["Who are you?", "What is your duty?", "Where am I?", "Bye"].map(String::from).to_vec();
+        ui.push(UiEvent::Ask { pid: 1, item: 50, options }, &pal, None, None);
+        let mut px = vec![0u8; 320 * 200 * 4];
+        let rects = |ui: &mut ScriptUi, px: &mut Vec<u8>, at: [i32; 4]| {
+            ui.draw(&mut Canvas::new(px, 320, 200), 1, (320, 200), |id| (id == 1).then_some(at));
+            let Panel::Ask { rects, .. } = &ui.panels[0] else { panic!() };
+            rects.clone()
+        };
+        let r = rects(&mut ui, &mut px, [160, 120, 0, 40]);
+        let rows: Vec<i32> = r.iter().map(|r| r[1]).collect();
+        // As DOS has the guard's: three rows, "Bye" beside "Where am I?".
+        assert_eq!((rows[1] - rows[0], rows[2] - rows[1], rows[3] - rows[2]), (10, 10, 0), "{rows:?}");
+        assert_eq!((r[1][0], r[2][0]), (r[0][0], r[0][0]), "flush left");
+        assert_eq!(r[2][0] + r[2][2] + 4, r[3][0], "4 apart");
+        let bottom = r.iter().map(|r| r[1] + r[3]).max().unwrap();
+        assert_eq!(bottom, 120, "on top of the anchor");
+        let r = rects(&mut ui, &mut px, [160, 15, 0, 40]);
+        assert!(r[0][1] >= 15 + 40, "below the feet when there's no room above: {r:?}");
+    }
+
+    #[test]
+    #[ignore]
+    fn a_question_left_unanswered_ends_after_the_originals_wait() {
+        let Some(Data { fonts, pal, uc, .. }) = data() else { return };
+        let (mut vm, mut ui) = (Vm::new(&uc, None), ScriptUi::new(fonts));
+        ui.push(UiEvent::Ask { pid: 1, item: 0, options: vec!["Bye.".into()] }, &pal, None, None);
+        let mut run = |ui: &mut ScriptUi, secs: f32| {
+            for _ in 0..(secs * 30.0) as usize {
+                ui.expire(&mut vm, 1.0 / 30.0);
+            }
+        };
+        run(&mut ui, 30.7);
+        assert!(ui.blocking(), "still asking");
+        run(&mut ui, 0.2);
+        assert!(!ui.blocking(), "answered with nothing");
+    }
+
     #[test]
     #[ignore]
     fn books_read_like_books() {

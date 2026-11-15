@@ -21,6 +21,9 @@ impl App {
         self.cheats = s.cheats;
         self.apply_cheats();
         self.discord = s.discord;
+        if let Some(m) = &mut self.menu {
+            m.finished = s.finished;
+        }
         if let Some(ui) = &mut self.ui {
             ui.style = if s.classic_text { ui::Style::Classic } else { ui::Style::Modern };
         }

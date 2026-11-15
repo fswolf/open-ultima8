@@ -85,9 +85,11 @@ impl Save {
         out
     }
 
-    /// Game ticks when saved: ours record them; the original's are in the kernel.
-    pub fn ticks(&self) -> Option<u32> {
-        self.extra("ticks").and_then(|t| t.parse().ok()).or_else(|| crate::saved_ticks(self.get("KERNEL.DAT")?))
+    /// The game clock when saved (30 a second, 27000 to the game hour): in the kernel, or for a
+    /// game begun here (no kernel yet) in our own file ("ticks" in our older saves).
+    pub fn clock(&self) -> Option<u32> {
+        let kernel = self.get("KERNEL.DAT").and_then(crate::saved_clock);
+        kernel.or_else(|| self.extra("clock").or_else(|| self.extra("ticks"))?.parse().ok())
     }
 
     /// A value from our own [`EXTRA`] file.

@@ -200,8 +200,8 @@ fn saves(a: &Args) -> Result<()> {
     for (slot, text) in u8data::save::list(a.data()) {
         let save = u8data::save::Save::load(a.data(), slot)?;
         let gd_name = save.get("AVATAR.DAT").and_then(u8data::save::avatar_name).unwrap_or_default();
-        let ticks = save.ticks();
-        // Game clock: 450 counts a game minute (60 a second: a game hour is 7½ real minutes).
+        let ticks = save.clock();
+        // Game clock: 450 a game minute (30 a second: a game hour is 15 real minutes).
         let played = ticks.map_or("-".into(), |t| {
             let m = t / 450;
             format!("day {} {:02}:{:02}", m / 1440 + 1, m / 60 % 24, m % 60)

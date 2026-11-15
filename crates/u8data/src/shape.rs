@@ -20,12 +20,13 @@ impl Frame {
     pub fn empty() -> Self {
         Self { width: 0, height: 0, xoff: 0, yoff: 0, pixels: vec![], mask: vec![] }
     }
-    /// RGBA; with `transl`, palette indices 8–14 become semi-transparent effect pixels (glass, glow, shadow).
-    pub fn to_rgba(&self, pal: &crate::palette::Palette, transl: bool) -> Vec<u8> {
+    /// RGBA; with `xform` (a translucent shape), palette indices 8–14 become semi-transparent
+    /// effect pixels (glass, glow, shadow).
+    pub fn to_rgba(&self, pal: &crate::palette::Palette, xform: Option<&crate::palette::XForm>) -> Vec<u8> {
         let mut out = vec![0u8; self.pixels.len() * 4];
         for (i, (&p, &m)) in self.pixels.iter().zip(&self.mask).enumerate() {
             if m {
-                let c = if transl { crate::palette::xform(p) } else { None };
+                let c = xform.and_then(|x| x.get(p));
                 out[i * 4..i * 4 + 4].copy_from_slice(&c.unwrap_or(pal.0[p as usize]));
             }
         }

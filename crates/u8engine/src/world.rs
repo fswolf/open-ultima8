@@ -235,8 +235,13 @@ impl World {
     pub fn build(gd: &GameData, map: u16) -> Self {
         let l = gd.map_layers(map as usize);
         let mut nested: Vec<(usize, Vec<u8>)> = vec![];
-        let mut entries: Vec<Entry> =
-            l.fixed.into_iter().map(|it| Entry { origin: Origin::Fixed, ..Entry::new(gd, it) }).collect();
+        let mut entries: Vec<Entry> = vec![];
+        for (it, inside) in l.fixed {
+            if !inside.is_empty() {
+                nested.push((entries.len(), inside));
+            }
+            entries.push(Entry { origin: Origin::Fixed, ..Entry::new(gd, it) });
+        }
         for (it, inside) in l.movable {
             if !inside.is_empty() {
                 nested.push((entries.len(), inside));

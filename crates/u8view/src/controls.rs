@@ -9,9 +9,12 @@ impl App {
         if !self.controlling() || self.menu_open() {
             return None;
         }
-        let r = self.painter.rect(&self.game.world, AVATAR)?;
+        // From the Avatar's feet, as the original measures it (ScummVM: 14 below the view's
+        // centre, which is the camera's point 20 up); from mid-body the aim was off.
+        let a = self.game.world.get(AVATAR)?;
+        let (fx, fy) = u8render::project(a.x, a.y, a.z + mouse::FEET_UP);
         let ((mx, my), (_, (w, h))) = (self.mouse_world(), self.world_view());
-        Some(mouse::aim(mx - (r[0] + r[2] / 2), my - (r[1] + r[3] / 2), (w as u32, h as u32)))
+        Some(mouse::aim(mx - fx, my - fy, (w as u32, h as u32)))
     }
 
     /// Movement from the mouse: (facing, run, careful) while the right button walks.
@@ -60,9 +63,14 @@ impl App {
             return;
         }
         if double {
-            self.game.use_item(id); // (a dead body opens for searching)
+            self.pending_look = None;
+            if self.game.can_use(id) {
+                self.game.use_item(id); // (a dead body opens for searching)
+            } else {
+                self.cross_until = Some(now + CROSS_FLASH); // out of reach: the red cross, a moment
+            }
         } else {
-            self.game.trigger(id, event::LOOK);
+            self.pending_look = Some((id, now + DOUBLE_CLICK));
         }
         self.last_click = if double { None } else { Some((id, now)) };
         self.dirty = true;
@@ -247,7 +255,7 @@ impl App {
         }
         let below = Some(top).filter(|&o| w.index(o).is_some_and(|i| w.entry(i).traits.land))?;
         let z = w.entry(w.index(below)?).z1;
-        // Screen to world at height z: sx = (x - y) / 4, sy = (x + y) / 8 - z.
+        // Screen to world at height z (sx = x/4 - y/4, sy = x/8 + y/8 - z; to within a unit or two).
         let (sum, diff) = (8 * (sy + z), 4 * sx);
         let it = w.get(id)?;
         let flipped = it.flags & u8engine::world::item_flag::FLIPPED != 0;
@@ -325,7 +333,13 @@ impl App {
         }
         if down && self.controlling() && !self.ui_blocking() {
             let now = Instant::now();
-            let on_avatar = self.pointer().is_some_and(|p| p.1 == mouse::Reach::Short);
+            // (By its feet, or anywhere on its figure: the arrow's measured from the feet.)
+            let (mx, my) = self.mouse_world();
+            let on_figure = self
+                .painter
+                .rect(&self.game.world, AVATAR)
+                .is_some_and(|r| (r[0]..r[0] + r[2]).contains(&mx) && (r[1]..r[1] + r[3]).contains(&my));
+            let on_avatar = on_figure || self.pointer().is_some_and(|p| p.1 == mouse::Reach::Short);
             if self.left {
                 self.both_buttons();
             } else if self.last_right.is_some_and(|t| now - t < DOUBLE_CLICK) {

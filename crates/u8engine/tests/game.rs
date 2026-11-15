@@ -130,7 +130,7 @@ fn npc_frames_past_255_come_from_npcdata() {
     // In the save in GAMEDAT, Devon (NPC 2) stands in frame 410: 154 in ITEMCACH (an empty frame
     // on its own) plus 256 from NPCDATA.
     let Some(dir) = std::env::var("U8_DATA").ok().map(PathBuf::from) else { return };
-    let gd = GameData::load(&dir).unwrap();
+    let gd = GameData::load_fixed(&dir).unwrap();
     let (map, _) = u8data::map::load_actor(gd.itemcach.as_ref().unwrap(), 2).expect("Devon");
     let devon = gd.map_layers(map).actors.into_iter().find(|a| a.npc == 2).unwrap();
     assert_eq!(devon.frame, 410);
@@ -546,13 +546,52 @@ fn a_scripted_walk_is_one_step_each_foot_in_turn() {
     assert_eq!(x2, x1 - first, "then the other foot");
 }
 
-/// The clock runs as the DOS game's: KERNEL.DAT's counter at 60 a second, 27000 to the game
-/// hour, so a real minute is 8 game minutes.
+/// The clock runs as the DOS game's: KERNEL.DAT entry 20 at 30 a second, 27000 to the game
+/// hour, so a real minute is 4 game minutes.
 #[test]
 #[ignore]
-fn a_real_minute_is_eight_game_minutes() {
+fn a_real_minute_is_four_game_minutes() {
     let Some(mut g) = game(40) else { return };
     let start = g.minutes();
     (0..60 * 30).for_each(|_| _ = g.update(1.0 / 30.0, &Input::default()));
-    assert_eq!(g.minutes() - start, 8);
+    assert_eq!(g.minutes() - start, 4);
+}
+
+/// The clock comes from where the DOS game keeps it (KERNEL.DAT entry 20): the castle save
+/// "ok got key" is day 3, 03:02, as Divination there says. Saving writes it back there.
+#[test]
+#[ignore]
+fn the_clock_is_read_and_saved_where_the_original_keeps_it() {
+    let Some(dir) = std::env::var_os("U8_DATA") else { return };
+    let mut g = Game::open(std::path::Path::new(&dir), Some(2), None).unwrap();
+    assert_eq!(g.minutes(), 2 * 1440 + 3 * 60 + 2, "day 3, 03:02");
+    (0..30 * 60).for_each(|_| _ = g.update(1.0 / 30.0, &Input::default()));
+    let s = g.snapshot();
+    assert_eq!(s.clock().map(|c| c / 450), Some(g.minutes()));
+    let k = s.get("KERNEL.DAT").unwrap();
+    let o = u8data::clock_offset(k).unwrap();
+    assert_eq!(u32::from_le_bytes(k[o + 4..o + 8].try_into().unwrap()), g.minutes() / 60, "the hour number");
+}
+
+/// The short arrow takes careful steps, slowly as in DOS (141 units in 3 s there), and they
+/// don't go over an edge; the medium arrow walks.
+#[test]
+#[ignore]
+fn careful_steps_are_slow() {
+    let Some(g0) = game(40) else { return };
+    let start = g0.world.get(AVATAR).unwrap();
+    let went = |careful: bool, dir: usize| {
+        let mut g = game(40).unwrap();
+        let input = Input { dir: Some(dir), careful, ..Default::default() };
+        for _ in 0..90 {
+            g.update(1.0 / 30.0, &input);
+        }
+        let a = g.world.get(AVATAR).unwrap();
+        (a.x - start.x).abs().max((a.y - start.y).abs())
+    };
+    // A way with room to walk for 3 s.
+    let dir = (0..8).find(|&d| went(false, d) > 300).expect("room to walk");
+    let (walk, careful) = (went(false, dir), went(true, dir));
+    assert!((100..=180).contains(&careful), "careful: {careful} units in 3 s (DOS 141)");
+    assert!(walk > 3 * careful, "walking: {walk}");
 }

@@ -249,7 +249,11 @@ fn below(a: &Sorted, b: &Sorted) -> bool {
     if a.z != b.z {
         return a.z < b.z;
     }
-    if x_flat_a || x_flat_b || y_flat_a || y_flat_b {
+    // (ScummVM's next rule puts what's further right on screen first. Two things flat in y on
+    // the same plane (pictures side by side on a wall) DOS draws nearer, larger x, last: the
+    // tapestries on map 41 at x 18751 and 18815. Those go on to the x + y order below.)
+    let same_plane = y_flat_a && y_flat_b && a.y == b.y;
+    if !same_plane && (x_flat_a || x_flat_b || y_flat_a || y_flat_b) {
         // Further right on screen first; then higher on screen.
         if a.sx_left != b.sx_left {
             return a.sx_left > b.sx_left;
@@ -286,9 +290,9 @@ fn overlay_rect(gd: &GameData, it: &Item, o: Overlay) -> Option<[i32; 4]> {
     Some([sx + o.dx + f.left(o.flip), sy + o.dy - f.yoff, f.width as i32, f.height as i32])
 }
 
-/// [`project`] in 1/`s` game pixels (the same at `s` 1).
+/// [`project`] in 1/`s` game pixels (the same at `s` 1; finer, the rounding goes).
 pub fn project_fine(x: i32, y: i32, z: i32, s: i32) -> (i32, i32) {
-    ((x - y) * s / 4, (x + y) * s / 8 - z * s)
+    (x * s / 4 - y * s / 4, x * s / 8 + y * s / 8 - z * s)
 }
 
 pub struct Painter {

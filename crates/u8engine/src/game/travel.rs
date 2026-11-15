@@ -50,6 +50,7 @@ impl Game {
         self.arrivals();
         self.walks.clear();
         self.fights.clear();
+        self.roused.clear();
         self.loiters.clear();
         self.rising.clear();
         self.sprites.clear(); // (their scripts went with the map)

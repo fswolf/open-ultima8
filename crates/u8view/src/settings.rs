@@ -25,6 +25,8 @@ pub struct Settings {
     pub discord: bool,
     /// Where the game's files are, once the player has picked the folder (empty: look for them).
     pub data: String,
+    /// The game's been played to the end (the main menu then offers the quotes and the ending).
+    pub finished: bool,
 }
 
 impl Default for Settings {
@@ -45,6 +47,7 @@ impl Default for Settings {
             cheats: false,
             discord: true,
             data: String::new(),
+            finished: false,
         }
     }
 }
@@ -83,6 +86,7 @@ impl Settings {
                 "cheats" => s.cheats = on,
                 "discord" => s.discord = on,
                 "data" => s.data = v.to_string(),
+                "finished" => s.finished = on,
                 _ => {}
             }
         }
@@ -96,7 +100,7 @@ impl Settings {
             "# Open Ultima8 settings (written by the game; edit while it isn't running)\n\
              upscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nvolume = {:.1}\n\
              cutaway = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\n\
-             discord = {}\ndata = {}\n",
+             discord = {}\ndata = {}\nfinished = {}\n",
             self.upscaler,
             self.scale,
             self.zoom,
@@ -111,7 +115,8 @@ impl Settings {
             self.colour_fix,
             self.cheats,
             self.discord,
-            self.data
+            self.data,
+            self.finished
         )
     }
 
@@ -141,6 +146,7 @@ mod tests {
             volume: 0.7,
             discord: false,
             data: "/home/me/Games/Ultima 8".into(),
+            finished: true,
             ..Default::default()
         };
         assert_eq!(Settings::parse(&s.to_text()), s);

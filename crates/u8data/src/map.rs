@@ -97,26 +97,33 @@ impl Globs {
 }
 
 /// 16-byte records: u16 x, y; u8 z; u16 shape; u8 frame; u16 flags, quality; u8 npc, map; u16 next.
-/// (Crusader stores coords halved; U8 does not.)
+/// (Crusader stores coords halved; U8 does not.) What's on the map, glob eggs expanded; what
+/// fixed chests hold is left out (see [`load_fixed_with_contents`]).
 pub fn load_fixed(d: &[u8], globs: &Globs, tf: &TypeFlags) -> Vec<Item> {
+    load_fixed_with_contents(d, globs, tf).into_iter().map(|(it, _)| it).collect()
+}
+
+/// FIXED.DAT map entry like NONFIXED (containers followed by their contents, nested by depth),
+/// with glob eggs expanded after each egg.
+pub fn load_fixed_with_contents(d: &[u8], globs: &Globs, tf: &TypeFlags) -> Vec<(Item, Vec<u8>)> {
     let mut out = Vec::with_capacity(d.len() / 16);
-    for r in d.as_chunks::<16>().0.iter() {
-        let it = Item::parse(r);
+    for (it, inside) in load_nonfixed_with_contents(d, tf) {
         if tf.get(it.shape).family == family::GLOBEGG {
             for g in globs.0.get(it.quality as usize).into_iter().flatten() {
-                // (ScummVM's GlobEgg: the egg's 512-chunk, 2 units a step, plus 1 — without it
+                // (ScummVM's GlobEgg: the egg's 512-chunk, 2 units a step, plus 1; without it
                 // glob walls sit a unit off and overlap doors and lifts beside them.)
-                out.push(Item {
+                let g = Item {
                     x: (it.x & !0x1FF) + 2 * g.x as i32 + 1,
                     y: (it.y & !0x1FF) + 2 * g.y as i32 + 1,
                     z: it.z + g.z as i32,
                     shape: g.shape as u32,
                     frame: g.frame as u32,
                     ..Default::default()
-                });
+                };
+                out.push((g, vec![]));
             }
         }
-        out.push(it);
+        out.push((it, inside));
     }
     out
 }
@@ -230,6 +237,186 @@ pub fn load_cache_contents(d: &[u8]) -> Vec<Contained> {
         .collect()
 }
 
+/// The area the DOS game had in memory when it saved. ITEMCACH.DAT entry 1 (u16 words) holds the
+/// map (word 0), a window (words 1-4) and two 64x64 grids by chunk (512 x 512 units, index
+/// (x / 512) * 64 + y / 512): list heads (words 5-4100), each a chain of object numbers through
+/// entry 0's `next` column (people included), and a second grid (words 4101-8196), non-zero for
+/// every chunk held. The objects are the live items of those chunks, fixed ones included;
+/// NONFIXED.DAT still has those chunks as they were when the game last cached them.
+pub struct CachedArea {
+    pub map: usize,
+    /// The chunks held, as (x / 512, y / 512).
+    pub chunks: std::collections::HashSet<(i32, i32)>,
+    /// Their items (not people): object number and item, without the in-memory flag (0x2000).
+    pub items: Vec<(u16, Item)>,
+}
+
+pub fn cached_area(e0: &[u8], e1: &[u8]) -> Option<CachedArea> {
+    if e0.len() < OFF[9] + OFF[1] || e1.len() < 2 * 4101 {
+        return None;
+    }
+    let n = OFF[1] / 2;
+    let word = |i: usize| u16le(e1, 2 * i);
+    let chunks = (0..4096)
+        .filter(|&c| word(5 + c) != 0 || word(4101 + c) != 0)
+        .map(|c| ((c / 64) as i32, (c % 64) as i32))
+        .collect();
+    let mut items = vec![];
+    let mut seen = std::collections::HashSet::new();
+    for head in (5..4101).map(word) {
+        let mut o = head as usize;
+        while (1..n).contains(&o) && seen.insert(o) {
+            let w = |k: usize| u16le(e0, OFF[k] + o * 2);
+            let b = |k: usize| e0[OFF[k] + o];
+            if o >= 256 && w(3) != 0 {
+                let it = Item {
+                    x: w(0) as i32,
+                    y: w(1) as i32,
+                    z: b(2) as i32,
+                    shape: w(3) as u32,
+                    frame: b(4) as u32,
+                    flags: w(5) & !IN_CACHE,
+                    quality: w(6),
+                    npc: 0,
+                    npcnum: b(7),
+                    mapnum: b(8),
+                    objid: 0,
+                };
+                items.push((o as u16, it));
+            }
+            o = w(9) as usize;
+        }
+    }
+    (!items.is_empty()).then(|| CachedArea { map: word(0) as usize, chunks, items })
+}
+
+/// The in-memory flag the DOS game sets on what it holds of the map.
+pub const IN_CACHE: u16 = 0x2000;
+/// Flags the DOS game gives the items a glob egg expands to near the Avatar: thrown away again
+/// when they leave (FAST_ONLY | DISPOSABLE), held (IN_CACHE).
+pub const GLOB_ITEM: u16 = IN_CACHE | 0x0082;
+/// Object slots in the item cache (people 1–255, then items).
+pub const OBJECTS: usize = OFF[1] / 2;
+const COL_BYTES: [usize; 10] = [2, 2, 1, 2, 1, 2, 2, 1, 1, 2];
+
+fn put_col(d: &mut [u8], k: usize, o: usize, v: u32) {
+    let n = COL_BYTES[k];
+    d[OFF[k] + o * n..OFF[k] + (o + 1) * n].copy_from_slice(&v.to_le_bytes()[..n]);
+}
+
+/// The cache's list heads (the map area, see [`cached_area`]) and its other lists (entry 1's last
+/// words): which objects they hold. Objects the map area holds that aren't people.
+pub fn cached_map_objects(e0: &[u8], e1: &[u8]) -> Vec<u16> {
+    if e0.len() < OFF[9] + OFF[1] || e1.len() < 2 * 8197 {
+        return vec![];
+    }
+    let mut out = vec![];
+    let mut seen = std::collections::HashSet::new();
+    for c in 0..4096 {
+        let mut o = u16le(e1, 2 * (5 + c)) as usize;
+        while (1..OBJECTS).contains(&o) && seen.insert(o) {
+            if o >= 256 {
+                out.push(o as u16);
+            }
+            o = u16le(e0, OFF[9] + o * 2) as usize;
+        }
+    }
+    out
+}
+
+/// Empty object `slot` of the cache (every column).
+pub fn free_cache_object(d: &mut [u8], slot: usize) {
+    if (256..OBJECTS).contains(&slot) && d.len() >= OFF[9] + OFF[1] {
+        for k in 0..10 {
+            put_col(d, k, slot, 0);
+        }
+    }
+}
+
+/// Object `slot` of the cache: an item on the map (flags as given), `next` in its chunk's list.
+pub fn store_cache_object(d: &mut [u8], slot: usize, it: &Item, next: u16) {
+    if (256..OBJECTS).contains(&slot) && d.len() >= OFF[9] + OFF[1] {
+        let v = [
+            it.x as u32,
+            it.y as u32,
+            it.z.clamp(0, 255) as u32,
+            it.shape,
+            it.frame,
+            it.flags as u32,
+            it.quality as u32,
+        ];
+        for (k, v) in v.into_iter().enumerate() {
+            put_col(d, k, slot, v & 0xFFFF);
+        }
+        put_col(d, 7, slot, it.npcnum as u32);
+        put_col(d, 8, slot, it.mapnum as u32);
+        put_col(d, 9, slot, next as u32);
+    }
+}
+
+/// Object `o`'s `next` (in its chunk's list, or the free list).
+pub fn cached_next(d: &[u8], o: usize) -> usize {
+    if o < OBJECTS && d.len() >= OFF[9] + OFF[1] {
+        u16le(d, OFF[9] + o * 2) as usize
+    } else {
+        0
+    }
+}
+
+/// Set object `o`'s `next` (a person's too).
+pub fn set_cache_next(d: &mut [u8], o: usize, next: u16) {
+    if o < OBJECTS && d.len() >= OFF[9] + OFF[1] {
+        put_col(d, 9, o, next as u32);
+    }
+}
+
+/// Write entry 1's map area: `map`, the window around the Avatar's chunk `(cx, cy)` and the list
+/// heads by chunk (0: not held). Its last words (the other lists) are kept.
+pub fn store_cached_area(e1: &mut [u8], map: usize, (cx, cy): (i32, i32), heads: &[u16]) {
+    if e1.len() < 2 * 8197 || heads.len() != 4096 {
+        return;
+    }
+    let (s, d) = (cx + cy, cx - cy);
+    let mut put = |i: usize, v: u16| e1[2 * i..2 * i + 2].copy_from_slice(&v.to_le_bytes());
+    put(0, map as u16);
+    for (i, v) in [s - 7, s + 7, d - 3, d + 3].into_iter().enumerate() {
+        put(1 + i, v as u16);
+    }
+    for (c, &h) in heads.iter().enumerate() {
+        put(5 + c, h);
+        put(4101 + c, (h != 0) as u16);
+    }
+}
+
+/// Hold nothing (after its objects were freed): every list empty.
+pub fn clear_cached_area(e1: &mut [u8]) {
+    if e1.len() >= 2 * 8197 {
+        e1[2 * 5..2 * 8197].fill(0);
+    }
+}
+
+/// Is chunk `(cx, cy)` in the window the DOS game expands glob eggs in, around chunk `around`?
+pub fn in_glob_window((cx, cy): (i32, i32), around: (i32, i32)) -> bool {
+    ((cx + cy) - (around.0 + around.1)).abs() <= 7 && ((cx - cy) - (around.0 - around.1)).abs() <= 3
+}
+
+/// What's inside object `parent` of the item cache, as NONFIXED-style records nested by depth.
+pub fn cache_contents_records(all: &[Contained], parent: u16) -> Vec<u8> {
+    fn walk(all: &[Contained], p: u16, depth: usize, out: &mut Vec<u8>, seen: &mut Vec<u16>) {
+        for c in all.iter().filter(|c| c.parent == p) {
+            if seen.contains(&c.id) {
+                continue;
+            }
+            seen.push(c.id);
+            out.extend_from_slice(&c.item.contained_record(depth));
+            walk(all, c.id, depth + 1, out, seen);
+        }
+    }
+    let mut out = vec![];
+    walk(all, parent, 1, &mut out, &mut vec![parent]);
+    out
+}
+
 /// Put a carried item into ITEMCACH.DAT entry 0 at object `slot`, inside object `parent`.
 pub fn store_cache_item(d: &mut [u8], slot: usize, parent: u16, it: &Item) {
     if !(256..OFF[1] / 2).contains(&slot) || d.len() < OFF[9] + (slot + 1) * 2 {
@@ -257,9 +444,51 @@ pub fn clear_cache_item(d: &mut [u8], slot: usize) {
     }
 }
 
-/// Is object `slot` free (no shape)?
+/// ITEMCACH.DAT entry 1's last words: the original's free lists, chained through `next`. Objects:
+/// count at 8197, head 8199, tail 8201 (always 9215). People: count 8198, head 8200, tail 8202
+/// (always 255); a person's slot is free when empty or put away (ETHEREAL | FAST_ONLY). Every
+/// object slot is on the free list, in a chunk's list, or inside something (all DOS saves).
+const FREE_WORDS: usize = 8203;
+const PUT_AWAY: u16 = 0x0880;
+
+/// Empty the object slots on the free list (they keep stale records, some flagged CONTAINED, which
+/// would otherwise pass for belongings), so that free = no shape, as everywhere else here.
+pub fn drop_free_objects(e0: &mut [u8], e1: &[u8]) {
+    if e1.len() < 2 * FREE_WORDS || e0.len() < OFF[9] + OFF[1] {
+        return;
+    }
+    let mut o = u16le(e1, 2 * 8199) as usize;
+    let mut seen = std::collections::HashSet::new();
+    while (256..OBJECTS).contains(&o) && seen.insert(o) {
+        let next = u16le(e0, OFF[9] + o * 2) as usize;
+        free_cache_object(e0, o);
+        o = next;
+    }
+}
+
+/// Write both free lists afresh from what's free now (lowest first, the fixed tails last).
+pub fn store_free_lists(e0: &mut [u8], e1: &mut [u8]) {
+    if e1.len() < 2 * FREE_WORDS || e0.len() < OFF[9] + OFF[1] {
+        return;
+    }
+    let people: Vec<usize> = (1..255)
+        .filter(|&n| u16le(e0, OFF[3] + n * 2) == 0 || u16le(e0, OFF[5] + n * 2) & PUT_AWAY == PUT_AWAY)
+        .chain([255])
+        .collect();
+    let objects: Vec<usize> = (256..OBJECTS).filter(|&o| cache_slot_free(e0, o)).chain([OBJECTS - 1]).collect();
+    for (list, (count, head, tail)) in [(people, (8198, 8200, 8202)), (objects, (8197, 8199, 8201))] {
+        for (i, &o) in list.iter().enumerate() {
+            put_col(e0, 9, o, list.get(i + 1).map_or(0, |&n| n as u32));
+        }
+        for (w, v) in [(count, list.len()), (head, list[0]), (tail, *list.last().unwrap())] {
+            e1[2 * w..2 * w + 2].copy_from_slice(&(v as u16).to_le_bytes());
+        }
+    }
+}
+
+/// Is object `slot` free to use (no shape; the last slot is the free list's tail, never used)?
 pub fn cache_slot_free(d: &[u8], slot: usize) -> bool {
-    (256..OFF[1] / 2).contains(&slot) && d.len() >= OFF[9] && u16le(d, OFF[3] + slot * 2) == 0
+    (256..OBJECTS - 1).contains(&slot) && d.len() >= OFF[9] && u16le(d, OFF[3] + slot * 2) == 0
 }
 
 /// The raw NONFIXED records that follow a container (see [`load_nonfixed_with_contents`]): each
@@ -355,6 +584,17 @@ pub fn npc_frame_high(npcdata: &[u8], npc: usize) -> u32 {
 pub fn store_npc_frame_high(npcdata: &mut [u8], npc: usize, frame: u32) {
     if let Some(b) = npcdata.get_mut(npc * NPC_RECORD + 7) {
         *b = (frame >> 8) as u8;
+    }
+}
+
+/// NPCDATA byte 4: the way NPC `npc` faces (0 north, clockwise; the anims' direction order).
+pub fn npc_dir(npcdata: &[u8], npc: usize) -> Option<usize> {
+    npcdata.get(npc * NPC_RECORD + 4).map(|&d| d as usize & 7)
+}
+
+pub fn store_npc_dir(npcdata: &mut [u8], npc: usize, dir: usize) {
+    if let Some(b) = npcdata.get_mut(npc * NPC_RECORD + 4) {
+        *b = dir as u8;
     }
 }
 

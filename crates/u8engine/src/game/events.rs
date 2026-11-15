@@ -1,6 +1,7 @@
 //! Running usecode: starting events on things, one tick of the scripts, and carrying out what
 //! they ask of the game (walks, blows, sprites, teleports…).
 use super::*;
+use u8data::anim::action;
 
 impl Game {
     /// Run an item's event handler (e.g. [`event::LOOK`](crate::usecode::event::LOOK) on click,
@@ -99,6 +100,47 @@ impl Game {
         done.extend(self.camera.tick(&self.world));
         if let Some(s) = &mut self.scripts {
             done.into_iter().for_each(|p| s.vm.finish(p, 0));
+        }
+        self.gesture();
+    }
+
+    /// People talk with their hands while what they say, or ask, is up: the original plays their
+    /// talk animation itself (it isn't in the scripts; seen in DOS on Devon and the castle guard,
+    /// frames of action 53 throughout), and they stand again when it's done. Only when nothing
+    /// else has them moving: a script's animation, a walk.
+    fn gesture(&mut self) {
+        let Some(s) = &self.scripts else { return };
+        for e in &s.vm.events {
+            if let UiEvent::Bark { pid, item, .. } | UiEvent::Ask { pid, item, .. } = *e {
+                if (2..256).contains(&item) {
+                    self.talkers.push((pid, item));
+                }
+            }
+        }
+        let alive = |pid| self.scripts.as_ref().is_some_and(|s| s.vm.alive(pid));
+        let (talking, done): (Vec<_>, Vec<_>) = self.talkers.iter().copied().partition(|&(pid, _)| alive(pid));
+        self.talkers = talking;
+        let speaking = |id| self.talkers.iter().any(|&(_, t)| t == id);
+        // (Back to standing the way they were facing, if the talking was still theirs.)
+        let facing = |w: &crate::world::World, gd: &GameData, id| {
+            w.last_dir(id).or_else(|| w.get(id).and_then(|it| crate::avatar::facing(gd, &it))).unwrap_or(0)
+        };
+        for (_, id) in done.into_iter().filter(|&(_, id)| !speaking(id)) {
+            let acting = self.world.acting(id).map(|a| a.0);
+            if self.world.last_anim(id) == action::TALK && acting.is_none_or(|a| a == action::TALK) {
+                self.world.play(&self.data, id, action::STAND, facing(&self.world, &self.data, id));
+            }
+        }
+        let quiet: Vec<ObjId> = self.talkers.iter().map(|&(_, id)| id).collect();
+        for id in quiet {
+            let busy = self.world.is_acting(id) || self.walks.iter().any(|w| w.actor == id);
+            let able = self.world.get(id).is_some_and(|it| self.data.anims.get(it.shape, action::TALK).is_some())
+                && !self.world.in_combat(id)
+                && self.stats.get(id).is_none_or(|s| !s.dead);
+            if !busy && able {
+                let dir = facing(&self.world, &self.data, id);
+                self.world.play(&self.data, id, action::TALK, dir);
+            }
         }
     }
 }

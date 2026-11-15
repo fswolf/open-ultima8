@@ -61,6 +61,7 @@ fn people_press_plates_too() {
 fn taking_things_is_noticed() {
     // In the castle, by the guard at the gate (NPC 61).
     let Some(mut g) = game(40) else { return };
+    make_room(&mut g);
     let guard = g.world.get(61).unwrap();
     let near: Vec<_> = g.world.area(guard.x, guard.y, 400).into_iter().filter(|&id| id >= 256).collect();
     let thing = near

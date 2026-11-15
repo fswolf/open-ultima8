@@ -20,6 +20,10 @@ const ENTRIES: u32 = 37;
 /// Pages inside the book, relative to its top-left: [x, y, w, h].
 const LEFT: [i32; 4] = [36, 8, 110, 132];
 const RIGHT: [i32; 4] = [158, 8, 110, 132];
+/// The original draws the book this much higher, and further right, than centred (measured in
+/// DOS at 320×200).
+const BOOK_LIFT: i32 = 11;
+const BOOK_RIGHT: i32 = 4;
 const TEXT_FONT: usize = 9;
 const LIT_FONT: usize = 6;
 /// Diary slots: the eleven the original's diary has descriptions for, and the quick save.
@@ -51,7 +55,7 @@ const QUIT_WINDOW: u32 = 17;
 const QUIT_ASK: u32 = 18;
 const QUIT_YES: u32 = 47;
 const QUIT_NO: u32 = 50;
-const QUIT_BUTTONS: (i32, i32) = (16, 38);
+const QUIT_BUTTONS: (i32, i32) = (18, 41);
 
 /// The options page's lines; the viewer supplies their current values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,6 +123,11 @@ pub struct Menu {
     quit_from_menu: bool,
     /// The Avatar is dead: the main menu can't be put away, only a game loaded or begun.
     pub stay: bool,
+    /// The game's been finished: the main menu offers the quotes and the ending too (the
+    /// original shows entries 7 and 8 only then).
+    pub finished: bool,
+    /// The Avatar's name, under the logo on the main page.
+    pub avatar: String,
 }
 
 impl Menu {
@@ -137,6 +146,8 @@ impl Menu {
             root: root.to_path_buf(),
             quit_from_menu: false,
             stay: false,
+            finished: false,
+            avatar: String::new(),
         })
     }
 
@@ -179,7 +190,7 @@ impl Menu {
             .iter()
             .map(|&slot| {
                 let exists = listed.contains_key(&slot);
-                let ticks = exists.then(|| save::Save::load(&self.root, slot).ok()?.ticks()).flatten();
+                let ticks = exists.then(|| save::Save::load(&self.root, slot).ok()?.clock()).flatten();
                 let when = ticks.map_or(String::new(), |t| {
                     let m = t / 450; // 450 ticks a game minute
                     format!("day {}, {:02}:{:02}", m / 1440 + 1, m / 60 % 24, m % 60)
@@ -249,6 +260,15 @@ impl Menu {
         None
     }
 
+    /// How many main menu entries show: six, eight once the game's been finished.
+    fn entries(&self) -> u32 {
+        if self.finished {
+            8
+        } else {
+            6
+        }
+    }
+
     /// A key while the menu is open (`text`: what it types).
     pub fn key(&mut self, k: KeyCode, text: Option<&str>) -> Option<Action> {
         let naming = self.page == Some(Page::Name);
@@ -293,7 +313,7 @@ impl Menu {
                 use KeyCode::*;
                 let k =
                     [Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8].iter().position(|&d| d == k)?;
-                self.entry(k as u32)
+                (k < self.entries() as usize).then(|| self.entry(k as u32)).flatten()
             }
             _ => None,
         }
@@ -316,12 +336,20 @@ impl Menu {
     pub fn draw(&mut self, canvas: &mut Canvas, art: &mut GumpArt, (vw, vh): (u32, u32)) {
         let Some(page) = self.page else { return };
         let ss = art.scale();
-        text::shade(canvas, ss, [0, 0, vw as i32, vh as i32]);
         if page == Page::Quit {
+            // Over the book when it came from there, as the original draws it.
+            if self.quit_from_menu {
+                self.page = Some(Page::Main);
+                self.draw(canvas, art, (vw, vh));
+                self.page = Some(Page::Quit);
+            } else {
+                text::shade(canvas, ss, [0, 0, vw as i32, vh as i32]);
+            }
             self.draw_quit(canvas, art, (vw, vh));
             return;
         }
-        let (bx, by) = ((vw as i32 - 307) / 2, (vh as i32 - 158) / 2);
+        text::shade(canvas, ss, [0, 0, vw as i32, vh as i32]);
+        let (bx, by) = ((vw as i32 - 307) / 2 + BOOK_RIGHT, ((vh as i32 - 158) / 2 - BOOK_LIFT).max(0));
         art.draw(canvas, BOOK, 0, bx, by);
         let (l, r) = ([bx + LEFT[0], by + LEFT[1]], [bx + RIGHT[0], by + RIGHT[1]]);
         let mut hits = vec![];
@@ -329,11 +357,18 @@ impl Menu {
         let lit = |h: Hit| hover == Some(h);
         match page {
             Page::Main => {
-                art.draw(canvas, LOGO, 0, l[0] + (LEFT[2] - 99) / 2, l[1] + (LEFT[3] - 94) / 2);
-                for k in 0..8 {
+                // As the original's (ScummVM's MenuGump): the logo at the top of the left page with
+                // the Avatar's name under it, the entries 14 apart from 18 down the right one.
+                let logo = (l[0] + (LEFT[2] - 99) / 2, by + 10);
+                art.draw(canvas, LOGO, 0, logo.0, logo.1);
+                if !self.avatar.is_empty() {
+                    let name = self.label(LIT_FONT, &self.avatar.clone());
+                    text::draw_plain(canvas, ss, &name, logo.0 + (99 - name.w as i32) / 2, by + 117);
+                }
+                for k in 0..self.entries() {
                     let h = Hit::Entry(k);
                     let on = lit(h);
-                    let rect = art.draw(canvas, ENTRIES, 2 * k + on as u32, r[0] + 8, r[1] + 4 + k as i32 * 16);
+                    let rect = art.draw(canvas, ENTRIES, 2 * k + on as u32, bx + 307 / 2 + 13, by + 18 + k as i32 * 14);
                     hits.push((rect, h));
                 }
             }
@@ -413,6 +448,49 @@ impl Menu {
 mod tests {
     use super::*;
 
+    /// The main page as the original's: six entries 14 apart (eight once the game's finished),
+    /// the book 11 higher than centred, the Avatar's name under the logo; quitting from it asks
+    /// over the book.
+    #[test]
+    #[ignore]
+    fn the_main_menu_is_the_originals() {
+        let Ok(dir) = std::env::var("U8_DATA") else { return };
+        let root = PathBuf::from(dir);
+        let pal =
+            Palette::parse(&std::fs::read(u8data::find_file(&root, "STATIC/U8PAL.PAL").unwrap()).unwrap()).unwrap();
+        let (mut m, mut art) = (Menu::load(&root, &pal).unwrap(), GumpArt::load(&root, &pal).unwrap());
+        let mut px = vec![0u8; 320 * 200 * 4];
+        m.open(Page::Main);
+        m.draw(&mut Canvas::new(&mut px, 320, 200), &mut art, (320, 200));
+        let tops: Vec<i32> = m.hits.iter().map(|h| h.0[1]).collect();
+        assert_eq!(tops.len(), 6);
+        assert!(tops.windows(2).all(|w| w[1] - w[0] == 14), "{tops:?}");
+        assert_eq!(m.key(KeyCode::Digit7, None), None, "no 7 before the end");
+        m.finished = true;
+        m.draw(&mut Canvas::new(&mut px, 320, 200), &mut art, (320, 200));
+        assert_eq!(m.hits.len(), 8);
+        // The name: red letters under the logo on the left page.
+        m.avatar = "Ryan".into();
+        px.fill(0);
+        m.draw(&mut Canvas::new(&mut px, 320, 200), &mut art, (320, 200));
+        let by = (200 - 158) / 2 - BOOK_LIFT;
+        let red = (by + 117..by + 129)
+            .flat_map(|y| (60..115).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let p = &px[((y * 320 + x) * 4) as usize..][..3];
+                p[0] > 150 && p[1] < 80 && p[2] < 80
+            })
+            .count();
+        assert!(red > 10, "the name is drawn ({red} red pixels)");
+        // Quit from the main page: the question over the book.
+        m.open(Page::Quit);
+        px.fill(0);
+        m.draw(&mut Canvas::new(&mut px, 320, 200), &mut art, (320, 200));
+        assert_eq!(m.hits.len(), 2, "only Yes and No answer");
+        let book = &px[(((by + 5) * 320 + 160) * 4) as usize..][..3];
+        assert!(book.iter().any(|&c| c > 100), "the book is still there behind it: {book:?}");
+    }
+
     /// Every option stays on the page, however many there are. With `U8_SHOTS` set, the page is
     /// written there as PPM.
     #[test]
@@ -438,7 +516,7 @@ mod tests {
         assert!((deepest.unwrap() as i32) < OPTION_H, "letters reach {deepest:?}");
         let mut px = vec![0u8; 320 * 200 * 4];
         m.draw(&mut Canvas::new(&mut px, 320, 200), &mut art, (320, 200));
-        let foot = (200 - 158) / 2 + RIGHT[1] + RIGHT[3];
+        let foot = (200 - 158) / 2 - BOOK_LIFT + RIGHT[1] + RIGHT[3];
         let last = m.hits.last().unwrap().0;
         assert!(last[1] + OPTION_H <= foot, "the last line ends at {}, the page at {foot}", last[1] + OPTION_H);
         if let Ok(out) = std::env::var("U8_SHOTS") {

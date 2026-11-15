@@ -156,7 +156,7 @@ fn cursors(a: &Args, gd: &GameData) -> Result<()> {
     let mut buf = [60u8, 60, 60, 255].repeat((w * h) as usize);
     for (i, f) in shape.iter().enumerate() {
         let (ox, oy) = ((i as u32 % cols) * cell + 2, (i as u32 / cols) * cell + 2);
-        paste(&mut buf, w, (&f.to_rgba(&gd.palette, false), f.width, f.height), (ox, oy), cell);
+        paste(&mut buf, w, (&f.to_rgba(&gd.palette, None), f.width, f.height), (ox, oy), cell);
         println!("{i:2}: {}x{} hotspot ({}, {})", f.width, f.height, f.xoff, f.yoff);
     }
     save(Path::new(&a.get(2, "cursors.png")), w, h, buf)
@@ -186,7 +186,7 @@ fn gumps(a: &Args, gd: &GameData) -> Result<()> {
     let mut buf = [60u8, 60, 60, 255].repeat((w * h) as usize);
     for (i, (g, f, fr)) in frames.iter().enumerate() {
         let (ox, oy) = ((i as u32 % cols) * cell + 2, (i as u32 / cols) * cell + 2);
-        paste(&mut buf, w, (&fr.to_rgba(&gd.palette, false), fr.width, fr.height), (ox, oy), cell - 4);
+        paste(&mut buf, w, (&fr.to_rgba(&gd.palette, None), fr.width, fr.height), (ox, oy), cell - 4);
         println!("{i:3}: gump {g} frame {f}: {}x{} hotspot ({}, {})", fr.width, fr.height, fr.xoff, fr.yoff);
     }
     save(Path::new(&a.get(2, "gumps.png")), w, h, buf)

@@ -79,30 +79,44 @@ impl World {
     /// This map's NONFIXED.DAT entry: every movable item on the map, containers with their contents.
     /// Destroyed items and items in the void are left out.
     pub fn movable_records(&self) -> Vec<u8> {
+        let inside = self.inside_map();
+        let mut out = Vec::new();
+        for (i, e) in self.entries.iter().enumerate() {
+            if e.origin == Origin::Movable && e.present() {
+                out.extend_from_slice(&e.it.record());
+                self.nest(&inside, i, 1, &mut out);
+            }
+        }
+        out
+    }
+
+    /// What's inside `id` as NONFIXED-style records nested by depth (empty if it's no container).
+    pub fn contents_records(&self, id: ObjId) -> Vec<u8> {
+        let mut out = Vec::new();
+        if let Some(i) = self.index(id) {
+            self.nest(&self.inside_map(), i, 1, &mut out);
+        }
+        out
+    }
+
+    fn inside_map(&self) -> HashMap<ObjId, Vec<usize>> {
         let mut inside: HashMap<ObjId, Vec<usize>> = HashMap::new();
         for (i, e) in self.entries.iter().enumerate() {
             if let (Some(p), false) = (e.parent, e.gone) {
                 inside.entry(p).or_default().push(i);
             }
         }
-        fn nest(w: &World, inside: &HashMap<ObjId, Vec<usize>>, id: ObjId, depth: usize, out: &mut Vec<u8>) {
-            for &i in inside.get(&id).map_or(&[][..], Vec::as_slice) {
-                out.extend_from_slice(&w.entries[i].it.contained_record(depth));
-                if w.entries[i].traits.family == family::CONTAINER {
-                    nest(w, inside, w.ids[i], depth + 1, out);
-                }
-            }
+        inside
+    }
+
+    fn nest(&self, inside: &HashMap<ObjId, Vec<usize>>, i: usize, depth: usize, out: &mut Vec<u8>) {
+        if self.entries[i].traits.family != family::CONTAINER {
+            return;
         }
-        let mut out = Vec::new();
-        for (i, e) in self.entries.iter().enumerate() {
-            if e.origin == Origin::Movable && e.present() {
-                out.extend_from_slice(&e.it.record());
-                if e.traits.family == family::CONTAINER {
-                    nest(self, &inside, self.ids[i], 1, &mut out);
-                }
-            }
+        for &c in inside.get(&self.ids[i]).map_or(&[][..], Vec::as_slice) {
+            out.extend_from_slice(&self.entries[c].it.contained_record(depth));
+            self.nest(inside, c, depth + 1, out);
         }
-        out
     }
 
     /// The outermost container `id` is in (itself if it's on the map).

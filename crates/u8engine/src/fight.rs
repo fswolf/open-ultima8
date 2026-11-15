@@ -52,6 +52,7 @@ impl Game {
     pub(crate) fn fight(&mut self) {
         let fighters = self.world.fighters();
         self.fights.retain(|id, _| fighters.contains(id));
+        self.roused.retain(|id| fighters.contains(id));
         let Some(av) = self.world.get(AVATAR) else { return };
         for id in fighters.into_iter().filter(|&id| id != AVATAR) {
             if self.stats.get(id).is_some_and(|s| s.dead) || self.world.is_void(id) {
@@ -70,15 +71,18 @@ impl Game {
         }
     }
 
-    /// Into combat: whatever `id` was doing (its routine, its walk) stops, and its `cast` script
-    /// runs (townsfolk cry out; some think better of fighting).
+    /// Into combat: whatever `id` was doing (its routine, its walk) stops. Put into it by a script
+    /// (setActivity, a hatched monster) its `cast` script runs (townsfolk cry out; some think
+    /// better of fighting); drawn in by a blow or a call for help it doesn't: DOS shows no
+    /// "Guardsmen, to arms!" when a guard is struck, though ScummVM runs it there too.
     fn join_fight(&mut self, id: ObjId) {
         self.stop_walking(id);
         self.loiters.remove(&id);
         if let Some(s) = &mut self.scripts {
             s.vm.kill_item_procs(id, crate::usecode::vm::PROC_TYPE_ALL, 0);
         }
-        let cast = self.start_event(id, event::CAST, &[0, 0]);
+        let roused = self.roused.remove(&id);
+        let cast = if roused { None } else { self.start_event(id, event::CAST, &[0, 0]) };
         let dir = self.world.get(id).and_then(|it| facing(&self.data, &it));
         self.fights.insert(id, Fighter { dir, cast, ..Fighter::default() });
     }

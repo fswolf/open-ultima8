@@ -59,7 +59,7 @@ impl GumpArt {
         let key = (shape, frame, k, trim);
         if !self.sprites.contains_key(&key) {
             let f = self.shapes.frame(shape, frame)?;
-            let mut rgba = f.to_rgba(&self.pal, false);
+            let mut rgba = f.to_rgba(&self.pal, None);
             if trim {
                 // Without its outermost pixels (a dark outline).
                 for y in 0..f.height {

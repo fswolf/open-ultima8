@@ -117,6 +117,9 @@ pub struct Vm {
 /// Process type meaning "any" (Kernel::PROC_TYPE_ALL).
 pub const PROC_TYPE_ALL: u16 = 6;
 
+/// How long the original waits on an unanswered question (measured: 30.8 and 30.9 s in DOS).
+pub const ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(30_800);
+
 impl Vm {
     pub fn new(uc: &Usecode, flags: Option<&[u8]>) -> Self {
         let mut globals = vec![0u8; uc.globals_size().div_ceil(8).max(1024)];

@@ -19,7 +19,7 @@ mod stack;
 
 pub use host::{Host, Pop, WorldHost};
 pub use u8data::usecode::{event, Usecode};
-pub use vm::{event_class, Pid, ReadKind, Request, UiEvent, Vm};
+pub use vm::{event_class, Pid, ReadKind, Request, UiEvent, Vm, ASK_TIMEOUT};
 
 /// The game's scripts and the VM running them.
 pub struct Scripts {

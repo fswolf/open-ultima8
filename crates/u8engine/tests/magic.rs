@@ -130,3 +130,35 @@ fn grant_peace_lays_the_undead_to_rest() {
     assert_eq!(hp(&g, torax), t0, "the living aren't touched");
     assert!(thunder && lightning);
 }
+
+/// Casting closes every item window, as in DOS: the spell's own script does it (FREE @0x36f3:
+/// closeGump on everything nearby with a window open, `use` on a person's to put the
+/// paperdoll away, then the Avatar's), before the spell goes on.
+#[test]
+#[ignore]
+fn casting_closes_every_item_window() {
+    let Some(mut g) = game(40) else { return };
+    let bag = g.give_test_kit().expect("a bag");
+    let pack = g.backpack().unwrap();
+    for id in [AVATAR, pack, bag] {
+        g.trigger(id, event::USE);
+        for _ in 0..5 {
+            g.update(1.0 / 30.0, &Input::default());
+        }
+    }
+    let opened: Vec<_> = g
+        .take_events()
+        .into_iter()
+        .filter_map(|e| match e {
+            UiEvent::OpenGump { item, .. } => Some(item),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(opened, [AVATAR, pack, bag]);
+    let divination =
+        g.world.contents(bag).into_iter().find(|&i| g.world.get(i).is_some_and(|it| (it.shape, it.frame) == (396, 8)));
+    let said = use_and_watch(&mut g, divination.expect("the Divination focus"), 5.0);
+    assert!(said.iter().any(|s| s.contains("The focus reads")), "{said:?}");
+    let open = |g: &Game, id| g.world.get(id).unwrap().flags & u8engine::world::item_flag::GUMP_OPEN != 0;
+    assert!(![AVATAR, pack, bag].iter().any(|&id| open(&g, id)), "every window closed");
+}

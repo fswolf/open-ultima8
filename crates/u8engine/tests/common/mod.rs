@@ -6,7 +6,7 @@ pub use u8engine::{avatar::Input, usecode::Scripts, world::AVATAR, Game};
 
 pub fn game(map: u16) -> Option<Game> {
     let dir = PathBuf::from(std::env::var("U8_DATA").ok()?);
-    let gd = GameData::load(&dir).unwrap();
+    let gd = GameData::load_fixed(&dir).unwrap();
     let scripts = Scripts::load(&dir, &gd).ok();
     Some(Game::new(gd, scripts, Some(map)).unwrap())
 }
@@ -22,4 +22,14 @@ pub fn answer(g: &mut Game) {
             _ => {}
         }
     }
+}
+
+/// The test saves' backpack is over full (a bag inside it: 188 of 175, so the original, and we,
+/// won't take more): put that bag down by the Avatar to make room. Returns it.
+pub fn make_room(g: &mut Game) -> Option<u16> {
+    let pack = *g.world.contents(AVATAR).iter().find(|&&id| g.world.get(id).is_some_and(|it| it.shape == 529))?;
+    let bag = *g.world.contents(pack).iter().find(|&&id| g.world.get(id).is_some_and(|it| it.shape == 529))?;
+    let a = g.world.get(AVATAR)?;
+    g.world.move_to_map(&g.data, bag, (a.x, a.y + 64, a.z));
+    Some(bag)
 }

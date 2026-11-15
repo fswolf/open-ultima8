@@ -86,7 +86,7 @@ mod tests {
     #[ignore]
     fn the_side_file_keeps_what_the_save_cannot() {
         let Ok(dir) = std::env::var("U8_DATA") else { return };
-        let open = || Game::open(Path::new(&dir), None, Some(40)).unwrap();
+        let open = || Game::open(Path::new(&dir), u8data::fixed_slot(Path::new(&dir)), Some(40)).unwrap();
         let mut g = open();
         g.growth = [5, 7, 1];
         g.recovery.set_parts(100, 33);
@@ -110,7 +110,7 @@ mod tests {
         let Ok(dir) = std::env::var("U8_DATA") else { return };
         // (Up off the ground, as if at a ledge: on the ground, a hanging Avatar just stands.)
         let open = || {
-            let mut g = Game::open(Path::new(&dir), None, Some(40)).unwrap();
+            let mut g = Game::open(Path::new(&dir), u8data::fixed_slot(Path::new(&dir)), Some(40)).unwrap();
             let at = g.world.get(AVATAR).unwrap();
             let up = (0..16).map(|k| Item { z: at.z + 24, x: at.x + 32 * k, ..at }).find(|&it| {
                 g.world.set(&g.data, AVATAR, it);

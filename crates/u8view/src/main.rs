@@ -75,6 +75,11 @@ const SCRIPT_WAKE: Duration = Duration::from_millis(33);
 #[cfg(feature = "audio")]
 const HEARING: f32 = 480.0;
 const DOUBLE_CLICK: Duration = Duration::from_millis(450);
+/// How long the red cross shows when something's out of reach.
+const CROSS_FLASH: Duration = Duration::from_millis(500);
+/// The original shows the world 2 pixels lower than centring on the camera's point would (the
+/// Avatar's tunic at rows 82–95 of 200 in DOS, 80–93 centred).
+const VIEW_DROP: f32 = 2.0;
 
 /// The tombstone comes this long after the Avatar's death animation has played (the DOS game at
 /// its proper speed, timed: 9.8 s; ScummVM waits 5).
@@ -224,6 +229,13 @@ struct App {
     settings: settings::Settings,
     mouse: (f64, f64),
     last_click: Option<(ObjId, Instant)>,
+    /// A single click's look, held until it can't be a double click any more (the original shows
+    /// no name on a double click).
+    pending_look: Option<(ObjId, Instant)>,
+    /// Show the red cross cursor until then (something out of reach was used).
+    cross_until: Option<Instant>,
+    /// The Avatar was in combat stance last frame (going into it closes the paperdoll).
+    was_fighting: bool,
     last_update: Option<Instant>,
     /// Next idle wake-up (scenery keeps animating while nothing else happens).
     next_wake: Instant,
@@ -322,6 +334,9 @@ impl App {
             settings: settings::Settings::default(),
             mouse: (0.0, 0.0),
             last_click: None,
+            pending_look: None,
+            cross_until: None,
+            was_fighting: false,
             last_update: None,
             next_wake: Instant::now(),
             moving: false,
@@ -364,7 +379,7 @@ impl App {
             ui.clear();
         }
         self.windows.close_all(); // item ids are per map
-        (self.item_drag, self.press_item, self.win_drag) = (None, None, None);
+        (self.item_drag, self.press_item, self.win_drag, self.pending_look) = (None, None, None, None);
         self.painter.sync(&self.game.data, &mut self.game.world, [0; 4]);
         self.view.follow = self.game.avatar.is_some();
         self.recentre();
@@ -423,7 +438,7 @@ impl App {
         let (w, h) = self.window_size();
         let (w, h) = (w / self.view.zoom, h / self.view.zoom);
         let (qx, qy) = self.shake;
-        ((self.view.cam.0 - w / 2.0 + qx as f32, self.view.cam.1 - h / 2.0 + qy as f32), (w, h))
+        ((self.view.cam.0 - w / 2.0 + qx as f32, self.view.cam.1 - h / 2.0 - VIEW_DROP + qy as f32), (w, h))
     }
 
     /// The world's frame: top-left (whole game pixels) and size, a little bigger than what shows
@@ -493,7 +508,7 @@ impl App {
             let (mx, my) = (self.mouse.0 as f32, self.mouse.1 as f32);
             let ((ox, oy), _) = self.world_view();
             let (px, py) = (ox + mx / from, oy + my / from);
-            self.view.cam = (px - mx / z + w / z / 2.0, py - my / z + h / z / 2.0);
+            self.view.cam = (px - mx / z + w / z / 2.0, py - my / z + h / z / 2.0 + VIEW_DROP);
         }
         self.view.zoom = z;
         self.dirty = true;

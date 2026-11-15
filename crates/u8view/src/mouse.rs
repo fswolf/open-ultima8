@@ -16,8 +16,10 @@ pub enum Reach {
     Long,
 }
 
-/// Game pixels from the Avatar's middle the short arrow reaches at least (past its head).
+/// Game pixels from the Avatar's feet the short arrow reaches at least (past its body).
 const SHORT_AT_LEAST: f32 = 28.0;
+/// Where the arrow starts: this far (world z) above the Avatar's base, its feet on screen.
+pub const FEET_UP: i32 = 6;
 
 /// The pointer at (dx, dy) game pixels from the Avatar in a vw×vh view: (screen sector 0–7,
 /// clockwise from up, reach). Vertical distance counts double, as the isometric view squashes it.
@@ -55,6 +57,8 @@ pub fn arrow(sector: usize, reach: Reach) -> usize {
 /// U8MOUSE.SHP 25–32: the red combat arrows, one per sector.
 /// The targeting cursor (scripts asking the player to pick something).
 pub const TARGET: usize = 34;
+/// The red cross: out of reach.
+pub const CROSS: usize = 40;
 
 pub fn combat_arrow(sector: usize) -> usize {
     25 + sector
@@ -90,7 +94,7 @@ impl Cursors {
         let cursor = frame.and_then(|i| {
             if self.made.get(i)?.is_none() {
                 let f = self.shape.get(i).filter(|f| f.width > 0 && f.height > 0)?;
-                let rgba = f.to_rgba(&self.pal, false);
+                let rgba = f.to_rgba(&self.pal, None);
                 let up = if smooth { upscale::xbrz } else { upscale::nearest };
                 let s = scale.clamp(1, 6);
                 let src = CustomCursor::from_rgba(

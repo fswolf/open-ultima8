@@ -255,6 +255,8 @@ impl ApplicationHandler for App {
             false => mouse::arrow(sector, reach),
         });
         let frame = if self.targeting.is_some() { Some(mouse::TARGET) } else { frame };
+        let crossed = self.cross_until.is_some_and(|t| Instant::now() < t);
+        let frame = if crossed { Some(mouse::CROSS) } else { frame };
         if let (Some(c), Some(w)) = (&mut self.cursors, &self.window) {
             c.show(el, w, frame, self.view.scale, self.view.mode == Mode::XbrzSprites);
         }

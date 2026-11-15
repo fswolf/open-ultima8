@@ -84,12 +84,18 @@ fn items_move_between_bags_and_the_floor_and_saves_keep_it() {
         .objects()
         .find(|&id| g.world.get(id).is_some_and(|it| it.shape == 418 && (it.x, it.y, it.z) == spot))
         .unwrap();
-    assert_eq!(g.move_item(d, Place::Into { container: pack2, at: (30, 20) }), Ok(()));
+    // The pack's over full (a bag inside, 188 of 175): no room, as DOS refuses it, until the bag
+    // comes out.
+    let into = Place::Into { container: pack2, at: (30, 20) };
+    assert_eq!(g.move_item(d, into), Err("There's no room for that."));
+    let bag = *g.world.contents(pack2).iter().find(|&&id| g.world.get(id).unwrap().shape == 529).unwrap();
+    assert_eq!(g.move_item(bag, Place::Map((spot.0, spot.1 + 96, spot.2))), Ok(()));
+    assert_eq!(g.move_item(d, into), Ok(()));
     let back = Save::parse(&g.snapshot().to_bytes()).unwrap();
     let g3 = Game::new(GameData::load_save(&dir, Some(&back)).unwrap(), None, None).unwrap();
     let pack3 = *g3.world.contents(AVATAR).iter().find(|&&id| g3.world.get(id).unwrap().shape == 529).unwrap();
     let inside: Vec<_> = g3.world.contents(pack3).into_iter().filter_map(|id| g3.world.get(id)).collect();
-    assert_eq!(inside.len(), 7);
+    assert_eq!(inside.len(), 6);
     assert!(inside.iter().any(|it| it.shape == 418 && (it.x, it.y) == (30, 20)));
 }
 
@@ -336,4 +342,112 @@ fn graves_say_which_stone() {
     let (kind, gump, text) = read_on_use(&mut g, id).expect("words on the stone");
     assert_eq!((kind, gump), (ReadKind::Grave, 0x1b));
     assert_eq!(text, "SIVLE*THE MINSTREL*WANDERS NO MORE");
+}
+
+/// A pile growing in a bag takes more room: dropping more onto a pile in a full bag is refused
+/// as anything else would be, and goes once there's room.
+#[test]
+#[ignore]
+fn piles_in_a_full_bag_dont_grow() {
+    let Some(mut g) = game(40) else { return };
+    let a = g.world.get(AVATAR).unwrap();
+    let pack = *g.world.contents(AVATAR).iter().find(|&&id| g.world.get(id).unwrap().shape == 529).unwrap();
+    let coins = |g: &mut Game, q: u16| {
+        let it = u8data::map::Item { shape: 143, quality: q, x: a.x + 64, y: a.y, z: a.z, ..Default::default() };
+        g.world.add(&g.data, it, true)
+    };
+    // 99 coins in the (over full) pack, 50 on the floor: one pile of 149 takes more room.
+    let pile = coins(&mut g, 99);
+    g.world.move_inside(&g.data, pile, pack, (20, 20));
+    let more = coins(&mut g, 50);
+    assert_eq!(g.merge(more, pile), Err("There's no room for that."), "the pack's over full");
+    make_room(&mut g);
+    assert_eq!(g.merge(more, pile), Ok(()));
+    assert_eq!(g.world.get(pile).unwrap().quality, 149);
+}
+
+/// Reach as in DOS: the bedroll taken at an offset of (156, -196) from the Avatar, refused at
+/// (196, -236): box to box with nothing in between (ScummVM's canReach), 160 across. Using
+/// things checks it too (a bed out of reach shows the red cross), people excepted.
+#[test]
+#[ignore]
+fn the_avatar_reaches_as_far_as_in_dos() {
+    let Some(mut g) = game(40) else { return };
+    let a = g.world.get(AVATAR).unwrap();
+    let put = |g: &mut Game, (dx, dy): (i32, i32)| {
+        let it = u8data::map::Item { shape: 579, x: a.x + dx, y: a.y + dy, z: a.z, ..Default::default() };
+        g.world.add(&g.data, it, true)
+    };
+    // A way with nothing in it (the castle has walls about): the same offsets turned about.
+    let signs = [(1, -1), (1, 1), (-1, 1), (-1, -1)];
+    let (sx, sy) = *signs
+        .iter()
+        .find(|&&(sx, sy)| {
+            let id = put(&mut g, (156 * sx, 196 * sy));
+            let ok = g.can_pick_up(id).is_ok();
+            g.world.remove(id);
+            ok
+        })
+        .expect("room round the Avatar");
+    let near = put(&mut g, (156 * sx, 196 * sy));
+    assert_eq!(g.can_pick_up(near), Ok(()));
+    assert!(g.can_use(near));
+    g.world.remove(near);
+    let far = put(&mut g, (196 * sx, 236 * sy));
+    assert_eq!(g.can_pick_up(far), Err("You can't reach that."));
+    assert!(!g.can_use(far), "out of reach: the red cross");
+    // People can be talked to from further.
+    let guard = g.world.objects().find(|&id| id != AVATAR && (2..256).contains(&id)).unwrap();
+    assert!(g.can_use(guard));
+}
+
+#[test]
+#[ignore]
+fn the_avatar_turns_to_what_it_puts_down() {
+    // DOS: the plate dragged from the table to the floor, the Avatar has turned to face it.
+    use u8engine::{avatar::facing, Place};
+    let Some(mut g) = game(40) else { return };
+    let a = g.world.get(AVATAR).unwrap();
+    let coin = u8data::map::Item { shape: 143, quality: 1, x: a.x + 64, y: a.y, z: a.z, ..Default::default() };
+    let coin = g.world.add(&g.data, coin, true);
+    let face = |g: &Game| facing(&g.data, &g.world.get(AVATAR).unwrap());
+    // (A step first: done walking, it turns as well.)
+    let step = Input { dir: face(&g), ..Input::default() };
+    g.update(1.0 / 30.0, &step);
+    for _ in 0..10 {
+        g.update(1.0 / 30.0, &Input::default());
+    }
+    let a = g.world.get(AVATAR).unwrap();
+    let mut turned = 0;
+    for (d, (dx, dy)) in [(2, (128, 0)), (4, (0, 128)), (6, (-96, 0)), (0, (0, -96)), (3, (128, 128))] {
+        let at = (a.x + dx, a.y + dy, a.z);
+        if !g.world.fits(&g.data, coin, at) {
+            continue;
+        }
+        g.move_item(coin, Place::Map(at)).unwrap();
+        g.update(1.0 / 30.0, &Input::default());
+        assert_eq!(face(&g), Some(d), "dropped at ({dx}, {dy})");
+        turned += 1;
+    }
+    assert!(turned >= 3, "only {turned} spots free");
+    // Dropped on a pile on the floor (one pile then), it turns to the pile.
+    let (d, at) = [(2, (128, 0)), (4, (0, 128)), (6, (-96, 0)), (0, (0, -96))]
+        .map(|(d, (dx, dy))| (d, (a.x + dx, a.y + dy, a.z)))
+        .into_iter()
+        .find(|&(d, at)| Some(d) != face(&g) && g.world.fits(&g.data, coin, at))
+        .expect("a spot for a pile");
+    let pile = u8data::map::Item { shape: 143, quality: 5, x: at.0, y: at.1, z: at.2, ..Default::default() };
+    let pile = g.world.add(&g.data, pile, true);
+    g.merge(coin, pile).unwrap();
+    g.update(1.0 / 30.0, &Input::default());
+    assert_eq!((face(&g), g.world.get(pile).unwrap().quality), (Some(d), 6), "merged");
+    let coin = pile;
+    // Thrown, it turns the way it threw.
+    let far = [(2, (600, 0)), (4, (0, 600)), (6, (-600, 0)), (0, (0, -600))]
+        .into_iter()
+        .find(|&(d, (dx, dy))| Some(d) != face(&g) && g.world.fits(&g.data, coin, (a.x + dx, a.y + dy, a.z)))
+        .expect("somewhere far");
+    g.move_item(coin, Place::Map((a.x + far.1 .0, a.y + far.1 .1, a.z))).unwrap();
+    g.update(1.0 / 30.0, &Input::default());
+    assert_eq!(face(&g), Some(far.0), "thrown");
 }

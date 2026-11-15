@@ -110,7 +110,7 @@ impl SpriteCache {
         let s = self.scale;
         let f = gd.shapes.frame(shape, frame)?;
         let transl = gd.typeflags.get(shape).has(flag::TRANSL);
-        let src = f.to_rgba(&gd.palette, transl);
+        let src = f.to_rgba(&gd.palette, transl.then_some(&gd.xform));
         let mut rgba = if s > 1 { upscale_seamless(&src, f.width, f.height, s, transl, &self.up) } else { src };
         let (w, h) = (f.width * s, f.height * s);
         let mut xoff = f.xoff * s as i32;

@@ -168,6 +168,12 @@ impl Vm {
         self.finish(pid, id as u32);
     }
 
+    /// A question left unanswered: the original gives the script an empty answer after
+    /// [`super::ASK_TIMEOUT`] (Devon then asks if you're still there).
+    pub fn answer_nothing(&mut self, pid: Pid) {
+        self.answer(pid, &[], 0);
+    }
+
     pub(super) fn terminate(&mut self, pid: Pid, result: u32) {
         if let Some(p) = self.procs.iter_mut().find(|p| p.pid == pid) {
             p.done = true;

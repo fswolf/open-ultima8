@@ -8,6 +8,8 @@ use u8data::{anim::action, anim::AnimFrame, map::Item, GameData};
 
 /// Movement speed in world units per second (a floor tile is 128).
 const WALK_SPEED: f32 = 160.0;
+/// Careful steps (the short arrow): DOS covers ~45 units a second (57 in 1.5 s, 141 in 3 s).
+const CAREFUL_SPEED: f32 = 45.0;
 const RUN_SPEED: f32 = 320.0;
 /// Seconds per animation frame.
 const WALK_FRAME: f32 = 0.066;
@@ -134,12 +136,18 @@ pub fn anim_frame(gd: &GameData, shape: u32, act: usize, dir: usize, step: usize
     Some((f.frame, f.flags & AnimFrame::FLIPPED != 0))
 }
 
-/// Guess an actor's facing from its current frame by finding it in the stand, walk, run or
-/// combat-stance frames.
+/// Guess an actor's facing from its current frame (and whether it's mirrored: opposite facings
+/// share pictures) by finding it in the stand, walk, run, combat-stance or talk frames.
 pub fn facing(gd: &GameData, it: &Item) -> Option<usize> {
-    [action::STAND, action::WALK, action::RUN, action::COMBAT_STAND]
-        .iter()
-        .find_map(|&act| gd.anims.get(it.shape, act)?.frames.iter().position(|d| d.iter().any(|f| f.frame == it.frame)))
+    let flip = it.flags & FLIPPED != 0;
+    let find = |exact: bool| {
+        [action::STAND, action::WALK, action::RUN, action::COMBAT_STAND, action::TALK].iter().find_map(|&act| {
+            gd.anims.get(it.shape, act)?.frames.iter().position(|d| {
+                d.iter().any(|f| f.frame == it.frame && (!exact || (f.flags & AnimFrame::FLIPPED != 0) == flip))
+            })
+        })
+    };
+    find(true).or_else(|| find(false))
 }
 
 fn show(it: &mut Item, (frame, flip): (u32, bool)) {
@@ -150,7 +158,8 @@ fn show(it: &mut Item, (frame, flip): (u32, bool)) {
 impl Avatar {
     pub fn new(gd: &GameData, world: &World) -> Option<Self> {
         let it = world.get(world.avatar()?)?;
-        let dir = facing(gd, &it).unwrap_or(3);
+        let saved = gd.npcdata.as_deref().and_then(|d| u8data::map::npc_dir(d, AVATAR as usize));
+        let dir = facing(gd, &it).or(saved).unwrap_or(3);
         let combat = world.in_combat(AVATAR);
         let pose = (if combat { action::COMBAT_STAND } else { action::STAND }, 0);
         Some(Self {
@@ -353,6 +362,18 @@ impl Avatar {
         changed
     }
 
+    /// Turn to `dir` where it stands (ScummVM's doAnim(stand, dir) on a throw; DOS on any drop),
+    /// unless it's busy (mid-action, walking, blocking, hanging).
+    pub fn turn(&mut self, gd: &GameData, world: &mut World, dir: usize) -> bool {
+        if self.act.is_some() || self.moving || self.blocking || self.hanging || self.dir == dir % 8 {
+            return false;
+        }
+        self.dir = dir % 8;
+        self.stand(gd, world);
+        self.hold(gd, world);
+        true
+    }
+
     /// Show the standing frame (at ease or in combat stance).
     fn stand(&mut self, gd: &GameData, world: &mut World) -> bool {
         let Some(mut it) = world.get(AVATAR) else { return false };
@@ -402,7 +423,12 @@ impl Avatar {
         }
         if let Some(d) = input.dir {
             self.dir = d;
-            self.carry += dt * if input.run { RUN_SPEED } else { WALK_SPEED };
+            let speed = match (input.run, input.careful) {
+                (true, _) => RUN_SPEED,
+                (false, true) => CAREFUL_SPEED,
+                (false, false) => WALK_SPEED,
+            };
+            self.carry += dt * speed;
             let n = self.carry as i32;
             self.carry -= n as f32;
             if n == 0 {
@@ -437,7 +463,12 @@ impl Avatar {
             self.wait -= dt;
             if self.wait <= 0.0 {
                 self.step += 1;
-                self.wait = if input.run { RUN_FRAME } else { WALK_FRAME };
+                // (Careful steps animate as slowly as they go.)
+                self.wait = match (input.run, input.careful) {
+                    (true, _) => RUN_FRAME,
+                    (false, true) => WALK_FRAME * WALK_SPEED / CAREFUL_SPEED,
+                    (false, false) => WALK_FRAME,
+                };
             }
         }
         self.pose(gd, &mut it, act, self.step);

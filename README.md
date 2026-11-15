@@ -89,7 +89,7 @@ out, the faster you go.
 
 | Mouse | Does |
 |---|---|
-| hold **right** | move towards the pointer. Short arrow: careful step (won't walk off ledges), medium: walk, long: run |
+| hold **right** | move towards the pointer (measured from the Avatar's feet). Short arrow: careful steps (slow, and won't walk off ledges), medium: walk, long: run |
 | tap **right** | one careful step |
 | **both buttons** | jump. Short arrow: straight up, medium: forward, long while running: a running leap. Fall short of a ledge and you catch it: towards it pulls up, away lets go |
 | **left click** / **double-click** | look at / use (doors, levers, signs, people, a body to search it) |
@@ -163,7 +163,7 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 | Usecode VM: look, use, doors, signs/books, conversations with choices | ✅ |
 | Jumping (ANIM.DAT height arcs); climbing onto ledges 16-72 high from a standing jump (strength and dexterity grow with the height) | ✅ |
 | Eggs: teleporters between maps, usecode triggers, NPC/egg "fast area" events; maps keep their state | ✅ |
-| Game clock (continues from your save; a game hour is 7½ real minutes, as in the DOS game) + NPC schedules | ✅ |
+| Game clock (continues from your save; a game hour is 15 real minutes, as in the DOS game) + NPC schedules | ✅ |
 | Saved games: load and save (original format), the diary (J), quick save/load (F7/F8); new game with its opening scene | ✅ |
 | Original controls (mouse arrow: step/walk/run/jump), game menu (Esc) with options remembered between runs | ✅ |
 | Cutscene camera (scenes hold the view, glide it and centre it on whoever's talking) | ✅ |

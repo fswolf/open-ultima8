@@ -141,13 +141,24 @@ fn people_fight_back() {
     tick(&mut g, 2.0);
     let start = far(&g);
     assert!(start > 200, "starts {start} away");
+    // A fall of its own blames nobody: no fight, no call for help.
+    g.receive_hit(guard, 0, 0, 1, u8engine::combat::dmg::FALLING);
+    assert!(!g.world.in_combat(guard) && !g.world.in_combat(51), "a fall starts no fight");
     g.receive_hit(guard, AVATAR, 0, 1, u8engine::combat::dmg::PIERCE);
     assert_eq!(g.world.target(guard).now, AVATAR);
     assert!(g.world.in_combat(guard));
-    // Going into combat runs its `cast` script: the guard raises the alarm.
+    // Struck, he doesn't cry "Guardsmen, to arms!" (DOS doesn't), but the guards nearby come:
+    // the next one (NPC 51) is running in within a second or two in DOS.
     g.update(1.0 / 30.0, &Input::default());
     let barks: Vec<_> = g.vm().unwrap().events.drain(..).collect();
-    assert!(format!("{barks:?}").contains("to arms"), "{barks:?}");
+    assert!(!format!("{barks:?}").contains("to arms"), "{barks:?}");
+    assert!(g.world.in_combat(51) && g.world.target(51).now == AVATAR, "the next guard comes too");
+    assert!(!g.world.in_combat(7), "Mordea (no quarrel with the Avatar) stays out of it");
+    let d51 = |g: &Game| {
+        let (a, b) = (g.world.get(AVATAR).unwrap(), g.world.get(51).unwrap());
+        (a.x - b.x).abs().max((a.y - b.y).abs())
+    };
+    let from = d51(&g);
     let hp = g.stats.get(AVATAR).unwrap().hp;
     for _ in 0..40 {
         tick(&mut g, 0.5);
@@ -156,6 +167,7 @@ fn people_fight_back() {
         }
     }
     assert!(far(&g) < start, "closed in ({} from {start})", far(&g));
+    assert!(d51(&g) < from, "NPC 51 closed in too ({} from {from})", d51(&g));
     let left = g.stats.get(AVATAR).unwrap().hp;
     assert!(left < hp, "a guard's blade gets through armour class 7 ({left} of {hp})");
     // Out of combat, it stands down.

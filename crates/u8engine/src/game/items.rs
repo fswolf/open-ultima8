@@ -3,10 +3,10 @@
 use super::*;
 use u8data::typeflag::family;
 
-/// How far (world units, either axis) the Avatar can reach to pick things up or put them down.
-const REACH: i32 = 384;
-
-const REACH_Z: i32 = 96;
+/// How far the Avatar reaches to pick things up, use them or put them down: the gap between its
+/// box and the thing's, on either axis, with nothing solid in between (ScummVM's canReach). ScummVM
+/// uses 128; DOS took a bedroll 132 apart and refused it 164 apart.
+pub const REACH: i32 = 160;
 
 /// People this near the Avatar (either axis) see what it takes (ScummVM).
 const SEEN_FROM: i32 = 640;
@@ -73,17 +73,21 @@ impl Game {
                 self.fling(id, at, lifted);
                 return Ok(());
             }
-            Place::Map(at) => self.world.move_to_map(&self.data, id, at),
+            Place::Map(at) => {
+                self.world.move_to_map(&self.data, id, at);
+                self.face(Ok(id));
+            }
         }
         self.set_down(id, lifted);
         Ok(())
     }
 
     /// Is a spot on the map close enough to put something down (farther, it's thrown)?
-    fn reaches(&self, at: (i32, i32, i32)) -> bool {
-        self.world
-            .get(AVATAR)
-            .is_some_and(|a| (a.x - at.0).abs().max((a.y - at.1).abs()) <= REACH && (a.z - at.2).abs() <= REACH_Z)
+    fn reaches(&self, (x, y, z): (i32, i32, i32)) -> bool {
+        // (The gap from the Avatar's box to the spot; height by the same measure.)
+        let Some(b) = self.world.index(AVATAR).map(|i| self.world.entry(i).bounds()) else { return false };
+        let gap = |lo: i32, hi: i32, v: i32| (lo - v).max(v - hi).max(0);
+        gap(b.x0, b.x1, x).max(gap(b.y0, b.y1, y)).max(gap(b.z0, b.z1, z)) <= REACH
     }
 
     /// Throw `id` at a spot out of reach (ScummVM's DropItem and MissileTracker): from over the
@@ -108,10 +112,26 @@ impl Game {
         let off = (4 * (30 - dex)).max(20);
         let mut aim = |c: i32| c - off + self.world.roll(2 * off as u32 + 1) as i32;
         let to = (aim(at.0), aim(at.1), at.2);
-        if let Some(av) = self.avatar.as_mut() {
-            av.dir = crate::geom::dir_towards(to.0 - from.0, to.1 - from.1) as usize;
-        }
+        self.face(Err(at));
         self.hurl(id, missile(from, to, speed, THROW_GRAVITY), THROW_GRAVITY, None);
+    }
+
+    /// The Avatar turns to `id` (on the map), or the spot it threw something at (box centre to
+    /// box centre; the anchors are front corners).
+    fn face(&mut self, at: Result<ObjId, (i32, i32, i32)>) {
+        let mid = |w: &crate::world::World, id| {
+            w.index(id).map(|i| w.entry(i).bounds()).map(|b| ((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2))
+        };
+        let to = match at {
+            Ok(id) => mid(&self.world, id),
+            Err((x, y, _)) => Some((x, y)),
+        };
+        let (Some((ax, ay)), Some((x, y)), Some(av)) = (mid(&self.world, AVATAR), to, self.avatar.as_mut()) else {
+            return;
+        };
+        if (x, y) != (ax, ay) {
+            av.turn(&self.data, &mut self.world, crate::geom::dir_towards(x - ax, y - ay) as usize);
+        }
     }
 
     /// Would `id` go `to`? Why not, if not.
@@ -128,9 +148,9 @@ impl Game {
                 if !self.within_reach(container) {
                     return Err("You can't reach that.");
                 }
-                // Weight, but not room: the original let a full backpack hold another (the castle
-                // save has one inside, 188 of 175), so ScummVM's volume rule isn't the player's.
+                // Room by volume, as the original refuses it, and the Avatar's load.
                 equip::can_add(&self.data, w, id, container, false, 0)?;
+                equip::has_room(&self.data, w, id, container)?;
                 self.check_load(id, container)?;
             }
             Place::Map(at) => {
@@ -210,7 +230,10 @@ impl Game {
                 self.fling(part, at, Lifted::default());
                 return Ok(());
             }
-            Place::Map(at) => self.world.move_to_map(&self.data, part, at),
+            Place::Map(at) => {
+                self.world.move_to_map(&self.data, part, at);
+                self.face(Ok(part));
+            }
         }
         let from = self.world.get(id).filter(|_| self.world.container(id).is_none()).map(|i| (i.x, i.y, i.z));
         self.set_down(part, Lifted { from, ..Lifted::default() });
@@ -245,11 +268,19 @@ impl Game {
         pile.quality += n;
         self.world.set(&self.data, onto, pile);
         self.take_from(id, n);
-        self.trigger(onto, event::COMBINE);
-        if self.world.root(onto) == AVATAR {
-            self.world.own(&self.data, onto);
-        }
+        self.combined(onto);
         Ok(())
+    }
+
+    /// Pile `onto` grew: its look by the amount, the Avatar's if it carries it, and the Avatar
+    /// turns to it on the floor.
+    fn combined(&mut self, onto: ObjId) {
+        self.trigger(onto, event::COMBINE);
+        match self.world.container(onto) {
+            None => self.face(Ok(onto)),
+            Some(_) if self.world.root(onto) == AVATAR => self.world.own(&self.data, onto),
+            Some(_) => {}
+        }
     }
 
     /// A new pile of `n` like `id`, beside it in its bag (what the Avatar carries stays carried
@@ -342,6 +373,19 @@ impl Game {
         }
         if let Some(c) = self.world.container(onto) {
             self.check_load(id, c)?;
+            // A bigger pile takes more room (coins by the hundred): it must still fit, unless
+            // the two were in that bag already.
+            let (Some(a), Some(b)) = (self.world.get(id), self.world.get(onto)) else { return Err("It's gone.") };
+            let grown = u8data::map::Item {
+                quality: (a.quality as u32 + b.quality as u32).min(MAX_QUANTITY as u32) as u16,
+                ..b
+            };
+            let more = equip::volume(&self.data, &grown).saturating_sub(equip::volume(&self.data, &b));
+            let cap = self.world.get(c).map_or(0, |c| equip::capacity(&self.data, &c));
+            let roomy = c < 256 || self.world.container(id) == Some(c);
+            if !roomy && equip::used_room(&self.data, &self.world, c) + more > cap {
+                return Err("There's no room for that.");
+            }
         }
         let lifted = self.lift(id);
         let (Some(mut a), Some(mut b)) = (self.world.get(id), self.world.get(onto)) else { return Err("It's gone.") };
@@ -362,10 +406,7 @@ impl Game {
                 self.fall(o);
             }
         }
-        self.trigger(onto, event::COMBINE);
-        if self.world.root(onto) == AVATAR {
-            self.world.own(&self.data, onto);
-        }
+        self.combined(onto);
         Ok(())
     }
 
@@ -461,9 +502,15 @@ impl Game {
         Ok(())
     }
 
-    /// Is `id` (on the map, or the Avatar's own) close enough for the Avatar to handle?
+    /// Is `id` (on the map, or in something there, or the Avatar's own) close enough for the
+    /// Avatar to handle: within [`REACH`] of it, nothing solid in the way?
     pub fn within_reach(&self, id: ObjId) -> bool {
-        self.near_avatar(id, REACH, REACH_Z)
+        let root = self.world.root(id);
+        if root == AVATAR {
+            return self.world.get(id).is_some();
+        }
+        let shown = self.world.index(root).is_some_and(|i| self.world.entry(i).present());
+        shown && self.world.can_reach(AVATAR, root, REACH)
     }
 
     /// Is `id` (or what it's in) within `xy` units of the Avatar across and `z` up or down? The

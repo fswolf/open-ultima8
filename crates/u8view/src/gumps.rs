@@ -113,8 +113,9 @@ pub struct Windows {
 }
 
 impl Windows {
-    /// Open (or bring to the front) `item`'s window, placed near the middle of a vw×vh view.
-    pub fn open(&mut self, art: &GumpArt, item: ObjId, gump: u32, (vw, vh): (u32, u32)) {
+    /// Open (or bring to the front) `item`'s window in a vw×vh view: near the middle, or by
+    /// the window of `parent` (what it's in) or the one on top.
+    pub fn open(&mut self, art: &GumpArt, item: ObjId, gump: u32, parent: Option<ObjId>, (vw, vh): (u32, u32)) {
         if let Some(i) = self.wins.iter().position(|w| w.item == item) {
             let w = self.wins.remove(i);
             self.wins.push(w);
@@ -124,13 +125,17 @@ impl Windows {
         let (vw, vh) = (vw as i32, vh as i32);
         let k = self.wins.len() as i32 * 16;
         let mut at = ((vw - w) / 2 + k - 40, (vh - h) / 2 + k - 30);
-        // Beside the window on top (right, else left, else below), if there's room in the view.
-        if let Some(top) = self.wins.last() {
+        // Beside the window it was in (else the one on top): right, else left, else below, if
+        // there's room in the view. A bag's window with no room beside goes where the window it
+        // was in is, as DOS opens it.
+        let parent = parent.and_then(|p| self.wins.iter().find(|w| w.item == p));
+        if let Some(top) = parent.or(self.wins.last()) {
             let (tw, th) = art.size(top.gump);
             let fits = |(x, y): (i32, i32)| x >= 0 && y >= 0 && x + w <= vw && y + h <= vh;
             let tries = [(top.at.0 + tw + 2, top.at.1), (top.at.0 - w - 2, top.at.1), (top.at.0, top.at.1 + th + 2)];
-            at = tries.into_iter().find(|&p| fits(p)).unwrap_or(at);
+            at = tries.into_iter().find(|&p| fits(p)).unwrap_or(parent.map_or(at, |p| p.at));
         }
+        let at = (at.0.min(vw - w).max(0), at.1.min(vh - h).max(0)); // (in the view)
         self.wins.push(Win { item, gump, at });
     }
 
@@ -342,7 +347,7 @@ mod tests {
     #[ignore]
     fn trap_markers_hide_in_chests() {
         let Ok(dir) = std::env::var("U8_DATA") else { return };
-        let gd = GameData::load(std::path::Path::new(&dir)).unwrap();
+        let gd = GameData::load_fixed(std::path::Path::new(&dir)).unwrap();
         let (world, chest, trap) = (0..256)
             .find_map(|m| {
                 let w = World::build(&gd, m);
@@ -356,5 +361,32 @@ mod tests {
         let win = Win { item: chest, gump: 0, at: (0, 0) };
         assert!(!win.contents(&gd, &world, false).contains(&trap));
         assert!(win.contents(&gd, &world, true).contains(&trap), "the editor view shows it");
+    }
+
+    /// A bag's window opens beside the window it's in when there's room, else where that window
+    /// is (as DOS, which opens it on the same spot), kept in the view.
+    #[test]
+    #[ignore] // needs U8 data
+    fn a_bags_window_opens_by_the_one_it_was_in() {
+        let Ok(dir) = std::env::var("U8_DATA") else { return };
+        let gd = u8data::GameData::load_fixed(std::path::Path::new(&dir)).unwrap();
+        let art = crate::art::GumpArt::load(std::path::Path::new(&dir), &gd.palette).unwrap();
+        let at = |w: &Windows, item| w.wins.iter().find(|w| w.item == item).unwrap().at;
+        let (pack, inner, sack) = (10, 11, 12);
+        // No room beside: on the same spot.
+        let small = (art.size(2).0 + 40, art.size(2).1 + 40);
+        let small = (small.0 as u32, small.1 as u32);
+        let mut w = Windows::default();
+        w.open(&art, pack, 2, Some(1), small);
+        w.open(&art, sack, 3, None, small); // (something else on top)
+        w.open(&art, inner, 2, Some(pack), small);
+        assert_eq!(at(&w, inner), at(&w, pack));
+        // Room: beside it, on the right (not by the window on top).
+        let mut w = Windows::default();
+        w.open(&art, pack, 2, Some(1), (640, 400));
+        w.open(&art, sack, 3, None, (640, 400));
+        w.open(&art, inner, 2, Some(pack), (640, 400));
+        let ((px, py), (ix, iy)) = (at(&w, pack), at(&w, inner));
+        assert_eq!((ix, iy), (px + art.size(2).0 + 2, py));
     }
 }

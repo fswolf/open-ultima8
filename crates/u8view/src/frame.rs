@@ -38,10 +38,11 @@ fn paperdoll_stats(
 /// Where speech goes over something on the map (screen pixels, unzoomed): centred on where it
 /// stands, 16 above the top of its box — ScummVM's ItemRelativeGump, not the sprite, so a
 /// halberd's swing (or a speaker hidden behind a wall) doesn't push it aside.
-fn speech_anchor(world: &u8engine::world::World, id: ObjId) -> Option<(i32, i32)> {
+/// Also where its feet are (screen y), for what goes below it.
+fn speech_anchor(world: &u8engine::world::World, id: ObjId) -> Option<((i32, i32), i32)> {
     let e = world.entry(world.index(world.root(id))?); // (something carried: over its carrier)
     let (sx, sy) = u8render::project(e.it.x, e.it.y, e.z1);
-    Some((sx, sy - 16))
+    Some(((sx, sy - 16), u8render::project(e.it.x, e.it.y, e.it.z).1))
 }
 
 /// How much bigger xBRZ makes things for a zoom (none below 1.5×; the GPU does the rest).
@@ -124,6 +125,12 @@ impl App {
             input.run = aim.is_some_and(|p| p.1 == mouse::Reach::Long);
             input.careful = false;
         }
+        if self.pending_look.is_some_and(|(_, t)| now >= t) {
+            let (id, _) = self.pending_look.take().unwrap();
+            if self.game.world.get(id).is_some() {
+                self.game.trigger(id, u8engine::usecode::event::LOOK);
+            }
+        }
         let status = self.game.update(dt, &input);
         let quake = self.game.scripts.as_ref().map_or(0, |s| s.vm.quake as i32);
         let shake = if quake > 0 {
@@ -145,6 +152,13 @@ impl App {
                 a.set_combat(self.game.in_combat());
             }
         }
+        // Into combat stance: the paperdoll goes (DOS closes it within a moment of the first swing).
+        let fighting = self.game.in_combat();
+        let was = std::mem::replace(&mut self.was_fighting, fighting);
+        if fighting && !was && self.windows.items().contains(&AVATAR) {
+            self.close_window(AVATAR);
+            self.dirty = true;
+        }
         if self.game.avatar_dead() {
             self.dying(now);
         }
@@ -164,7 +178,7 @@ impl App {
             }
         }
         if let (Some(ui), Some(vm)) = (&mut self.ui, self.game.scripts.as_mut().map(|s| &mut s.vm)) {
-            self.dirty |= ui.expire(vm);
+            self.dirty |= ui.expire(vm, dt);
         }
         // Cutaway: hide what's above the Avatar's head.
         let max_z = match self.view.cutaway {
@@ -238,11 +252,20 @@ impl App {
         let spoken = None;
         match &e {
             UiEvent::Target { pid } => self.targeting = Some(*pid),
-            UiEvent::Endgame => _ = self.start_film(films::Which::Endgame, films::After::Menu),
+            UiEvent::Endgame => {
+                // Finished: from now on the main menu offers the quotes and the ending.
+                if let Some(m) = &mut self.menu {
+                    m.finished = true;
+                }
+                self.settings.finished = true;
+                self.settings.save();
+                self.start_film(films::Which::Endgame, films::After::Menu);
+            }
             UiEvent::OpenGump { item, gump } => {
                 let view = self.view_size();
                 if let Some(art) = &self.art {
-                    self.windows.open(art, *item, *gump as u32, view);
+                    let parent = self.game.world.container(*item);
+                    self.windows.open(art, *item, *gump as u32, parent, view);
                 }
                 self.dirty = true;
             }
@@ -388,22 +411,23 @@ impl App {
                     // In an open window: over it there (on the overlay).
                     if world.container(id).is_some() {
                         if let Some(r) = art.as_ref().and_then(|a| windows.item_rect(gd, a, world, id)) {
-                            return Some(r);
+                            return Some([r[0], r[1] - 2, r[2], r[3] + 2]); // (2 clear of it)
                         }
                     }
                     // Else over what it's in, on the map (a bag on someone's back: over them).
                     let id = world.root(id);
                     if world.get(id).is_none() || world.is_void(id) {
                         // Nobody to stand over (the Guardian): low in the middle, its bottom 8 up.
-                        return Some([vw as i32 / 2, vh as i32 - 6, 0, 0]);
+                        return Some([vw as i32 / 2, vh as i32 - 8, 0, 0]);
                     }
                     if !world.same_floor(AVATAR, id) {
                         return None; // (nor seen from another storey)
                     }
-                    // (A point: what's said is centred on it, its bottom 2 above.)
-                    let (sx, sy) = speech_anchor(world, id)?;
+                    // (Over the head, down to the feet.)
+                    let ((sx, sy), feet) = speech_anchor(world, id)?;
                     let (x, y) = ((sx as f32 - ox) * k, (sy as f32 - oy) * k);
-                    Some([x.round() as i32, y.round() as i32 + 2, 0, 0])
+                    let down = ((feet - sy) as f32 * k).round() as i32;
+                    Some([x.round() as i32, y.round() as i32, 0, down])
                 };
                 ui.draw(&mut canvas, ui_ss, (vw, vh), rect_of);
                 ui.draw_reading(&mut canvas, self.art.as_mut(), ui_ss, (vw, vh));
@@ -418,6 +442,10 @@ impl App {
                 sl.draw(&mut canvas, art, self.menu.as_ref().map(|m| m.fonts()), ui_ss, (vw, vh));
             }
             if let (Some(m), Some(art)) = (self.menu.as_mut().filter(|m| m.is_open()), self.art.as_mut()) {
+                let name = self.game.data.avatar_name.as_deref().unwrap_or("");
+                if m.avatar != name {
+                    m.avatar = name.to_string();
+                }
                 m.draw(&mut canvas, art, (vw, vh));
                 if let Some(ui) = &mut self.ui {
                     ui.draw_notices(&mut canvas, ui_ss, vw); // "Not now." etc. stay readable over the book
@@ -553,7 +581,7 @@ mod tests {
     #[ignore]
     fn gauge_is_bigger_and_stats_are_centred() {
         let Ok(dir) = std::env::var("U8_DATA") else { return };
-        let gd = u8data::GameData::load(std::path::Path::new(&dir)).unwrap();
+        let gd = u8data::GameData::load_fixed(std::path::Path::new(&dir)).unwrap();
         let root = std::path::PathBuf::from(&dir);
         let mut art = art::GumpArt::load(&root, &gd.palette).unwrap();
         let read = |p: &str| std::fs::read(u8data::find_file(&root, p).unwrap()).unwrap();
@@ -604,14 +632,15 @@ mod tests {
     #[ignore]
     fn speech_sits_over_the_speaker_whatever_the_frame() {
         let Ok(dir) = std::env::var("U8_DATA") else { return };
-        let gd = u8data::GameData::load(std::path::Path::new(&dir)).unwrap();
+        let gd = u8data::GameData::load_fixed(std::path::Path::new(&dir)).unwrap();
         let mut world = u8engine::world::World::build(&gd, 40);
         let guard = world.objects().find(|&id| world.get(id).is_some_and(|it| it.shape == 574)).expect("a guard");
         let it = world.get(guard).unwrap();
         let at = speech_anchor(&world, guard).unwrap();
-        assert_eq!(at.0, (it.x - it.y) / 4, "centred on where it stands");
+        assert_eq!(at.0 .0, it.x / 4 - it.y / 4, "centred on where it stands");
         let e = world.entry(world.index(guard).unwrap());
-        assert_eq!(at.1, (it.x + it.y) / 8 - e.z1 - 16, "16 above its head");
+        assert_eq!(at.0 .1, it.x / 8 + it.y / 8 - e.z1 - 16, "16 above its head");
+        assert_eq!(at.1, it.x / 8 + it.y / 8 - it.z, "and its feet");
         for f in 0..gd.shapes.get(574).len() as u32 {
             world.set(&gd, guard, u8data::map::Item { frame: f, ..it });
             assert_eq!(speech_anchor(&world, guard), Some(at), "frame {f}");
@@ -624,7 +653,7 @@ mod tests {
     #[ignore]
     fn things_inside_speak_from_their_container() {
         let Ok(dir) = std::env::var("U8_DATA") else { return };
-        let gd = u8data::GameData::load(std::path::Path::new(&dir)).unwrap();
+        let gd = u8data::GameData::load_fixed(std::path::Path::new(&dir)).unwrap();
         let g = u8engine::Game::new(gd, None, Some(40)).unwrap();
         let world = &g.world;
         let held = (1..u16::MAX).find(|&id| world.container(id).is_some()).expect("something in a chest");

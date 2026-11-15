@@ -223,10 +223,10 @@ fn flex_and_saves_write_what_they_read() {
     assert_eq!(flex::build(Some(f.header()), &[f.get(0), f.get(1), f.get(2)]), a);
     let mut s = Save::default();
     s.set("flag.dat", vec![1, 2, 3]);
-    s.set_extra(&[("ticks", "1234".into())]);
+    s.set_extra(&[("clock", "1234".into())]);
     let back = Save::parse(&s.to_bytes()).unwrap();
     assert_eq!(back.get("FLAG.DAT"), Some(&[1u8, 2, 3][..]));
-    assert_eq!(back.ticks(), Some(1234));
+    assert_eq!(back.clock(), Some(1234), "no kernel: our own record");
     let it = u8data::map::Item {
         x: 1000,
         y: 2000,
@@ -244,4 +244,37 @@ fn flex_and_saves_write_what_they_read() {
     rec.extend_from_slice(&it.record());
     let tf = u8data::typeflag::TypeFlags::parse(&[]);
     assert_eq!(u8data::map::load_nonfixed(&rec, &tf), vec![it, it]);
+}
+
+/// Translucent shapes blend with XFORMPAL.DAT's colours: the castle's window glass (index 13) is
+/// a strong blue, as in DOS. The original's lookup tables (entry 0) are those blends at alpha/63,
+/// each to the nearest palette colour: check most of them agree.
+#[test]
+#[ignore] // needs U8 data: U8_DATA=/path/to/U8 cargo test -- --ignored
+fn translucent_colours_come_from_xformpal() {
+    let Ok(dir) = std::env::var("U8_DATA") else { return };
+    let gd = u8data::GameData::load(std::path::Path::new(&dir)).unwrap();
+    assert_eq!(gd.xform.get(13), Some([60, 60, 255, 215]));
+    assert_eq!(gd.xform.get(7), None);
+    let f = u8data::flex::Flex::parse(
+        std::fs::read(u8data::find_file(std::path::Path::new(&dir), "STATIC/XFORMPAL.DAT").unwrap()).unwrap(),
+    )
+    .unwrap();
+    let tables = f.get(0).unwrap();
+    let pal = &gd.palette.0;
+    for i in 8..15u8 {
+        let [r, g, b, a] = gd.xform.get(i).unwrap();
+        let a = a as f32 / 255.0;
+        let near = |c: [f32; 3]| {
+            (0..256).min_by_key(|&k| (0..3).map(|j| ((pal[k][j] as f32 - c[j]).powi(2)) as u32).sum::<u32>()).unwrap()
+        };
+        let agree = (0..256)
+            .filter(|&bg| {
+                let c = [r, g, b].map(|v| v as f32 * a);
+                let mix = [0, 1, 2].map(|j| pal[bg][j] as f32 * (1.0 - a) + c[j]);
+                tables[(i as usize - 6) * 256 + bg] as usize == near(mix)
+            })
+            .count();
+        assert!(agree > 120, "index {i}: {agree} of 256 agree");
+    }
 }

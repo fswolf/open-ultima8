@@ -72,9 +72,9 @@ fn walkers_route_around_walls() {
         (w.x - to.0).abs().max((w.y - to.1).abs()) <= 48
     };
     let mut found = None;
-    'search: for r in [256, 384, 512] {
-        for (dx, dy) in [(1, 0), (0, 1), (-1, 0), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)] {
-            let to = (s.x + dx * r, s.y + dy * r);
+    'search: for r in [4, 6, 8, 10, 12] {
+        for (dx, dy) in (-r..=r).flat_map(|x| [(x, -r), (x, r), (-r, x), (r, x)]) {
+            let to = (s.x + dx * 64, s.y + dy * 64);
             // A route nobody's standing in.
             let route = path::find(&g.world, &g.data, AVATAR, action::WALK, to, 48, true);
             let ends_there = route.is_some_and(|r| (r.end.0 - to.0).abs().max((r.end.1 - to.1).abs()) <= 48);
@@ -340,17 +340,17 @@ fn people_stay_put_until_the_hour_turns() {
     let home = (12671, 21791);
     let tick = |g: &mut Game, n: usize| (0..n).for_each(|_| _ = g.update(1.0 / 30.0, &Input::default()));
     let at = |g: &Game| g.world.get(corinth).map(|c| (c.x, c.y));
-    let hour = g.minutes() / 60;
-    assert!((8..16).contains(&(hour % 24)), "his daytime (hour {hour})");
+    let hour = g.minutes() / 60 % 24;
+    assert_eq!(hour, 3, "the save is at 03:02 (KERNEL.DAT's clock)");
     // Somewhere on his map far (over 700) from both his home and his daytime spot.
     let far = [(14000, 20000), (10000, 20000), (14000, 23000), (10000, 22000), (15000, 21791)];
     let spot = |g: &mut Game| far.into_iter().find(|&(x, y)| g.put_avatar(7, (x, y, 8)) || g.put_avatar(7, (x, y, 0)));
     let s = spot(&mut g).expect("room for the Avatar on map 7");
     tick(&mut g, 30);
     assert_eq!(at(&g), Some(home), "still at home, as saved (Avatar at {s:?})");
-    // Away for an hour: on coming back, his schedule catches up.
+    // Away until morning: on coming back, his schedule catches up.
     g.put_avatar(40, (12774, 9010, 48));
-    g.set_minutes(g.minutes() + 60);
+    g.set_minutes(g.minutes() / 1440 * 1440 + 9 * 60);
     tick(&mut g, 30);
     spot(&mut g);
     tick(&mut g, 30);

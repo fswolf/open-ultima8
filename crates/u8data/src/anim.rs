@@ -59,6 +59,8 @@ pub mod action {
     pub const CAST1: usize = 27;
     pub const CAST2: usize = 28;
     pub const CAST3: usize = 29;
+    /// Gesturing while speaking (ScummVM's Animation::talk; the original plays it itself).
+    pub const TALK: usize = 53;
     pub const KICK: usize = 58;
     pub const START_BLOCK: usize = 59;
     pub const STOP_BLOCK: usize = 60;

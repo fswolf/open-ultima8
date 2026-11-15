@@ -123,9 +123,8 @@ const HAULED: [u32; 3] = [BARREL, 78, 117];
 
 /// Could `id` go into `into` (ScummVM's CanAddItem)? Never a person, nor a bag into itself or
 /// something in it, and on the Avatar itself only what it wears and a pack. With `check` (scripts'
-/// legalMoveToContainer) it must also fit by volume and, going into the Avatar's belongings, not
-/// load it past what `strength` carries. (The player's moves check weight only: the original let a
-/// backpack hold more than its volume.)
+/// legalMoveToContainer) it must also fit by volume ([`has_room`], which the player's moves
+/// check too) and, going into the Avatar's belongings, not load it past what `strength` carries.
 pub fn can_add(
     gd: &GameData,
     world: &World,
@@ -146,13 +145,7 @@ pub fn can_add(
     if !check {
         return Ok(());
     }
-    let (Some(it), Some(c)) = (world.get(id), world.get(into)) else { return Err("It's gone.") };
-    let used: u32 = world.contents(into).into_iter().filter_map(|k| world.get(k)).map(|k| volume(gd, &k)).sum();
-    let pack = world.contents(AVATAR).into_iter().find(|&k| holds(gd, world, k));
-    let room = if HAULED.contains(&it.shape) && pack == Some(into) { 500 } else { capacity(gd, &c) };
-    if used + volume(gd, &it) > room {
-        return Err("There's no room for that.");
-    }
+    has_room(gd, world, id, into)?;
     if world.root(into) == AVATAR && world.root(id) != AVATAR {
         let carried: u32 = world.contents(AVATAR).into_iter().map(|k| weight(gd, world, k)).sum();
         if carried + weight(gd, world, id) > max_weight(strength) {
@@ -160,6 +153,27 @@ pub fn can_add(
         }
     }
     Ok(())
+}
+
+/// Is there room in container `into` for `id` by volume (ScummVM's CanAddItem; DOS refuses the
+/// player the same: a bedroll won't go into the castle save's backpack, 188 of 175 full with a
+/// bag inside, until that bag comes out)? People hold things by their slots, not volume.
+pub fn has_room(gd: &GameData, world: &World, id: ObjId, into: ObjId) -> Result<(), &'static str> {
+    if into < 256 || world.container(id) == Some(into) {
+        return Ok(());
+    }
+    let (Some(it), Some(c)) = (world.get(id), world.get(into)) else { return Err("It's gone.") };
+    let pack = world.contents(AVATAR).into_iter().find(|&k| holds(gd, world, k));
+    let room = if HAULED.contains(&it.shape) && pack == Some(into) { 500 } else { capacity(gd, &c) };
+    if used_room(gd, world, into) + volume(gd, &it) > room {
+        return Err("There's no room for that.");
+    }
+    Ok(())
+}
+
+/// How much of container `c`'s room its contents take.
+pub fn used_room(gd: &GameData, world: &World, c: ObjId) -> u32 {
+    world.contents(c).into_iter().filter_map(|k| world.get(k)).map(|k| volume(gd, &k)).sum()
 }
 
 /// The backpack (the one bag a person wears).

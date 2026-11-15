@@ -27,12 +27,11 @@ pub use items::Place;
 pub const TICK_HZ: f32 = 30.0;
 /// Ticks between fast-area checks.
 const FAST_AREA_EVERY: u32 = 10;
-/// Real seconds per game day: a game hour is 7½ real minutes, as in the DOS game (its clock,
-/// KERNEL.DAT's counter, runs at 60 a second, 27000 to the hour; ScummVM counts 30, so its days
-/// last twice as long).
-pub const DAY_SECONDS: u32 = 24 * 450;
-/// The clock's counts a second (the original's 60 Hz timer: two for each of our ticks).
-const CLOCK_HZ: u32 = 60;
+/// Real seconds per game day: a game hour is 15 real minutes, as in the DOS game (its clock,
+/// KERNEL.DAT entry 20, runs 30 a second, 27000 to the hour).
+pub const DAY_SECONDS: u32 = 24 * 900;
+/// The clock's counts a second: one a game tick.
+const CLOCK_HZ: u32 = 30;
 /// Clock counts per game minute.
 const TICKS_PER_MINUTE: u32 = DAY_SECONDS * CLOCK_HZ / (24 * 60);
 /// Clock for a new game without a save: 9 in the morning of day one.
@@ -54,8 +53,13 @@ pub struct Game {
     pub(crate) walks: Vec<Walk>,
     /// What people in combat are up to (see [`fight`](crate::fight)).
     pub(crate) fights: HashMap<ObjId, crate::fight::Fighter>,
+    /// Drawn into a fight by a blow or a call for help: no `cast` script on joining (see
+    /// [`Game::call_for_help`]).
+    pub(crate) roused: std::collections::HashSet<ObjId>,
     /// People wandering about (activity 0; see [`spawn`](crate::spawn)).
     pub(crate) loiters: HashMap<ObjId, crate::spawn::Loiter>,
+    /// People speaking: the speech or question's process, and who (see [`Game::gesture`]).
+    pub(crate) talkers: Vec<(crate::usecode::Pid, ObjId)>,
     /// The dead who'll rise again, and ticks till they do.
     pub(crate) rising: Vec<(ObjId, u32)>,
     /// The Avatar's healing and hunger (see [`heal`](crate::heal)).
@@ -126,7 +130,7 @@ impl Game {
         };
         let mut world = World::build(&data, start);
         world.clear_flag(GUMP_OPEN); // a save's open windows aren't restored
-        let ticks = data.ticks.unwrap_or(NEW_GAME_TICKS);
+        let ticks = data.clock.unwrap_or(NEW_GAME_TICKS);
         let stats = Stats::load(data.npcdata.as_deref());
         let mut g = Game {
             stats,
@@ -143,7 +147,9 @@ impl Game {
             fast: FastArea,
             walks: vec![],
             fights: HashMap::new(),
+            roused: Default::default(),
             loiters: HashMap::new(),
+            talkers: vec![],
             rising: vec![],
             recovery: Default::default(),
             peace: None,
@@ -161,7 +167,7 @@ impl Game {
             tick_clock: 0.0,
             map_changed: false,
         };
-        g.new_game = g.data.ticks.is_none(); // no kernel state: the start of a new game
+        g.new_game = g.data.clock.is_none(); // no kernel state: the start of a new game
         g.resume_fights();
         g.avatar_dead = g.stats.get(AVATAR).is_some_and(|s| s.dead);
         g.avatar = Avatar::new(&g.data, &g.world);

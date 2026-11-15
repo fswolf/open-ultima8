@@ -10,9 +10,11 @@ pub use painter::{project_fine, DrawOpts, Painter};
 pub use sprite::{Sprite, SpriteCache};
 pub use upscale::Upscaler;
 
-/// World → screen, in unscaled game pixels.
+/// World → screen, in unscaled game pixels: each term divided on its own, as the original does
+/// (measured in DOS: things off the 8-unit grid land a pixel apart from `(x - y) / 4` against
+/// the scenery; ScummVM's sort boxes round the same way).
 pub fn project(x: i32, y: i32, z: i32) -> (i32, i32) {
-    ((x - y) / 4, (x + y) / 8 - z)
+    (x / 4 - y / 4, x / 8 + y / 8 - z)
 }
 
 /// An RGBA8 pixel buffer being drawn into, alpha premultiplied: a world frame is opaque; an
@@ -117,5 +119,8 @@ mod tests {
             assert_eq!(a, b, "at ({x}, {y})");
         }
         assert_eq!(project_fine(1234, 567, 40, 1), project(1234, 567, 40));
+        // Each term rounds on its own, as the original: scenery at 7 mod 8 doesn't move down a row.
+        assert_eq!(project(15, 15, 0), (0, 2));
+        assert_eq!(project(16, 13, 0), (1, 3));
     }
 }

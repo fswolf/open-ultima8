@@ -122,10 +122,17 @@ impl Game {
             self.avatar.as_mut().map(Avatar::knock_down);
             return;
         }
-        if target != AVATAR {
-            // Fight back: after whoever struck (a thing falling on them: the Avatar did it).
+        if target != AVATAR && kind & dmg::FALLING == 0 {
+            // Fight back: after whoever struck (a thing falling on them: the Avatar did it; a
+            // fall of its own: nobody). Only a blow from the Avatar's own hand calls for help.
             let at = if self.is_person(by) { by } else { AVATAR };
+            if !self.world.in_combat(target) {
+                self.roused.insert(target);
+            }
             self.world.set_target(target, at);
+            if by == AVATAR {
+                self.call_for_help(target);
+            }
         }
         if target == AVATAR && self.world.last_anim(AVATAR) == action::START_BLOCK {
             // Caught on the weapon: a clang (a thud if it still got through), no stagger.
@@ -143,6 +150,29 @@ impl Game {
                     self.world.play(&self.data, target, action::STUMBLE, (dir + 4) % 8);
                 }
             }
+        }
+    }
+
+    /// `struck` was attacked by the Avatar: those on its side nearby who count the Avatar's side
+    /// as enemies come for it. ScummVM leaves this a TODO; in DOS, striking a castle guard brings
+    /// the next (NPC 51, 640 away) running within a second or two, a third after about five.
+    /// Townsfolk and the like with no quarrel with the Avatar's side stay out of it.
+    pub(crate) fn call_for_help(&mut self, struck: ObjId) {
+        let (Some(side), Some(av)) = (self.stats.get(struck).map(|s| s.alignment), self.stats.get(AVATAR)) else {
+            return;
+        };
+        let Some(a) = self.world.get(AVATAR) else { return };
+        let near = |it: &u8data::map::Item| (it.x - a.x).abs().max((it.y - a.y).abs()) <= crate::fast_area::RANGE;
+        let helpers: Vec<ObjId> = (2..256)
+            .filter(|&id| id != struck && !self.world.in_combat(id) && !self.world.is_void(id))
+            .filter(|&id| self.world.get(id).is_some_and(|it| near(&it)))
+            .filter(|&id| {
+                self.stats.get(id).is_some_and(|s| !s.dead && s.alignment == side && s.enemies & av.alignment != 0)
+            })
+            .collect();
+        for id in helpers {
+            self.roused.insert(id);
+            self.world.set_target(id, AVATAR);
         }
     }
 

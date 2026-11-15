@@ -13,7 +13,7 @@ u8render    pixels               sprites, upscalers, painter's sort, text → RG
 u8view / u8tool                  apps: window + GPU + audio + input / command line
 ```
 
-## u8data — formats
+## u8data: formats
 
 One module per file type: `flex` (archives), `palette`, `shape` (RLE frames), `typeflag` (shape
 properties), `map` (FIXED/NONFIXED/ITEMCACH items, globs), `anim` (ANIM.DAT), `font`, `music`
@@ -26,10 +26,10 @@ table compiled into U8.EXE, found by signature). `GameData::load` opens an insta
 
 Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mutations` tests).
 
-## u8engine — the game
+## u8engine: the game
 
-- **`world::World`** — the live map. Every item is an `Entry` (item + world box + `Traits` from
-  TYPEFLAG), addressed by `ObjId` (NPC number, or 256+) — including eggs, editor markers and
+- **`world::World`**: the live map. Every item is an `Entry` (item + world box + `Traits` from
+  TYPEFLAG), addressed by `ObjId` (NPC number, or 256+), including eggs, editor markers and
   invisible items, which scripts need; `Entry::shown()` says what a player would see. A
   world-space grid answers `area()` and collision (`try_move`, `try_move_air`, `floor_under`,
   `ceiling`). Every change marks the entry dirty; views pick changes up with `take_dirty()`.
@@ -43,7 +43,7 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   Files: `world.rs` (entries, the grid, adding and removing), and in `world/`: `contents.rs` (containers and
   the void), `collision.rs`, `actors.rs` (combat state, targets, actions run for scripts,
   weapon overlays), `scenery.rs` (TYPEFLAG animation).
-- **`avatar::Avatar`** — walking, running, jumping, climbing (the lowest ANIM.DAT climb that
+- **`avatar::Avatar`**: walking, running, jumping, climbing (the lowest ANIM.DAT climb that
   `World::anim_fits`), hanging (on a jump's way down, wherever ANIM.DAT's `climbUp` would fit:
   shown with `hang`; pull up or let go), being knocked flat (`knock_down`: `fallBackwards`, then
   `standUp` and two `shakeHead`s, stunned till up), and the combat stance (ready/unready, advance, retreat, turn, swing, kick,
@@ -52,26 +52,26 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   combat lives in the `World` (scripts set and clear it too); the wielded weapon is a
   `world::Overlay` placed per pose from WPNOVLAY.DAT (`u8data::overlay`), drawn by the painter
   over the actor.
-- **`eggs::Hatcher`** — fires eggs the Avatar walks into (once per visit): usecode eggs run their
+- **`eggs::Hatcher`**: fires eggs the Avatar walks into (once per visit): usecode eggs run their
   `hatch` event (class = quality + 0x47F), teleporters (frame ≠ 1) move the Avatar to the
   destination egg (frame 1) with the same id on the egg's target map. Monster eggs are left to scripts.
-- **`npc::Walk`** — an NPC walking where a script sent it (`pathfindToItem` queues a
+- **`npc::Walk`**: an NPC walking where a script sent it (`pathfindToItem` queues a
   `usecode::Request::Walk`; the game steps it each tick and finishes the script's process on
   arrival or when it gets stuck). Routes come from **`path::find`**: A* over whole and part steps
   of the walk animation (advance in combat) in the 8 facings, each played out frame by frame with
   `World::step_from` (the same collision as walking), as ScummVM's Pathfinder does. The walker
-  takes them one `World::play_part` at a time — the animation moves it — and plans again when a
+  takes them one `World::play_part` at a time (the animation moves it) and plans again when a
   step won't go; people are ignored when planning and planned round when they turn out to be in
   the way.
-- **`camera::Camera`** — where the view looks: following an item (the Avatar, or whoever a
-  cutscene centres on — `Camera::setCenterOn` 0xBE) or held and gliding to a point
+- **`camera::Camera`**: where the view looks: following an item (the Avatar, or whoever a
+  cutscene centres on: `Camera::setCenterOn` 0xBE) or held and gliding to a point
   (`Camera::scrollTo` 0xB5, a process that ends on arrival). `Game::camera()` is the point hosts
   centre on; it resets to the Avatar on a new map or when no script is running.
-- **`film::Film`** — an SKF film (`u8data::skf`) played on a 320×200 palette screen: pictures
+- **`film::Film`**: an SKF film (`u8data::skf`) played on a 320×200 palette screen: pictures
   one per frame (`speed`/70 s each), events for music, effects, recorded lines and subtitles,
   waits (1/15 s) and fades; hands the host `Cue`s. The viewer's `films.rs` shows it (the intro
   before a new game's name prompt, the ending on the `playEndgame` intrinsic, both from the menu).
-- **`touch`** — contact events (ScummVM's collideMove): when anyone in the fast area steps (a
+- **`touch`**: contact events (ScummVM's collideMove): when anyone in the fast area steps (a
   jump of more than 128 in a tick is a script's teleport: no events, as ScummVM), the player puts
   something down or picks it up, or something lands, what it newly touches (overlaps or stands
   on, `World::contacts`) gets `gotHit` and the mover `hit`; what it stops touching gets
@@ -82,9 +82,9 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   `kit` is a tester's kit (`Game::give_test_kit`: stats, a bag of every school's magic, the story
   flags it needs; `go_to` the recall item's places); `u8tool kit` saves it. `vm.cheats` answers
   the scripts' `avatarCanCheat` (the Avatar's look then opens the original's developers' menu).
-- **`fast_area::FastArea`** — the live neighbourhood of the Avatar: items entering it get
+- **`fast_area::FastArea`**: the live neighbourhood of the Avatar: items entering it get
   `enterFastArea` (NPC routines, ambient sounds, many eggs), leaving it `leaveFastArea`.
-- **`usecode`** — the VM.
+- **`usecode`**: the VM.
   - `vm.rs` the `Vm` and its scheduler; in `vm/`: `procs.rs` spawning and killing processes,
     `memory.rs` pointers (segment:offset) and global bits, `exec.rs` the opcode interpreter,
     `messages.rs` the `UiEvent`s and `Request`s scripts send out. As in ScummVM, a spawned process
@@ -99,58 +99,58 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
     it over a `World`. Tests run the VM against a stub host.
   - Scripts talk to the player through `UiEvent`s (bark, ask, read, music, sfx); the UI answers
     with `Vm::finish` / `Vm::answer`.
-- **`persist`** — a `Game` as a save: starts from the loaded files and writes back what the engine
-  models (each visited map's movable items with what's inside them — `world::Origin` says which
-  items those are — NPC records and what each person carries (ITEMCACH, reusing object slots;
+- **`persist`**: a `Game` as a save: starts from the loaded files and writes back what the engine
+  models (each visited map's movable items with what's inside them (`world::Origin` says which
+  items those are), NPC records and what each person carries (ITEMCACH, reusing object slots;
   NPCDATA's equipment list from what's worn),
   global flags, the clock; our extras go in `OPENU8.DAT`).
-- **`stats::Stats`** — everyone's STR/DEX/INT/HP/mana, sides (NPCDATA alignment byte: own
-  nibble, enemies nibble) and state flags (bytes 0x1B/0x2F/0x30: dead, immortal — key characters
-  start so —, invincible, in combat, withstand death, playing dead; other bits kept as loaded),
+- **`stats::Stats`**: everyone's STR/DEX/INT/HP/mana, sides (NPCDATA alignment byte: own
+  nibble, enemies nibble) and state flags (bytes 0x1B/0x2F/0x30: dead, immortal (key characters
+  start so), invincible, in combat, withstand death, playing dead; other bits kept as loaded),
   owned by the `Game`, read and changed by scripts through the `Host`, saved back into NPCDATA
   (in-combat from the worlds).
-- **`combat`** — `impl Game`: a swing's reach (the attack frame's range × 32 units ahead),
+- **`combat`**: `impl Game`: a swing's reach (the attack frame's range × 32 units ahead),
   `receive_hit` (ScummVM's rules: defences, armour, a DEX roll, damage; death; the struck turn
   on the striker; things get `gotHit` or break); scripts' `Item::receiveHit` arrives as a
   `Request::Hit`. The Avatar's numbers come from its gear, everyone else's from `monsters`.
   `World::play` runs actor animations for scripts' `doAnim`, deaths and the like.
-- **`monsters`** — fighting numbers by shape (hit points, dexterity, damage, armour, damage and
+- **`monsters`**: fighting numbers by shape (hit points, dexterity, damage, armour, damage and
   defence types, sides), ScummVM's u8monsters table.
-- **`fight`** — `impl Game`: everyone in combat but the Avatar (ScummVM's CombatProcess): the
+- **`fight`**: `impl Game`: everyone in combat but the Avatar (ScummVM's CombatProcess): the
   quarry a blow or script named (`World::target`), else the nearest enemy; close in (`npc::Walk`),
   turn a step at a time, swing in reach, the blow landing on the frame that reaches; a pause by
   DEX. Joining a fight stops the person's scripts and walks; schedules skip fighters.
-- **The ethereal stack** — `World::{push_ethereal, ethereal_top}`, `Host::pop_ethereal(Pop)`:
+- **The ethereal stack**: `World::{push_ethereal, ethereal_top}`, `Host::pop_ethereal(Pop)`:
   scripts make things (`Item::create`, `Actor::createActor`) or push them into the void, then pop
   the *top* of the stack back, to a point or into a container (ScummVM's reading). Left over on
   leaving a map: thrown away. `createActor` takes a slot from `vm.free_npcs` (the game refreshes
   it once a second and on map changes; the host re-checks the slot).
-- **`fade`** — the palette's colour matrix (ScummVM's PaletteManager transforms: grey, storms,
+- **`fade`**: the palette's colour matrix (ScummVM's PaletteManager transforms: grey, storms,
   saturate…) and the fade under way; kept by the `Vm` (`vm.fade`), ticked with it; the viewer
   applies `rows()` in its presenting shader. `vm.quake` shakes the view.
-- **`gravity`** — `impl Game`: things in the air (`hurl`, `fall`; ScummVM's GravityProcess):
+- **`gravity`**: `impl Game`: things in the air (`hurl`, `fall`; ScummVM's GravityProcess):
   `World::sweep` moves them in 8-unit steps (checking the whole height passed, so flat floors
   catch them) and says what stopped them on which axes; walls halve and turn the speed, landing
   on non-floor (or hard) bounces at a random angle, edges slide off; people falling 80+ are hurt
-  (the Avatar, over an edge — `Avatar::take_drop` — falls this way too, unsteered; hurt 6+ it's
+  (the Avatar, over an edge (`Avatar::take_drop`) falls this way too, unsteered; hurt 6+ it's
   knocked flat, and while it's down its armour counts half and blows always land).
   `explode` (sprite 578, sfx 31/158, 6–11 blunt+fire within 160) and `ignite` (oil flasks).
   Struck things: `gotHit`, else explode, break, or get knocked flying.
-- **`heal`** — the Avatar's recovery: 1 HP a real minute, mana at the half, hunger; `feedAvatar`.
-- **`sprites`** — scripts' sprite effects (`createSprite`): a temporary item stepped through its
+- **`heal`**: the Avatar's recovery: 1 HP a real minute, mana at the half, hunger; `feedAvatar`.
+- **`sprites`**: scripts' sprite effects (`createSprite`): a temporary item stepped through its
   frames, its process finished when done.
-- **`spawn`** — `impl Game`: monster eggs (`hatch_monster`: shape in the egg's quality, id and
-  activity in its map byte; a free NPC slot — shape 0 or put away, lowest first as the
+- **`spawn`**: `impl Game`: monster eggs (`hatch_monster`: shape in the egg's quality, id and
+  activity in its map byte; a free NPC slot: shape 0 or put away, lowest first as the
   original's free list; HP/DEX rolled from `monsters`), putting hatched creatures away
   (void + ETHEREAL) when they leave the fast area or the map, loitering (activity 0), loot on
   death (`monsters::Loot`), the risen dead, and `use_item` (a dead body opens gump 12).
-- **`equip`** — what's worn where (`Slot` from the TYPEFLAG equip nibble; on the paperdoll at
+- **`equip`**: what's worn where (`Slot` from the TYPEFLAG equip nibble; on the paperdoll at
   the slot's spot in the worn frame, the one after the ground frame), weights in tenths (coins per
   hundred, reagents per ten; the paperdoll rounds up, as the original) and the 4 × STR limit; `Game::{equip, stow, move_item}` apply them.
-- **`game::Game`** — a session (`Game::open(root, slot, map)`, `snapshot`, `save`): data + world + avatar + scripts. `update(dt, &Input)` advances
+- **`game::Game`**: a session (`Game::open(root, slot, map)`, `snapshot`, `save`): data + world + avatar + scripts. `update(dt, &Input)` advances
   movement and game ticks (30 Hz: scenery animation every TYPEFLAG-speed ticks → eggs → fast area → schedules →
   walks → loitering → the risen → fights → scripts) on fixed steps. It keeps the game clock (`minutes()`; continues from the save's kernel
-  frame counter, 60 a second: a game hour is 7½ real minutes) and runs every NPC's `schedule` event each game hour; `trigger(id, event)` runs look/use; `teleport(map, id)` takes the Avatar along;
+  clock, KERNEL.DAT entry 20: a game hour is 15 real minutes) and runs every NPC's `schedule` event each game hour; `trigger(id, event)` runs look/use; `teleport(map, id)` takes the Avatar along;
   `load_map` swaps worlds and stops scripts. On entering a map, map items (not actors) get
   `cachedIn` (music objects pick the song); a new game hatches the FIRST egg (the opening). Maps you leave are kept as they were, so opened
   doors stay open when you come back. Files: `game.rs` (the session, `update`, the tick), in `game/`:
@@ -162,14 +162,15 @@ The engine takes time as `dt` seconds, never reads the clock, so it is determini
 Behaviour tests against a real install are in `u8engine/tests/`: `game.rs` (the map, moving,
 scenery), `people.rs`, `items.rs`, `combat.rs`, `saves.rs`, with helpers in `tests/common/`.
 
-## u8render — pixels
+## u8render: pixels
 
 - `upscale`: nearest, xBRZ, banded parallel xBRZ.
 - `sprite::SpriteCache`: frame → RGBA at a scale (seamless per-sprite upscaling, mirroring),
   with a memory budget (`begin_frame` evicts unused sprites when over).
 - `painter::Painter`: screen-space index over a `World`, kept in sync incrementally
   (`sync` also reports whether anything visible changed), the per-frame depth sort (port of
-  ScummVM's `SortItem::below`), `draw` into a `Canvas`, and `pick` items under a point.
+  ScummVM's `SortItem::below`, except that two things flat in y on the same plane go nearer-last
+  as in DOS), `draw` into a `Canvas`, and `pick` items under a point.
 - `text`: outlined text and shaded panels.
 
 ## Apps
@@ -192,14 +193,14 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `saves.rs`, with helpers in `tes
   menus. `ui.rs` shows barks, conversation choices (numbered panel or the original's bulleted style),
   pages and notices. `menu.rs` is the original's book menus drawn with its own art (U8GUMPS.FLX
   35 book, 32 logo, 37 menu entries): main menu, diary (save/load), options, the quit question
-  (17 window, 18 question, 47/50 Yes/No) — it returns `menu::Action`s for `App::menu_action`; the
+  (17 window, 18 question, 47/50 Yes/No); it returns `menu::Action`s for `App::menu_action`; the
   game is paused while it's open. `credits.rs` rolls the credits and quotes (decoded by
   `u8data::credits`) over a black screen, the game paused. `settings.rs` keeps the player's
   options between runs.
   `audio.rs` mixes music, effects and speech into one stream; effects tied to an item are
   re-placed (volume, pan) every frame from where the item is relative to the camera.
-- **u8tool**: `main.rs` dispatches to one module per command group (`export`, `map` — which also
-  makes `kit` saves —, `uc`, `music`); `cli.rs` has the argument and image helpers.
+- **u8tool**: `main.rs` dispatches to one module per command group (`export`, `map`, which also
+  makes `kit` saves, `uc`, `music`); `cli.rs` has the argument and image helpers.
 
 ## Adding things
 

@@ -12,25 +12,54 @@ impl Palette {
         let mut p = [[0u8, 0, 0, 255]; 256];
         for (i, c) in p.iter_mut().enumerate() {
             for k in 0..3 {
-                let v = d[4 + i * 3 + k] & 63;
-                c[k] = (v << 2) | (v >> 4);
+                c[k] = six_bit(d[4 + i * 3 + k]);
             }
         }
         Ok(Self(p))
     }
 }
 
-/// U8 "xform" palette: in translucent shapes, indices 8–14 blend over the background
-/// instead of drawing their palette colour. Values follow Pentagram/ScummVM (RGB + alpha).
-pub fn xform(index: u8) -> Option<[u8; 4]> {
-    Some(match index {
-        8 => [48, 48, 48, 80],
-        9 => [24, 24, 24, 80],
-        10 => [64, 64, 24, 64],
-        11 => [80, 80, 80, 80],
-        12 => [180, 90, 0, 80],
-        13 => [0, 0, 0, 160],
-        14 => [0, 0, 0, 80],
-        _ => return None,
-    })
+/// A VGA 6-bit colour channel to 8 bits (63 → 255).
+fn six_bit(v: u8) -> u8 {
+    let v = v & 63;
+    (v << 2) | (v >> 4)
+}
+
+/// The colours translucent shapes blend with: palette indices 8–14 in a TRANSL shape mix this colour
+/// over what's behind instead of drawing their own (glass, glows, shadows).
+#[derive(Clone)]
+pub struct XForm(pub [[u8; 4]; 7]);
+
+impl XForm {
+    /// XFORMPAL.DAT entry 1: 6-bit (r, g, b, alpha out of 63) for indices 8–15. The original draws
+    /// through lookup tables made from these (entry 0: each background index to the nearest
+    /// palette colour of the blend; they match a blend at alpha/63).
+    pub fn parse(f: &crate::flex::Flex) -> Option<Self> {
+        let d = f.get(1).filter(|d| d.len() >= 28)?;
+        let mut x = [[0u8; 4]; 7];
+        for (i, c) in x.iter_mut().enumerate() {
+            let r = &d[i * 4..i * 4 + 4];
+            *c = [six_bit(r[0]), six_bit(r[1]), six_bit(r[2]), ((r[3].min(63) as u32 * 255 + 31) / 63) as u8];
+        }
+        Some(Self(x))
+    }
+
+    pub fn get(&self, index: u8) -> Option<[u8; 4]> {
+        (8..15).contains(&index).then(|| self.0[index as usize - 8])
+    }
+}
+
+impl Default for XForm {
+    /// The file's values, for when it's missing.
+    fn default() -> Self {
+        Self([
+            [109, 109, 109, 101],
+            [36, 36, 36, 142],
+            [190, 195, 105, 93],
+            [255, 255, 255, 81],
+            [255, 81, 81, 146],
+            [60, 60, 255, 215],
+            [0, 0, 121, 134],
+        ])
+    }
 }

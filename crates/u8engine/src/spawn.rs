@@ -76,7 +76,7 @@ impl Game {
     pub(crate) fn free_npcs(&self) -> Vec<ObjId> {
         let worlds: Vec<&World> = std::iter::once(&self.world).chain(self.visited.values()).collect();
         let loaded = |m: usize| worlds.iter().any(|w| w.map() as usize == m);
-        (AVATAR + 1..256)
+        (AVATAR + 1..255) // (255 is the original's free-list tail: never handed out)
             .filter(|&n| {
                 let mut here = worlds.iter().filter_map(|w| w.index(n).map(|i| &w.entry(i).it)).peekable();
                 if here.peek().is_some() {
@@ -108,6 +108,7 @@ impl Game {
         self.world.set_void(id, true);
         self.world.set_in_combat(id, false);
         self.fights.remove(&id);
+        self.roused.remove(&id);
         self.loiters.remove(&id);
         self.rising.retain(|&(r, _)| r != id);
         self.stop_walking(id);
@@ -289,6 +290,14 @@ impl Game {
             let dir = crate::avatar::facing(&self.data, &it).unwrap_or(0);
             self.world.play(&self.data, id, action::STAND_UP, dir);
         }
+    }
+
+    /// Can the player use `id` (a double click)? People always (to talk, or search the dead);
+    /// anything else within reach, as the original (ScummVM's GameMapGump: canReach, else the
+    /// red cross).
+    pub fn can_use(&self, id: ObjId) -> bool {
+        let person = id < 256 || self.world.get(id).is_some_and(|it| it.npc != 0);
+        person || self.within_reach(id)
     }
 
     /// Double-click on `id`: a dead body opens (or closes) for searching; anything else is used.
