@@ -146,7 +146,7 @@ impl World {
             .filter(|p| p.physical() && p.bounds().overlaps_xy(&to))
             .collect();
         let blocked = near.iter().any(|p| p.traits.solid && p.z1 > to.z0 && p.it.z < to.z1);
-        let resting = near.iter().any(|p| !p.traits.actor && p.z1 == z);
+        let resting = near.iter().any(|p| p.underfoot() && p.z1 == z);
         (blocked, resting)
     }
 
@@ -175,7 +175,7 @@ impl World {
         self.near(a.x0, a.y0, a.x1, a.y1)
             .filter(|&i| i != idx)
             .map(|i| &self.entries[i])
-            .any(|p| p.physical() && !p.traits.actor && p.bounds().overlaps_xy(&a) && p.z1 <= a.z0 + STEP)
+            .any(|p| p.physical() && p.underfoot() && p.bounds().overlaps_xy(&a) && p.z1 <= a.z0 + STEP)
     }
 
     /// Height `id` lands at: the highest surface under it no more than a step above its feet.
@@ -185,7 +185,7 @@ impl World {
         self.near(a.x0, a.y0, a.x1, a.y1)
             .filter(|&i| i != idx)
             .map(|i| &self.entries[i])
-            .filter(|p| p.physical() && !p.traits.actor && p.bounds().overlaps_xy(&a))
+            .filter(|p| p.physical() && p.underfoot() && p.bounds().overlaps_xy(&a))
             .map(|p| p.z1)
             .filter(|&top| top <= a.z0 + STEP)
             .max()
@@ -260,7 +260,7 @@ impl World {
             .map(|i| &self.entries[i])
             .filter(|p| p.physical() && (actors || !p.traits.actor) && p.bounds().overlaps_xy(&to))
             .collect();
-        let floor = near.iter().filter(|p| !p.traits.actor).map(|p| p.z1).filter(|&top| top <= from.2 + up).max()?;
+        let floor = near.iter().filter(|p| p.underfoot()).map(|p| p.z1).filter(|&top| top <= from.2 + up).max()?;
         let blocked = floor < from.2.saturating_sub(down)
             || near.iter().any(|p| {
                 // What it's already inside (a door swung into it) doesn't hold it there (ScummVM).

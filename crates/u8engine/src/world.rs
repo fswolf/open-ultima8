@@ -177,6 +177,14 @@ impl Entry {
     pub(crate) fn marker(&self) -> bool {
         self.traits.egg || (self.traits.editor && !self.traits.solid)
     }
+    /// Something to stand on, if it's in the way underfoot: not people, but the creatures the
+    /// original flags as land (skellots and spiders, 806 and 807, 8 high, which the clue book
+    /// says "can be squished underfoot"): the Avatar steps onto one and the touch runs its
+    /// gotHit, which finds it on top and squashes it. The insect (824, 16 high, not land) is too
+    /// tall to step onto (the clue book doesn't list it); one landed on is squashed the same way.
+    pub(crate) fn underfoot(&self) -> bool {
+        !self.traits.actor || self.traits.land
+    }
     /// Something you could stand on or bump into.
     fn physical(&self) -> bool {
         self.present() && !self.marker() && (self.traits.solid || self.traits.land)

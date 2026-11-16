@@ -481,3 +481,68 @@ fn guards_give_chase() {
         }
     }
 }
+
+/// Rats (806) are low and flagged as land: the Avatar walks onto one rather than into it, and
+/// standing on it runs its gotHit, which finds the Avatar on top and squashes it (as in DOS).
+/// Outdoors, by the docks' rat egg (indoors a ceiling at 88 leaves no room to step up 8).
+#[test]
+#[ignore]
+fn walking_onto_a_rat_squashes_it() {
+    let Some(mut g) = saved(3) else { return };
+    g.put_avatar(3, (9808, 2760, 48));
+    let a = g.world.get(AVATAR).unwrap();
+    let (dir, at) = [(2usize, (96, 0)), (4, (0, 96)), (6, (-96, 0)), (0, (0, -96))]
+        .into_iter()
+        .map(|(d, (dx, dy))| (d, (a.x + dx, a.y + dy, a.z)))
+        .find(|&(_, at)| g.world.clear_at(&g.data, 806, at))
+        .expect("room for a rat");
+    // (activity 2: it stands where it is)
+    let egg = u8data::map::Item { x: at.0, y: at.1, z: at.2, quality: 806, mapnum: 2, ..Default::default() };
+    let rat = g.hatch_monster(egg).expect("a rat");
+    let mut squish = false;
+    for _ in 0..60 {
+        g.update(1.0 / 30.0, &Input { dir: Some(dir), ..Input::default() });
+        for e in g.take_events() {
+            squish |= matches!(e, u8engine::usecode::UiEvent::Sfx { sfx: 0x55, .. });
+        }
+        if g.stats.get(rat).is_some_and(|s| s.dead) {
+            break;
+        }
+    }
+    let av = g.world.get(AVATAR).unwrap();
+    assert!(g.stats.get(rat).is_some_and(|s| s.dead), "squashed underfoot (avatar at z {})", av.z);
+    assert!(squish, "with its squish");
+}
+
+/// The other creatures that squash: a spider (807, 8 high, like a skellot) walked onto, and an
+/// insect (824, 16 high: too high to step onto, and the clue book doesn't list it as squished
+/// underfoot) only when landed on.
+#[test]
+#[ignore]
+fn spiders_and_insects_squash_too() {
+    // (walk: walked into; else dropped on from above)
+    let squashed = |shape: u16, walk: bool| {
+        let mut g = saved(3)?;
+        g.put_avatar(3, (9808, 2760, 48));
+        let a = g.world.get(AVATAR).unwrap();
+        let at = (a.x + 96, a.y, a.z);
+        let egg = u8data::map::Item { x: at.0, y: at.1, z: at.2, quality: shape, mapnum: 2, ..Default::default() };
+        let id = g.hatch_monster(egg).expect("a creature");
+        if !walk {
+            g.put_avatar(3, (at.0 + 16, at.1 + 16, at.2 + 60));
+            g.fall(AVATAR);
+        }
+        for _ in 0..60 {
+            let dir = walk.then_some(2);
+            g.update(1.0 / 30.0, &Input { dir, ..Input::default() });
+            if g.stats.get(id).is_some_and(|s| s.dead) {
+                break;
+            }
+        }
+        Some(g.stats.get(id).is_some_and(|s| s.dead))
+    };
+    let Some(spider) = squashed(807, true) else { return };
+    assert!(spider, "a spider walked onto");
+    assert_eq!(squashed(824, true), Some(false), "an insect isn't: too high a step");
+    assert_eq!(squashed(824, false), Some(true), "an insect landed on");
+}
