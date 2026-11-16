@@ -338,3 +338,57 @@ fn people_gesture_while_they_talk() {
     assert!(during, "gestures while speaking");
     assert!(asked > 0 && after.is_some());
 }
+
+/// Scenery that animates is saved at whatever frame it shows; loading it back matches it to the
+/// map's own without the frame. Six saves and loads, with waits between (lava on map 50, the sea
+/// on the docks, torches): the same number of things each time, and on map 40 the torches and
+/// banners stay part of the map, not loose things.
+#[test]
+#[ignore]
+fn saves_dont_double_animated_scenery() {
+    use u8engine::world::Origin;
+    let Some(dir) = std::env::var_os("U8_DATA") else { return };
+    let root = std::path::Path::new(&dir);
+    let count = |g: &Game| g.world.objects().filter(|&id| g.world.get(id).is_some()).count();
+    let movable = |g: &Game| {
+        g.world
+            .objects()
+            .filter(|&id| g.world.index(id).is_some_and(|i| g.world.entry(i).origin == Origin::Movable))
+            .count()
+    };
+    for (slot, at) in [(2, Some((50, (2948, 10612, 48)))), (3, None), (1, None), (2, None)] {
+        let Ok(mut g) = Game::open(root, Some(slot), None) else { return };
+        if let Some((map, at)) = at {
+            g.put_avatar(map, at);
+        }
+        g.update(0.1, &Input::default());
+        let (n, m) = (count(&g), movable(&g));
+        for k in 0..6 {
+            for _ in 0..37 * (k + 1) {
+                g.update(1.0 / 30.0, &Input::default());
+            }
+            let s = g.snapshot();
+            g = Game::new(u8data::GameData::load_save(root, Some(&s)).unwrap(), None, None).unwrap();
+            assert_eq!((count(&g), movable(&g)), (n, m), "slot {slot} map {}, cycle {k}", g.map());
+        }
+        if g.map() == 40 {
+            // None of the loose things is animated scenery standing on a piece of the map's own.
+            let fixed: std::collections::HashSet<_> = g
+                .world
+                .objects()
+                .filter_map(|id| g.world.index(id).map(|i| g.world.entry(i)))
+                .filter(|e| e.origin == Origin::Fixed)
+                .map(|e| (e.it.x, e.it.y, e.it.z, e.it.shape))
+                .collect();
+            let doubled = g
+                .world
+                .objects()
+                .filter_map(|id| g.world.index(id).map(|i| g.world.entry(i)))
+                .filter(|e| e.origin == Origin::Movable && g.data.animates(e.it.shape))
+                .filter(|e| fixed.contains(&(e.it.x, e.it.y, e.it.z, e.it.shape)))
+                .count();
+            assert_eq!(doubled, 0);
+            println!("map 40: {m} loose things");
+        }
+    }
+}

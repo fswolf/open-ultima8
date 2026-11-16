@@ -165,7 +165,7 @@ impl World {
                     continue;
                 }
                 seen |= id == other;
-                blocked |= e.traits.solid && !e.traits.editor && !e.traits.egg;
+                blocked |= e.traits.solid && !e.marker();
             }
             if seen {
                 return true;

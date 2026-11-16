@@ -4,8 +4,8 @@ resolver = "2"
 #   u8data   – file formats
 #   u8engine – game state and rules (world, actors, usecode VM)
 #   u8render – pixels (sprites, upscaling, painter's sort, text)
-#   u8view / u8tool – the apps
-members = ["crates/u8data", "crates/u8engine", "crates/u8render", "crates/u8tool", "crates/u8view"]
+#   u8view / u8tool – the apps; u8cmp – the test harness (headless play, random walks)
+members = ["crates/u8data", "crates/u8engine", "crates/u8render", "crates/u8tool", "crates/u8view", "crates/u8cmp"]
 
 [workspace.package]
 version = "0.1.0"

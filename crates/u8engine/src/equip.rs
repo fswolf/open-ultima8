@@ -201,6 +201,12 @@ pub fn holds(gd: &GameData, world: &World, id: ObjId) -> bool {
 /// Avatar's figure has one drawn on).
 pub const BACKPACK_SPOT: (i32, i32) = (40, 63);
 
+/// A worn thing's z, as the DOS saves keep it: its slot (shield 0, arms 1, head 2, body 3, legs
+/// 4, weapon 5), the pack 6 (ScummVM's setEquip: setZ(equiptype)).
+pub fn worn_z(gd: &GameData, shape: u32) -> i32 {
+    Slot::of(gd, shape).map_or(6, |s| s as i32 - 1)
+}
+
 /// Where and how the paperdoll shows a worn thing: its slot's spot (whatever position was
 /// saved) and its worn look, the frame after its ground frame (armour comes in such pairs).
 pub fn paperdoll_look(gd: &GameData, it: &u8data::map::Item) -> Option<((i32, i32), u32)> {

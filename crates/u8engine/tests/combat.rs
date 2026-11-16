@@ -438,3 +438,46 @@ fn drowning_leaves_the_view_over_the_water() {
     let (at, was) = (g.camera().unwrap(), last.unwrap());
     assert!((at.0 - was.0).abs() < 64 && (at.1 - was.1).abs() < 64, "the view stays: {at:?} vs {was:?}");
 }
+
+/// Guards give chase round the castle: struck from the open ground south of the archway (slot
+/// 2), with the Avatar running off south, east or west, guards 50 and 51 follow and close in.
+#[test]
+#[ignore]
+fn guards_give_chase() {
+    for dir in [4, 2, 5] {
+        let Some(mut g) = saved(2) else { return };
+        g.put_avatar(40, (12799, 9400, 48));
+        g.stats.get_mut(AVATAR).unwrap().hp = 250;
+        let tick = |g: &mut Game, input: Input, n: usize| {
+            for _ in 0..n {
+                g.update(1.0 / 30.0, &input);
+            }
+        };
+        let (gd, w) = (&g.data, &mut g.world);
+        g.avatar.as_mut().unwrap().turn(gd, w, 0);
+        tick(&mut g, Input { combat: true, ..Input::default() }, 1);
+        tick(&mut g, Input::default(), 30);
+        for _ in 0..3 {
+            tick(&mut g, Input { dir: Some(0), attack: true, ..Input::default() }, 1);
+            tick(&mut g, Input::default(), 25);
+        }
+        tick(&mut g, Input { combat: true, ..Input::default() }, 1);
+        tick(&mut g, Input::default(), 30);
+        tick(&mut g, Input { dir: Some(dir), run: true, ..Input::default() }, 90); // (staying in the fast area)
+        tick(&mut g, Input::default(), 900);
+        let a = g.world.get(AVATAR).unwrap();
+        for guard in [50, 51] {
+            let it = g.world.get(guard).unwrap();
+            let d = (it.x - a.x).abs().max((it.y - a.y).abs());
+            assert!(
+                g.world.in_combat(guard) && d < 320,
+                "running {dir}: guard {guard} {d} away, at ({}, {}), avatar ({}, {}), target {:?}",
+                it.x,
+                it.y,
+                a.x,
+                a.y,
+                g.world.target(guard)
+            );
+        }
+    }
+}

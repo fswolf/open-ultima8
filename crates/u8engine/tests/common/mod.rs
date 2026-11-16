@@ -33,3 +33,13 @@ pub fn make_room(g: &mut Game) -> Option<u16> {
     g.world.move_to_map(&g.data, bag, (a.x, a.y + 64, a.z));
     Some(bag)
 }
+
+/// Saved game `slot` (the scripts loaded).
+pub fn saved(slot: u32) -> Option<Game> {
+    let dir = PathBuf::from(std::env::var("U8_DATA").ok()?);
+    let mut g = Game::open(&dir, Some(slot), None).ok()?;
+    if g.scripts.is_none() {
+        g.scripts = Scripts::load(&dir, &g.data).ok();
+    }
+    Some(g)
+}

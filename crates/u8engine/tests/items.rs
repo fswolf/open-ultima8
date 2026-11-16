@@ -451,3 +451,75 @@ fn the_avatar_turns_to_what_it_puts_down() {
     g.update(1.0 / 30.0, &Input::default());
     assert_eq!(face(&g), Some(far.0), "thrown");
 }
+
+/// Worn things keep their slot in z, as the DOS saves have it (shield 0, arms 1, head 2, body 3,
+/// legs 4, weapon 5, pack 6): take everything off, put it on again, save, and each is back at
+/// the z the DOS save gave it.
+#[test]
+#[ignore]
+fn worn_things_keep_their_slot_number() {
+    use u8engine::{world::item_flag::EQUIPPED, Place};
+    let Some(mut g) = saved(2) else { return };
+    let worn = |g: &Game| {
+        let mut v: Vec<_> = g
+            .world
+            .contents(AVATAR)
+            .into_iter()
+            .filter_map(|id| g.world.get(id).filter(|it| it.flags & EQUIPPED != 0).map(|it| (id, it.shape, it.z)))
+            .collect();
+        v.sort();
+        v
+    };
+    let dos = worn(&g);
+    assert!(dos.len() >= 4 && dos.iter().all(|&(_, s, z)| z == u8engine::equip::worn_z(&g.data, s)), "{dos:?}");
+    let pack = g.backpack();
+    let a = g.world.get(AVATAR).unwrap();
+    for &(id, _, _) in dos.iter().filter(|(id, _, _)| Some(*id) != pack) {
+        let spot = [(96, 0), (0, 96), (-96, 0), (0, -96), (96, 96), (-96, 96)]
+            .map(|(dx, dy)| (a.x + dx, a.y + dy, a.z))
+            .into_iter()
+            .find(|&at| g.world.fits(&g.data, id, at))
+            .expect("a spot");
+        g.move_item(id, Place::Map(spot)).unwrap();
+    }
+    for &(id, _, _) in dos.iter().filter(|(id, _, _)| Some(*id) != pack) {
+        g.equip(id).unwrap();
+    }
+    let dir = std::env::var_os("U8_DATA").unwrap();
+    let s = g.snapshot();
+    let back =
+        Game::new(u8data::GameData::load_save(std::path::Path::new(&dir), Some(&s)).unwrap(), None, None).unwrap();
+    assert_eq!(worn(&back), dos);
+}
+
+/// Wielding another weapon puts the one in hand into the pack, but only if there's room: the
+/// castle save's pack is over full, so with the new one off the floor the swap is refused and
+/// nothing moves; out of the pack itself (it leaves room) or with the bag taken out, it goes
+/// through.
+#[test]
+#[ignore]
+fn a_weapon_swap_needs_room_in_the_pack() {
+    use u8engine::equip::{worn, Slot};
+    let Some(mut g) = saved(2) else { return };
+    let (Some(pack), Some(dagger)) = (g.backpack(), worn(&g.data, &g.world, AVATAR, Slot::Weapon)) else { return };
+    let other = 19532; // (a weapon carried in the pack)
+    assert_eq!(Slot::of(&g.data, g.world.get(other).unwrap().shape), Some(Slot::Weapon));
+    // Swapped for one out of the pack itself: the pack's no fuller after.
+    {
+        let Some(mut h) = saved(2) else { return };
+        assert_eq!(h.world.container(other), Some(pack));
+        assert_eq!(h.equip(other), Ok(()));
+        assert_eq!(h.world.container(dagger), Some(pack));
+    }
+    let a = g.world.get(AVATAR).unwrap();
+    g.world.move_to_map(&g.data, other, (a.x + 96, a.y, a.z));
+    let before = g.world.contents(pack);
+    assert_eq!(g.equip(other), Err("There's no room for that."));
+    assert_eq!(worn(&g.data, &g.world, AVATAR, Slot::Weapon), Some(dagger));
+    assert_eq!(g.world.contents(pack), before, "nothing went in");
+    assert!(g.world.container(other).is_none(), "the new one still on the floor");
+    make_room(&mut g);
+    assert_eq!(g.equip(other), Ok(()));
+    assert_eq!(worn(&g.data, &g.world, AVATAR, Slot::Weapon), Some(other));
+    assert_eq!(g.world.container(dagger), Some(pack));
+}

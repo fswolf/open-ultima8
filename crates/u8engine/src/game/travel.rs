@@ -145,6 +145,7 @@ impl Game {
         }
         self.avatar = Avatar::new(&self.data, &self.world).map(|mut a| {
             a.dir = dir.unwrap_or(a.dir);
+            a.arrive(&self.data, &mut self.world);
             a
         });
         self.hatcher.arrived_by_teleport();

@@ -232,7 +232,11 @@ impl GameData {
         };
         if let (Some(map::CachedArea { chunks, items, .. }), Some(e0)) = (cached, &self.itemcach) {
             let chunk = |it: &map::Item| (it.x >> 9, it.y >> 9);
-            let key = |it: &map::Item| (it.x, it.y, it.z, it.shape, it.frame);
+            // (Scenery that animates is saved at whatever frame it was showing: matched without
+            // the frame, or it'd come back as a second, movable copy each load.)
+            let key = |it: &map::Item| {
+                (it.x, it.y, it.z, it.shape, if self.animates(it.shape) { u32::MAX } else { it.frame })
+            };
             let mut held: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
             for (_, it) in &items {
                 *held.entry(key(it)).or_default() += 1;
@@ -270,6 +274,9 @@ impl GameData {
                         *n -= 1;
                         slots.entry(key(&it)).or_default().push(o);
                     }
+                    // A second copy of animated scenery on its very spot: what saves made before
+                    // the frame was left out of the match hold. Dropped.
+                    Some(_) if self.animates(it.shape) => {}
                     _ => movable.push((it, map::cache_contents_records(&inside, o))),
                 }
             }
@@ -290,6 +297,13 @@ impl GameData {
                 .map(|a| self.full_frame(a))
                 .collect(),
         }
+    }
+
+    /// Does `shape` animate as scenery (TYPEFLAG animation type 1 to 6, with frames to cycle
+    /// through, or type 5, which its script drives)? As u8engine's scenery animation reads it.
+    pub fn animates(&self, shape: u32) -> bool {
+        let k = self.typeflags.get(shape).anim_type;
+        (1..=6).contains(&k) && (k == 5 || self.shapes.get(shape).len() >= 2)
     }
 
     /// The Avatar (NPC 1) as saved in GAMEDAT, with its map number.

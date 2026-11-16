@@ -62,6 +62,8 @@ struct Act {
     pace: f32,
     /// This swing already struck something (once per swing).
     struck: bool,
+    /// A leap stopped going forward: it ends with the hop it's in.
+    stopped: bool,
     /// How it carries the Avatar along.
     moves: Moves,
 }
@@ -80,7 +82,7 @@ enum Moves {
 
 impl Act {
     fn new(action: usize, fwd: i32, pace: f32) -> Self {
-        Self { action, step: 0, fwd, wait: 0.0, pace, struck: false, moves: Moves::Fixed }
+        Self { action, step: 0, fwd, wait: 0.0, pace, struck: false, stopped: false, moves: Moves::Fixed }
     }
     fn moving(action: usize, moves: Moves) -> Self {
         Self { moves, ..Self::new(action, 0, ACT_FRAME) }
@@ -374,6 +376,19 @@ impl Avatar {
         true
     }
 
+    /// Just arrived somewhere (a teleport): standing, whatever it was doing (a jump into the
+    /// teleporter stays no frozen leap), on the floor if that's within a step.
+    pub(crate) fn arrive(&mut self, gd: &GameData, world: &mut World) {
+        self.stand(gd, world);
+        if let (Some(mut it), Some(z)) = (world.get(AVATAR), world.floor_under(AVATAR)) {
+            if (z - it.z).abs() <= STEP {
+                it.z = z;
+                world.set(gd, AVATAR, it);
+            }
+        }
+        self.hold(gd, world);
+    }
+
     /// Show the standing frame (at ease or in combat stance).
     fn stand(&mut self, gd: &GameData, world: &mut World) -> bool {
         let Some(mut it) = world.get(AVATAR) else { return false };
@@ -590,21 +605,40 @@ impl Avatar {
         }
         let airborne = frames[..=j.step].iter().map(|f| f.dz as i32).sum::<i32>() > 0 || f.dz != 0;
         let (dx, dy) = if airborne { (DIRS[dir].0 * j.fwd, DIRS[dir].1 * j.fwd) } else { (0, 0) };
-        // Prefer the full arc; under a low ceiling keep going forward at the same height.
+        // Prefer the full arc; under a low ceiling keep going forward at the same height. Never
+        // out over nothing at all (off the map's edge): it'd come down on nothing.
         let dz = f.dz as i32;
         let moved = [(dx, dy, dz), (dx, 0, dz), (0, dy, dz), (dx, dy, 0), (dx, 0, 0), (0, dy, 0), (0, 0, dz)]
             .iter()
             .filter(|t| **t != (0, 0, 0))
+            .filter(|&&(x, y, _)| (x, y) == (0, 0) || world.ground_below(AVATAR, x, y))
             .find_map(|&(x, y, z)| world.try_move_air(AVATAR, x, y, z));
+        let leap = j.action == action::JUMP || j.action == action::RUNNING_JUMP;
+        // Stopped going forward (a wall, the map's edge), it goes on up and down where it is (and
+        // can catch the ledge on the way down), but that hop is its last: at its end, or as soon
+        // as it can't come down further, it lands or drops. A running jump's second hop never
+        // starts from mid-air.
+        j.stopped |= leap && (dx, dy) != (0, 0) && moved.is_none_or(|(x, y, _)| (x, y) == (it.x, it.y));
         if let Some((x, y, z)) = moved {
             (it.x, it.y, it.z) = (x, y, z);
             world.set(gd, AVATAR, it);
+        }
+        if j.stopped && j.step > 0 && (f.dz == 0 || (f.dz < 0 && moved.is_none())) {
+            self.act = None;
+            if !self.grab(gd, world) {
+                match world.floor_under(AVATAR) {
+                    Some(z) if z >= it.z - STEP => it.z = z,
+                    _ => self.drop = true,
+                }
+                self.pose(gd, &mut it, self.stance(), 0);
+                world.set(gd, AVATAR, it);
+            }
+            return true;
         }
         j.step += 1;
         j.wait = j.pace;
         self.act = Some(j);
         // Coming down past a ledge just out of reach of the landing: catch it by the hands.
-        let leap = j.action == action::JUMP || j.action == action::RUNNING_JUMP;
         if leap && f.dz < 0 && self.grab(gd, world) {
             self.act = None;
         }

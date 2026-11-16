@@ -263,7 +263,8 @@ impl App {
         Some(u8engine::Place::Map(((sum + diff) / 2 + dx / 2, (sum - diff) / 2 + dy / 2, z)))
     }
 
-    /// A left press on a window's frame: bring it forward and drag it, or (double-click) close it.
+    /// A left press on a window's frame: bring it forward and drag it, or (double-click) use what
+    /// it belongs to (which closes it).
     /// The paperdoll's stats button shows the health and mana gauge; the gauge drags, and a
     /// double click on it opens the paperdoll in its place.
     pub(super) fn window_press(&mut self) -> bool {
@@ -290,7 +291,9 @@ impl App {
                     self.game.trigger(AVATAR, event::USE); // the Avatar's script opens its paperdoll
                 }
             } else {
-                self.close_window(item);
+                // Its owner is used (ScummVM's ContainerGump: a double click on the window uses
+                // the container), so its script closes it as it opened it: a chest's lid shuts.
+                self.game.use_item(item);
             }
             self.last_win_click = None;
         } else {

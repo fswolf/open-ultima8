@@ -126,10 +126,15 @@ impl Game {
             // Fight back: after whoever struck (a thing falling on them: the Avatar did it; a
             // fall of its own: nobody). Only a blow from the Avatar's own hand calls for help.
             let at = if self.is_person(by) { by } else { AVATAR };
-            if !self.world.in_combat(target) {
-                self.roused.insert(target);
+            // (A stray blow from a friend in the melee, someone it's no enemy of: no quarrel.)
+            let friend =
+                at != AVATAR && self.stats.get(target).zip(self.stats.get(at)).is_some_and(|(t, a)| !t.is_enemy(&a));
+            if !friend {
+                if !self.world.in_combat(target) {
+                    self.roused.insert(target);
+                }
+                self.world.set_target(target, at);
             }
-            self.world.set_target(target, at);
             if by == AVATAR {
                 self.call_for_help(target);
             }

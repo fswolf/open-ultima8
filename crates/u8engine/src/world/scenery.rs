@@ -12,13 +12,12 @@ pub(super) struct Cycle {
 
 /// Scenery animation for a shape: (cycle, total frames).
 pub(super) fn anim_info(gd: &GameData, shape: u32) -> Option<(Cycle, u32)> {
-    let si = gd.typeflags.get(shape);
-    let n = gd.shapes.get(shape).len() as u32;
-    let kind = si.anim_type;
-    if kind == 0 || kind > 6 || (n < 2 && kind != 5) {
+    if !gd.animates(shape) {
         return None;
     }
-    Some((Cycle { kind, data: si.anim_data as u32, speed: (si.anim_speed as u32).max(1) }, n))
+    let si = gd.typeflags.get(shape);
+    let n = gd.shapes.get(shape).len() as u32;
+    Some((Cycle { kind: si.anim_type, data: si.anim_data as u32, speed: (si.anim_speed as u32).max(1) }, n))
 }
 
 impl World {

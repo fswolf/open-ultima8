@@ -126,14 +126,22 @@ impl Windows {
         let k = self.wins.len() as i32 * 16;
         let mut at = ((vw - w) / 2 + k - 40, (vh - h) / 2 + k - 30);
         // Beside the window it was in (else the one on top): right, else left, else below, if
-        // there's room in the view. A bag's window with no room beside goes where the window it
-        // was in is, as DOS opens it.
+        // there's room in the view and it covers no other window. A bag's window with no room
+        // beside goes where the window it was in is, as DOS opens it.
         let parent = parent.and_then(|p| self.wins.iter().find(|w| w.item == p));
         if let Some(top) = parent.or(self.wins.last()) {
             let (tw, th) = art.size(top.gump);
-            let fits = |(x, y): (i32, i32)| x >= 0 && y >= 0 && x + w <= vw && y + h <= vh;
+            let clear = |(x, y): (i32, i32)| {
+                self.wins.iter().all(|o| {
+                    let (ow, oh) = art.size(o.gump);
+                    x + w <= o.at.0 || o.at.0 + ow <= x || y + h <= o.at.1 || o.at.1 + oh <= y
+                })
+            };
+            let fits = |(x, y): (i32, i32)| x >= 0 && y >= 0 && x + w <= vw && y + h <= vh && clear((x, y));
             let tries = [(top.at.0 + tw + 2, top.at.1), (top.at.0 - w - 2, top.at.1), (top.at.0, top.at.1 + th + 2)];
-            at = tries.into_iter().find(|&p| fits(p)).unwrap_or(parent.map_or(at, |p| p.at));
+            // (Not over the paperdoll, though: the backpack's window cascades as before.)
+            let bag_in = parent.filter(|p| p.gump != PAPERDOLL);
+            at = tries.into_iter().find(|&p| fits(p)).unwrap_or(bag_in.map_or(at, |p| p.at));
         }
         let at = (at.0.min(vw - w).max(0), at.1.min(vh - h).max(0)); // (in the view)
         self.wins.push(Win { item, gump, at });
@@ -363,8 +371,9 @@ mod tests {
         assert!(win.contents(&gd, &world, true).contains(&trap), "the editor view shows it");
     }
 
-    /// A bag's window opens beside the window it's in when there's room, else where that window
-    /// is (as DOS, which opens it on the same spot), kept in the view.
+    /// A bag's window opens beside the window it's in when there's room that covers no other
+    /// window, else where that window is (as DOS, which opens it on the same spot), kept in the
+    /// view.
     #[test]
     #[ignore] // needs U8 data
     fn a_bags_window_opens_by_the_one_it_was_in() {
@@ -381,12 +390,21 @@ mod tests {
         w.open(&art, sack, 3, None, small); // (something else on top)
         w.open(&art, inner, 2, Some(pack), small);
         assert_eq!(at(&w, inner), at(&w, pack));
-        // Room: beside it, on the right (not by the window on top).
+        // Room: beside it (not by the window on top), and not over another window: the sack's
+        // is on its right, so on its left.
         let mut w = Windows::default();
         w.open(&art, pack, 2, Some(1), (640, 400));
         w.open(&art, sack, 3, None, (640, 400));
         w.open(&art, inner, 2, Some(pack), (640, 400));
         let ((px, py), (ix, iy)) = (at(&w, pack), at(&w, inner));
-        assert_eq!((ix, iy), (px + art.size(2).0 + 2, py));
+        assert_eq!((ix, iy), (px - art.size(2).0 - 2, py));
+        // The original's 320x200: the pack, the inner pack beside it, a bag in that: no room
+        // beside that covers nothing, so the bag's window is on the inner pack's spot.
+        let mut w = Windows::default();
+        w.open(&art, pack, 2, Some(1), (320, 200));
+        w.open(&art, inner, 2, Some(pack), (320, 200));
+        assert_ne!(at(&w, inner), at(&w, pack), "beside");
+        w.open(&art, sack, 3, Some(inner), (320, 200));
+        assert_eq!(at(&w, sack), at(&w, inner));
     }
 }

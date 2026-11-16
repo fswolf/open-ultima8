@@ -11,6 +11,7 @@ u8engine    state + rules        World, Avatar, usecode VM, Game session. No pix
 u8render    pixels               sprites, upscalers, painter's sort, text → RGBA Canvas
    │
 u8view / u8tool                  apps: window + GPU + audio + input / command line
+u8cmp                            test harness: headless play, saves in and out, random walks
 ```
 
 ## u8data: formats
@@ -223,6 +224,8 @@ cargo run --release -p u8tool -- U8 uc smoke 40     # every look/use/hatch on a 
 cargo run --release -p u8tool -- U8 uc live 40 600 walk=3        # play headless: eggs, fast area, scripts, teleports
 cargo run --release -p u8tool -- U8 eggs 40         # every trigger on a map and where teleporters lead
 cargo run --release -p u8tool -- U8 map 40 c c 800 600 2 before.png    # compare renders across a change
+cargo run --release -p u8cmp -- play U8 2 at=4040,4800,0 walk=2,40 jump=2 wait=90 where   # scripted steps on save 2
+cargo run --release -p u8cmp -- fuzz U8 1 seed=3 steps=3000     # random walking and jumping; notes voids, stuck spots, high climbs
 ```
 
 `UC_TRACE=1` traces every instruction, `UC_CALLS=1` every intrinsic call.

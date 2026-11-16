@@ -246,12 +246,14 @@ impl Vm {
                         return Ok(Some(self.me(pid).result));
                     }
                 }
+                // Relative jumps wrap round 16 bits: ORLOK's `use` (over 32K) reaches its far
+                // end from the start by going backwards.
                 0x51 => {
                     if st.pop2()? == 0 {
-                        st.ip = st.ip.wrapping_add_signed(w16(0) as i16 as isize);
+                        st.ip = (st.ip as u16).wrapping_add(w16(0)) as usize;
                     }
                 }
-                0x52 => st.ip = st.ip.wrapping_add_signed(w16(0) as i16 as isize),
+                0x52 => st.ip = (st.ip as u16).wrapping_add(w16(0)) as usize,
                 0x53 => return Ok(None),
                 0x54 => {
                     // "implies": the waiter sleeps until the target ends; the target's pid is left on

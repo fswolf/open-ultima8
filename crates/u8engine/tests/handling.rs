@@ -122,3 +122,104 @@ fn people_sent_to_another_map_are_there() {
     g.load_map(40);
     assert!(g.world.get(m).is_none(), "and gone from the castle");
 }
+
+/// Hold `input` for `ticks`, then let go and settle for a second. Where the Avatar ends.
+fn hold(g: &mut Game, input: Input, ticks: usize) -> (i32, i32, i32) {
+    for _ in 0..ticks {
+        g.update(1.0 / 30.0, &input);
+    }
+    for _ in 0..30 {
+        g.update(1.0 / 30.0, &Input::default());
+    }
+    let a = g.world.get(AVATAR).unwrap();
+    (a.x, a.y, a.z)
+}
+
+/// The original's invisible walls (solid shapes flagged editor-only) block: the city wall's
+/// base on map 41 (a 497 box, y 17919 to 17951) stops a walk south, and a jump doesn't get
+/// past it either.
+#[test]
+#[ignore]
+fn invisible_walls_block() {
+    let Some(mut g) = saved(1) else { return };
+    g.put_avatar(41, (20379, 17880, 48));
+    let (_, y, z) = hold(&mut g, Input { dir: Some(4), ..Input::default() }, 60);
+    assert!(y < 17919 && z == 48, "stopped at the wall: y {y} z {z}");
+    let (_, y, z) = hold(&mut g, Input { dir: Some(4), jump: true, ..Input::default() }, 1);
+    let (_, y2, z2) = hold(&mut g, Input::default(), 60);
+    assert!(y2 < 17919 && z2 == 48, "still inside the city after a jump: ({y}, {z}) then ({y2}, {z2})");
+}
+
+/// A dungeon cell on map 40 has walls 40 high and an invisible lid (499) on them: no climbing out.
+#[test]
+#[ignore]
+fn the_cell_lid_keeps_the_avatar_in() {
+    let Some(mut g) = game(40) else { return };
+    for dir in [2, 6] {
+        g.put_avatar(40, (4040, 4800, 0));
+        hold(&mut g, Input { dir: Some(dir), ..Input::default() }, 40);
+        let (x, y, z) = hold(&mut g, Input { dir: Some(dir), jump: true, ..Input::default() }, 1);
+        let (x2, y2, z2) = hold(&mut g, Input { dir: Some(dir), ..Input::default() }, 60);
+        assert!(z == 0 && z2 == 0, "dir {dir}: in the cell, at ({x}, {y}, {z}) then ({x2}, {y2}, {z2})");
+    }
+}
+
+/// A jump never carries the Avatar out over nothing: from the plateau's north edge (map 8), one
+/// north-west comes down on the ground, inside the map, and walking goes on from there.
+#[test]
+#[ignore]
+fn jumps_dont_land_on_nothing() {
+    let Some(mut g) = saved(10) else { return };
+    g.put_avatar(8, (3398, 26, 0));
+    let (x, y, _) = hold(&mut g, Input { dir: Some(7), jump: true, ..Input::default() }, 1);
+    let (x, y) = {
+        let (x2, y2, _) = hold(&mut g, Input::default(), 90);
+        assert_eq!((x2, y2), (x, y));
+        (x, y)
+    };
+    assert!(y >= 0 && g.world.floor_under(AVATAR).is_some(), "on the ground at ({x}, {y})");
+    let (x2, y2, _) = hold(&mut g, Input { dir: Some(3), ..Input::default() }, 30);
+    assert!((x2, y2) != (x, y), "and it walks on");
+}
+
+/// A running jump at a wall (Mythran's house, 88 high, on the plateau): the first hop is stopped
+/// by the wall, so that's where the leap ends, on the ground. Its second hop doesn't start from
+/// mid-air and catch the top; 88 is out of reach, as the original's standing climb (72) says.
+#[test]
+#[ignore]
+fn a_running_jump_at_a_high_wall_ends_on_the_ground() {
+    let Some(mut g) = saved(10) else { return };
+    for run_up in [0, 3, 6, 9, 12] {
+        g.put_avatar(8, (2541, 2827, 0));
+        let run = Input { dir: Some(0), run: true, ..Input::default() };
+        for _ in 0..run_up {
+            g.update(1.0 / 30.0, &run);
+        }
+        g.update(1.0 / 30.0, &Input { jump: true, ..run });
+        let mut top = 0;
+        for _ in 0..90 {
+            g.update(1.0 / 30.0, &Input::default());
+            top = top.max(g.world.get(AVATAR).unwrap().z);
+        }
+        let (_, _, z) = hold(&mut g, Input { dir: Some(0), ..Input::default() }, 90);
+        assert!(top > 0, "run-up {run_up}: it jumped");
+        let av = g.avatar.as_ref().unwrap();
+        assert!(z <= 16 && !av.hanging(), "run-up {run_up}: on the ground, not up the wall (z {z})");
+    }
+}
+
+/// Jumping into a teleporter (map 4, to (13634, 2614)): the Avatar arrives standing on the floor
+/// there (64), as walking in does, not frozen in the leap 8 below it.
+#[test]
+#[ignore]
+fn a_jump_into_a_teleporter_arrives_standing() {
+    use u8data::anim::action;
+    let Some(mut g) = saved(2) else { return };
+    g.put_avatar(4, (4319, 2815, 0));
+    hold(&mut g, Input { dir: Some(3), jump: true, ..Input::default() }, 1);
+    let (x, y, z) = hold(&mut g, Input::default(), 120);
+    assert_eq!((x, y, z), (13634, 2614, 64));
+    let (it, dir) = (g.world.get(AVATAR).unwrap(), g.avatar.as_ref().unwrap().dir);
+    let stand = u8engine::avatar::anim_frame(&g.data, it.shape, action::STAND, dir, 0).unwrap().0;
+    assert_eq!(it.frame, stand, "standing");
+}

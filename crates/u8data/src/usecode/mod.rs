@@ -313,7 +313,7 @@ pub fn disasm(code: &[u8], start: usize, intrinsic_name: impl Fn(u16) -> Option<
             0x0D => format!(" {:?}", String::from_utf8_lossy(&a[2..a.len() - 1])),
             0x0F => format!(" {:#05x} {} ({} arg bytes)", w(1), intrinsic_name(w(1)).unwrap_or("?"), a[0]),
             0x11 => format!(" class {:#x} @{:#x}", w(0), w(2) as usize + BASE),
-            0x51 | 0x52 => format!(" -> {:04x}", (p + 3) as i64 + w(0) as i16 as i64),
+            0x51 | 0x52 => format!(" -> {:04x}", ((p + 3) as u16).wrapping_add(w(0))), // (16-bit, as the VM)
             0x57 => format!(" class {:#x} @{:#x} (args {}, this {})", w(2), w(4) as usize + BASE, a[0], a[1]),
             0x74 => format!(" '{}'", a[0] as char),
             0x00..=0x03 | 0x3E..=0x45 | 0x4B | 0x62..=0x64 | 0x69 | 0x6C => {

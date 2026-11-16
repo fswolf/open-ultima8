@@ -252,7 +252,7 @@ impl Host for WorldHost<'_> {
         }
         let spot = Slot::of(self.data, it.shape).map_or(equip::BACKPACK_SPOT, |s| s.spot());
         if let Some(mut it) = self.world.get(id) {
-            (it.x, it.y) = spot;
+            (it.x, it.y, it.z) = (spot.0, spot.1, equip::worn_z(self.data, it.shape));
             it.flags |= crate::world::item_flag::EQUIPPED;
             self.world.set(self.data, id, it);
         }

@@ -397,3 +397,73 @@ fn loaded_people_are_where_the_save_put_them() {
         }
     }
 }
+
+/// Orlok's `use` (class 1034) is over 32K: twenty of its relative jumps reach the far end by
+/// wrapping round 16 bits. Asked his name, his list of replies comes back; and twenty talks,
+/// each taking the replies taken least so far (goodbye after 30), end without a script error.
+#[test]
+#[ignore]
+fn orloks_whole_conversation_runs() {
+    use std::collections::HashMap;
+    use u8engine::usecode::UiEvent;
+    let mut taken: HashMap<(Vec<String>, usize), u32> = HashMap::new();
+    let mut talk = |first_then_bye: bool| {
+        let mut g = saved(1)?;
+        g.set_minutes(600);
+        g.put_avatar(39, (16095, 12575, 48));
+        for _ in 0..30 {
+            g.update(1.0 / 30.0, &Input::default());
+        }
+        assert!(g.use_item(10));
+        let (mut asks, mut said) = (Vec::<String>::new(), vec![]);
+        for _ in 0..60000 {
+            g.update(1.0 / 30.0, &Input::default());
+            for e in g.take_events() {
+                let vm = g.vm().unwrap();
+                match e {
+                    UiEvent::Bark { pid, text, .. } => {
+                        said.push(text);
+                        vm.finish(pid, 0)
+                    }
+                    UiEvent::Ask { pid, options, .. } => {
+                        let last = options.len() - 1;
+                        let k = if first_then_bye {
+                            if asks.is_empty() {
+                                0
+                            } else {
+                                last
+                            }
+                        } else if asks.len() >= 30 || last == 0 {
+                            last
+                        } else {
+                            let n = |k: usize| taken.get(&(options.clone(), k)).copied().unwrap_or(0);
+                            (0..last).min_by_key(|&k| n(k)).unwrap()
+                        };
+                        *taken.entry((options.clone(), k)).or_default() += 1;
+                        asks.push(options[k].clone());
+                        vm.answer(pid, &options, k)
+                    }
+                    _ => {}
+                }
+            }
+            if !g.in_stasis() && asks.last().is_some_and(|a| a.starts_with("Goodbye")) {
+                break;
+            }
+        }
+        let vm = g.vm().unwrap();
+        assert_eq!((vm.errors, vm.missing.len()), (0, 0), "after {asks:?}");
+        assert!(!g.in_stasis(), "the conversation ended: {asks:?}");
+        Some((asks, said))
+    };
+    // His name, then the replies again.
+    let Some((asks, said)) = talk(true) else { return };
+    assert!(said.iter().any(|s| s.starts_with("Me name's Orlok")), "{said:?}");
+    assert!(asks.len() >= 2, "the list came back: {asks:?}");
+    // Everything he can be asked.
+    for _ in 0..20 {
+        talk(false).unwrap();
+    }
+    let lists: std::collections::HashSet<_> = taken.keys().map(|(o, _)| o.clone()).collect();
+    println!("{} replies in {} lists", taken.len(), lists.len());
+    assert!(taken.len() > 15, "{}", taken.len());
+}

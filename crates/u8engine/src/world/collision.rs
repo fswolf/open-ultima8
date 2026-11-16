@@ -162,9 +162,20 @@ impl World {
             .near(to.x0, to.y0, to.x1, to.y1)
             .filter(|&i| i != idx)
             .map(|i| &self.entries[i])
-            .filter(|p| p.present() && p.traits.solid && !p.traits.editor)
+            .filter(|p| p.present() && p.traits.solid && !p.marker())
             .any(|p| p.bounds().overlaps(&to) && !p.bounds().overlaps(&now));
         (!blocked).then_some((to.x1, to.y1, z))
+    }
+
+    /// Is there anything to come down on under `id` moved (dx, dy) (anything you could stand on,
+    /// at whatever depth)? Not off the map's edge, or over a hole in the world.
+    pub fn ground_below(&self, id: ObjId, dx: i32, dy: i32) -> bool {
+        let Some(idx) = self.index(id) else { return false };
+        let a = self.entries[idx].bounds().shifted(dx, dy, 0);
+        self.near(a.x0, a.y0, a.x1, a.y1)
+            .filter(|&i| i != idx)
+            .map(|i| &self.entries[i])
+            .any(|p| p.physical() && !p.traits.actor && p.bounds().overlaps_xy(&a) && p.z1 <= a.z0 + STEP)
     }
 
     /// Height `id` lands at: the highest surface under it no more than a step above its feet.
@@ -271,11 +282,7 @@ impl World {
             .filter(|&k| {
                 let e = &self.entries[k];
                 let o = e.bounds();
-                e.present()
-                    && !e.traits.editor
-                    && !e.traits.egg
-                    && o.overlaps_xy(&b)
-                    && (o.overlaps(&b) || o.z1 == b.z0)
+                e.present() && !e.marker() && o.overlaps_xy(&b) && (o.overlaps(&b) || o.z1 == b.z0)
             })
             .collect();
         v.sort_unstable();

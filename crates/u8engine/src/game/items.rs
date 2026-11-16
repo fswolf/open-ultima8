@@ -417,7 +417,22 @@ impl Game {
         let slot = equip::Slot::of(&self.data, shape).ok_or("You can't wear that.")?;
         self.check_load(id, AVATAR)?; // before anything moves
         if let Some(old) = equip::worn(&self.data, &self.world, AVATAR, slot).filter(|&o| o != id) {
+            // What it replaces goes into the pack, if there's room (the original won't put a
+            // thing on over another at all: ScummVM's setEquip refuses an occupied slot).
             let pack = self.backpack().ok_or("Take that off first.")?;
+            if self.world.container(id) == Some(pack) {
+                // (Swapped for one out of the pack itself: the pack mustn't end up any fuller
+                // than it may be, or than it was.)
+                let (w, d) = (&self.world, &self.data);
+                let vol = |o: ObjId| w.get(o).map_or(0, |it| equip::volume(d, &it));
+                let used = equip::used_room(d, w, pack);
+                let cap = w.get(pack).map_or(0, |p| equip::capacity(d, &p));
+                if used - vol(id) + vol(old) > cap.max(used) {
+                    return Err("There's no room for that.");
+                }
+            } else {
+                equip::has_room(&self.data, &self.world, old, pack)?;
+            }
             self.world.move_inside(&self.data, old, pack, STOW_AT);
         }
         self.wear(id, slot.spot())
@@ -443,6 +458,7 @@ impl Game {
         self.world.move_inside(&self.data, id, AVATAR, at);
         if let Some(mut it) = self.world.get(id) {
             it.flags |= item_flag::EQUIPPED;
+            it.z = equip::worn_z(&self.data, it.shape);
             self.world.set(&self.data, id, it);
         }
         self.set_down(id, lifted);

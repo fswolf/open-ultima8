@@ -169,9 +169,17 @@ impl Entry {
             && !self.traits.editor
             && self.it.flags & item_flag::INVISIBLE == 0
     }
+    /// An egg, or an editor-only marker that isn't solid (schedule and path markers): never in
+    /// the way. Solid editor shapes are the original's invisible walls, lids and ceilings (497,
+    /// 499, 704, 846…): undrawn, but they block as anything solid does (ScummVM makes no
+    /// exception for them either). The flat ones (MIRROR 636, ENDPLATE 686) are trigger plates
+    /// that need the touch.
+    pub(crate) fn marker(&self) -> bool {
+        self.traits.egg || (self.traits.editor && !self.traits.solid)
+    }
     /// Something you could stand on or bump into.
     fn physical(&self) -> bool {
-        self.present() && !self.traits.editor && !self.traits.egg && (self.traits.solid || self.traits.land)
+        self.present() && !self.marker() && (self.traits.solid || self.traits.land)
     }
 }
 
@@ -559,7 +567,7 @@ impl World {
             .near(b.x0, b.y0, b.x1, b.y1)
             .filter(|&i| {
                 let e = &self.entries[i];
-                e.present() && !e.traits.editor && !e.traits.egg && e.bounds().overlaps(&b)
+                e.present() && !e.marker() && e.bounds().overlaps(&b)
             })
             .collect();
         v.sort_unstable();
