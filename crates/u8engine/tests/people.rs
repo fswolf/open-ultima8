@@ -467,3 +467,27 @@ fn orloks_whole_conversation_runs() {
     println!("{} replies in {} lists", taken.len(), lists.len());
     assert!(taken.len() > 15, "{}", taken.len());
 }
+
+/// Woken (her bed used, at night in slot 2), Mordea gets up, zaps the Avatar and goes back to
+/// bed. While she's up the bed shows itself empty (frame 11), never her asleep in it as well;
+/// back in bed, it shows her again (10) and she's out of sight.
+#[test]
+#[ignore]
+fn mordea_woken_isnt_in_her_bed_too() {
+    let Some(mut g) = saved(2) else { return };
+    g.put_avatar(40, (13151, 8100, 48));
+    let bed = g.world.objects().find(|&id| g.world.get(id).is_some_and(|it| it.shape == 567)).unwrap();
+    assert_eq!(g.world.get(bed).unwrap().frame, 10, "asleep");
+    assert!(g.use_item(bed));
+    let mut up = 0;
+    for t in 0..900 {
+        g.update(1.0 / 30.0, &Input::default());
+        answer(&mut g);
+        if g.world.get(7).unwrap().z == 48 {
+            up += 1;
+            assert_ne!(g.world.get(bed).unwrap().frame, 10, "tick {t}: she's up, and asleep in her bed too");
+        }
+    }
+    assert!(up > 30, "she got up ({up} ticks)");
+    assert_eq!((g.world.get(bed).unwrap().frame, g.world.get(7).unwrap().z), (10, 0), "back in bed");
+}

@@ -54,7 +54,8 @@ pub fn teleport(c: &mut Ctx) -> u32 {
     }
     c.host.set_ethereal(id, false);
     c.update(|i| (i.x, i.y, i.z, i.mapnum) = (x, y, z, map as u8));
-    c.vm.requests.push(Request::Teleported(id));
+    let by = c.vm.item_of(c.pid).unwrap_or(0);
+    c.vm.requests.push(Request::Teleported { id, by });
     0
 }
 

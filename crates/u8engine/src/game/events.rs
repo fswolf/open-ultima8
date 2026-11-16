@@ -80,7 +80,7 @@ impl Game {
                     self.start_sprite(pid, shape, (first, last), repeats, delay, at)
                 }
                 Request::Created(id) => self.made_actor(id),
-                Request::Teleported(_) => self.redraw_sleepers(),
+                Request::Teleported { id, by } => self.redraw_sleepers(id, by),
                 Request::Hurl { id, v, gravity, pid } => self.hurl(id, v, gravity, Some(pid)),
                 Request::Fall(id) => self.fall(id),
                 Request::Explode { id, destroy } => self.explode(id, destroy),

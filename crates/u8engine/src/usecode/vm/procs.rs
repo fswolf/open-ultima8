@@ -37,12 +37,17 @@ impl Vm {
         self.stasis = false;
     }
 
-    /// Processes not yet finished (including ones waiting on the UI).
     /// Is process `pid` still going? (The game stops work for processes scripts have killed.)
     pub fn alive(&self, pid: Pid) -> bool {
         self.procs.iter().any(|p| p.pid == pid && !p.done)
     }
 
+    /// The item process `pid` runs for (its `this`).
+    pub fn item_of(&self, pid: Pid) -> Option<ObjId> {
+        self.procs.iter().find(|p| p.pid == pid).map(|p| p.item)
+    }
+
+    /// Processes not yet finished (including ones waiting on the UI).
     pub fn running(&self) -> usize {
         self.procs.iter().filter(|p| !p.done).count()
     }

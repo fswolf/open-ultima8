@@ -73,8 +73,9 @@ pub enum UiEvent {
 /// Work a script hands to the game; the game finishes `pid` when it's done (result 1 = success).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Request {
-    /// An actor teleported within the map (what shows where people are may need redrawing).
-    Teleported(ObjId),
+    /// An actor teleported within the map by a script running for item `by` (what shows where
+    /// people are may need redrawing).
+    Teleported { id: ObjId, by: ObjId },
     /// Walk `actor` until within `range` of `to`.
     Walk { pid: Pid, actor: ObjId, to: (i32, i32, i32), range: i32 },
     /// Point the camera: follow an item, or (None) hold still.

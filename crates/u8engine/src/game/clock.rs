@@ -14,17 +14,20 @@ impl Game {
         self.scheduled = None;
     }
 
-    /// Someone was moved by a script out of sight: things that show who's sleeping in them (only
-    /// Mordea's bed) look again. Their `enterFastArea` sets the frame, but the scripts move people
-    /// once the Avatar is 700 away, still within the fast area, so the bed would keep the old
-    /// look until the Avatar went much further (the original's own glitch; wider views show it).
-    pub(super) fn redraw_sleepers(&mut self) {
-        const SLEEPERS: [u32; 1] = [567];
+    /// A script moved `who` out of sight: a bed that shows them sleeping in it (only Mordea's)
+    /// looks again. Its `enterFastArea` sets the frame, but her schedule moves her once the
+    /// Avatar is 700 away, still within the fast area, so the bed would keep the old look until
+    /// the Avatar went much further (the original's own glitch; wider views show it). Not when
+    /// the bed's own script did the moving (woken, she's up and out of it: it shows itself
+    /// empty, and the flag that says she sleeps isn't cleared yet), nor for anyone else.
+    pub(super) fn redraw_sleepers(&mut self, who: ObjId, by: ObjId) {
+        /// (The bed's shape, who sleeps in it.)
+        const SLEEPERS: [(u32, ObjId); 1] = [(567, 7)];
         let beds: Vec<ObjId> = self
             .world
             .objects()
-            .filter(|&id| self.world.get(id).is_some_and(|it| SLEEPERS.contains(&it.shape)))
-            .filter(|&id| self.fast.contains(&self.world, id))
+            .filter(|&id| self.world.get(id).is_some_and(|it| SLEEPERS.contains(&(it.shape, who))))
+            .filter(|&id| self.fast.contains(&self.world, id) && id != by)
             .collect();
         for id in beds {
             self.trigger(id, event::ENTER_FAST_AREA);
