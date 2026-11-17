@@ -496,6 +496,7 @@ fn play(root: &Path, slot: Option<u32>, steps: &[String]) {
                 let p: Vec<&str> = v.split(',').collect();
                 let n = |i: usize| p.get(i).and_then(|s| s.parse::<i32>().ok());
                 let (id, cnt) = (n(0).unwrap() as u16, n(1).unwrap() as u16);
+                g.let_go(id); // (as the client does when the slider opens)
                 let r = if p[2] == "onto" {
                     g.split_onto(id, cnt, n(3).unwrap() as u16)
                 } else if p[2] == "into" {

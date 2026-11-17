@@ -587,6 +587,17 @@ pub fn store_npc_frame_high(npcdata: &mut [u8], npc: usize, frame: u32) {
     }
 }
 
+/// NPCDATA bytes 5–6: the action NPC `npc` last started (getLastAnimSet; ScummVM loads it so).
+pub fn npc_last_anim(npcdata: &[u8], npc: usize) -> Option<usize> {
+    npcdata.get(npc * NPC_RECORD + 5..npc * NPC_RECORD + 7).map(|b| u16le(b, 0) as usize)
+}
+
+pub fn store_npc_last_anim(npcdata: &mut [u8], npc: usize, action: usize) {
+    if let Some(b) = npcdata.get_mut(npc * NPC_RECORD + 5..npc * NPC_RECORD + 7) {
+        b.copy_from_slice(&(action as u16).to_le_bytes());
+    }
+}
+
 /// NPCDATA byte 4: the way NPC `npc` faces (0 north, clockwise; the anims' direction order).
 pub fn npc_dir(npcdata: &[u8], npc: usize) -> Option<usize> {
     npcdata.get(npc * NPC_RECORD + 4).map(|&d| d as usize & 7)

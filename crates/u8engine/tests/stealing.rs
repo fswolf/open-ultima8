@@ -114,3 +114,27 @@ fn the_accuser_says_that_person() {
         assert!(says(&said, who, "That person is a thief!") && !says(&said, who, "This person"), "{said:?}");
     }
 }
+
+/// Part of a pile: who saw is told as the player lets go, before the count is asked (ScummVM
+/// tells them before the slider opens), so taking none is noticed all the same; the take itself
+/// doesn't tell them again. Coins put among Beren's things.
+#[test]
+#[ignore]
+fn a_pile_is_noticed_before_the_count() {
+    let Some(mut g) = at(41, (19199, 6351, 48)) else { return };
+    let coins =
+        (1..1024u32).find(|&s| g.data.typeflags.get(s).family == 2 && g.data.typeflags.get(s).weight > 0).unwrap();
+    let it = u8data::map::Item { shape: coins, quality: 10, x: 19119, y: 6447, z: 64, ..Default::default() };
+    let pile = g.world.add(&g.data, it, true);
+    g.let_go(pile);
+    assert_eq!(g.split_to(pile, 0, Place::Map((19071, 6399, 64))), Ok(()));
+    let said = play(&mut g, 10);
+    assert!(says(&said, 32, "I represent the entire Cabal here."), "{said:?}");
+    let spot = [(19071, 6399, 64), (19087, 6447, 64), (19119, 6415, 64), (19151, 6447, 64), (19119, 6479, 64)]
+        .into_iter()
+        .find(|&p| g.world.fits(&g.data, pile, p))
+        .expect("room by the pile");
+    assert_eq!(g.split_to(pile, 5, Place::Map(spot)), Ok(()));
+    let said = play(&mut g, 10);
+    assert!(!said.iter().any(|(i, _)| *i == 32), "told once: {said:?}");
+}

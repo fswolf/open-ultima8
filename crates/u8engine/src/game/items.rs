@@ -65,7 +65,12 @@ impl Game {
     /// window position, or onto the map. The Avatar has to be able to reach both ends.
     pub fn move_item(&mut self, id: ObjId, to: Place) -> Result<(), &'static str> {
         self.can_pick_up(id)?;
-        self.taking(id);
+        self.let_go(id);
+        self.put_item(id, to)
+    }
+
+    /// [`move_item`](Self::move_item) once who saw has been told.
+    fn put_item(&mut self, id: ObjId, to: Place) -> Result<(), &'static str> {
         self.check_move(id, to)?;
         let lifted = self.lift(id);
         match to {
@@ -164,7 +169,7 @@ impl Game {
         Ok(())
     }
 
-    /// The player picks `id` up (who saw has been told: [`taking`](Self::taking)). Returns where
+    /// The player picks `id` up (who saw has been told: [`let_go`](Self::let_go)). Returns where
     /// it was, what it touched there, and what rested on it.
     fn lift(&mut self, id: ObjId) -> Lifted {
         let Some(it) = self.world.get(id) else { return Lifted::default() };
@@ -193,7 +198,7 @@ impl Game {
     /// Korick's hammer dragged onto the Avatar with its pack full brings "Stop! Thief!" (ScummVM's
     /// movedByPlayer, before the drop is tried). What the Avatar already carries is its own, flag
     /// or not (some saves leave it off).
-    fn taking(&mut self, id: ObjId) {
+    pub fn let_go(&mut self, id: ObjId) {
         let Some(it) = self.world.get(id) else { return };
         if it.flags & item_flag::OWNED != 0 || self.world.root(id) == AVATAR {
             return;
@@ -208,17 +213,18 @@ impl Game {
     }
 
     /// Take `n` of pile `id` (the original asks how many) to `to`, the rest staying where it is.
-    /// The part is a new pile (ScummVM's SplitItemProcess); all of it moves the pile itself.
+    /// The part is a new pile (ScummVM's SplitItemProcess); all of it moves the pile itself. Who
+    /// saw was told when the player let go, before being asked how many ([`let_go`](Self::let_go):
+    /// ScummVM tells them before the slider opens, so taking none is no different).
     pub fn split_to(&mut self, id: ObjId, n: u16, to: Place) -> Result<(), &'static str> {
         let it = self.world.get(id).ok_or("It's gone.")?;
+        self.can_pick_up(id)?;
         if n >= it.quality {
-            return self.move_item(id, to);
+            return self.put_item(id, to);
         }
         if n == 0 {
             return Ok(());
         }
-        self.can_pick_up(id)?;
-        self.taking(id);
         let part = self.part_of(id, n);
         if let Err(why) = self.check_move(part, to) {
             self.world.remove(part);
@@ -242,14 +248,14 @@ impl Game {
         Ok(())
     }
 
-    /// Take `n` of pile `id` onto pile `onto` (up to 666 there).
+    /// Take `n` of pile `id` onto pile `onto` (up to 666 there). Who saw was told as for
+    /// [`split_to`](Self::split_to).
     pub fn split_onto(&mut self, id: ObjId, n: u16, onto: ObjId) -> Result<(), &'static str> {
         let it = self.world.get(id).ok_or("It's gone.")?;
-        if n >= it.quality {
-            return self.merge(id, onto);
-        }
         self.can_pick_up(id)?;
-        self.taking(id);
+        if n >= it.quality {
+            return self.merge_into(id, onto);
+        }
         if !self.can_merge(id, onto) {
             return Err("They don't go together.");
         }
@@ -367,7 +373,12 @@ impl Game {
     /// look by the amount.
     pub fn merge(&mut self, id: ObjId, onto: ObjId) -> Result<(), &'static str> {
         self.can_pick_up(id)?;
-        self.taking(id);
+        self.let_go(id);
+        self.merge_into(id, onto)
+    }
+
+    /// [`merge`](Self::merge) once who saw has been told.
+    fn merge_into(&mut self, id: ObjId, onto: ObjId) -> Result<(), &'static str> {
         if !self.can_merge(id, onto) {
             return Err("They don't go together.");
         }
@@ -416,7 +427,7 @@ impl Game {
     /// Wear or wield `id` (it must have a slot); what was in that slot goes into the backpack.
     pub fn equip(&mut self, id: ObjId) -> Result<(), &'static str> {
         self.can_pick_up(id)?;
-        self.taking(id);
+        self.let_go(id);
         let shape = self.world.get(id).ok_or("It's gone.")?.shape;
         let slot = equip::Slot::of(&self.data, shape).ok_or("You can't wear that.")?;
         self.check_load(id, AVATAR)?; // before anything moves
@@ -449,7 +460,7 @@ impl Game {
             Some(pack) => self.move_item(id, Place::Into { container: pack, at: STOW_AT }),
             None if equip::holds(&self.data, &self.world, id) => {
                 self.can_pick_up(id)?;
-                self.taking(id);
+                self.let_go(id);
                 self.wear(id, equip::BACKPACK_SPOT)
             }
             None => Err("You have no backpack."),

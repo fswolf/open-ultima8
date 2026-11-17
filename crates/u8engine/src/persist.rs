@@ -56,27 +56,38 @@ pub fn snapshot<'a>(
         let active = |map: u16, it: &map::Item| {
             held.is_some_and(|(m, around)| m == map && map::in_glob_window((it.x >> 9, it.y >> 9), around))
         };
-        for (k, w) in worlds.iter().enumerate() {
-            for e in w.entries().iter().filter(|e| e.origin == Origin::Actor && !e.gone) {
-                let npc = e.it.npc;
-                let here = !e.void;
-                if (k > 0 && !here) || !done.insert(npc) {
-                    continue;
-                }
-                let on = if here { w.map() as usize } else { e.it.mapnum as usize };
-                let mut it = e.it;
-                it.flags &= !map::IN_CACHE;
-                if here && active(w.map(), &it) {
-                    it.flags |= map::IN_CACHE;
-                }
-                map::store_actor(&mut npcs, npc as usize, on, &it);
-                carriers.push((w, npc));
-                if let Some(d) = &mut npcdata {
-                    map::store_npc_frame_high(d, npc as usize, e.it.frame);
-                    // The way they face (the DOS game takes it from here, not from the frame).
-                    if let Some(dir) = crate::avatar::facing(gd, &e.it) {
-                        map::store_npc_dir(d, npc as usize, dir);
-                    }
+        // The current map's people first, then those on the other maps, then those in the other
+        // maps' voids (put away there, or gone to a map not loaded: whoever left one for another
+        // is in the void of the first and maybe on the second).
+        let actors = |pick: fn(usize, bool) -> bool| {
+            worlds.iter().enumerate().flat_map(move |(k, w)| {
+                w.entries()
+                    .iter()
+                    .filter(move |e| e.origin == Origin::Actor && !e.gone && pick(k, e.void))
+                    .map(move |e| (*w, e))
+            })
+        };
+        let all = actors(|k, _| k == 0).chain(actors(|k, void| k > 0 && !void)).chain(actors(|k, void| k > 0 && void));
+        for (w, e) in all {
+            let npc = e.it.npc;
+            let here = !e.void;
+            if !done.insert(npc) {
+                continue;
+            }
+            let on = if here { w.map() as usize } else { e.it.mapnum as usize };
+            // (Those put away or elsewhere keep theirs, as DOS leaves it on put-away slots.)
+            let mut it = e.it;
+            if here {
+                it.flags = if active(w.map(), &it) { it.flags | map::IN_CACHE } else { it.flags & !map::IN_CACHE };
+            }
+            map::store_actor(&mut npcs, npc as usize, on, &it);
+            carriers.push((w, npc));
+            if let Some(d) = &mut npcdata {
+                map::store_npc_frame_high(d, npc as usize, e.it.frame);
+                map::store_npc_last_anim(d, npc as usize, w.last_anim(npc));
+                // The way they face (the DOS game takes it from here, not from the frame).
+                if let Some(dir) = crate::avatar::facing(gd, &e.it) {
+                    map::store_npc_dir(d, npc as usize, dir);
                 }
             }
         }

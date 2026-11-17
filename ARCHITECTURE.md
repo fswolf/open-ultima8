@@ -73,12 +73,13 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   one per frame (`speed`/70 s each), events for music, effects, recorded lines and subtitles,
   waits (1/15 s) and fades; hands the host `Cue`s. The viewer's `films.rs` shows it (the intro
   before a new game's name prompt, the ending on the `playEndgame` intrinsic, both from the menu).
-- **`touch`**: contact events (ScummVM's collideMove): when anyone in the fast area steps (a
-  jump of more than 128 in a tick is a script's teleport: no events, as ScummVM), the player puts
-  something down or picks it up, or something lands, what it newly touches (overlaps or stands
-  on, `World::contacts`) gets `gotHit` and the mover `hit`; what it stops touching gets
-  `release`. `game/items.rs` adds stealing (`AvatarStoleSomething` to people within 640 of the
-  Avatar, unless the thing is OWNED, which carrying makes it), `justMoved`, and things on top
+- **`touch`**: contact events (ScummVM's collideMove): when anyone in the fast area steps (a jump
+  of more than 128 in a tick is a script's teleport: no events, as ScummVM), the player puts
+  something down or picks it up, or something lands, what it newly touches (overlaps or stands on,
+  `World::contacts`) gets `gotHit` and the mover `hit`; what it stops touching gets `release`.
+  `game/items.rs` adds stealing (`Game::let_go`: `AvatarStoleSomething` to people within 640 of
+  the Avatar, unless the thing is OWNED, which carrying makes it; told when the player lets go,
+  before the drop is tried or the pile slider asks how many), `justMoved`, and things on top
   falling. `game/travel.rs`'s `arrivals` brings people scripts teleported to the map you enter.
   `extra` is the `.ou8` side file beside saves (also the Avatar's `Plight`: hanging, down).
   `kit` is a tester's kit (`Game::give_test_kit`: stats, a bag of every school's magic, the story

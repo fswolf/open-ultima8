@@ -185,9 +185,12 @@ impl App {
                 }
             }
         };
-        // Part of a pile? The original asks how many.
+        // Part of a pile? The original asks how many, once who saw has been told.
         match self.game.world.get(id).filter(|_| self.game.is_pile(id)) {
-            Some(it) => self.slider = Some(Slider::new(id, it.quality, dest)),
+            Some(it) => {
+                self.game.let_go(id);
+                self.slider = Some(Slider::new(id, it.quality, dest));
+            }
             None => self.put(id, None, dest),
         }
     }

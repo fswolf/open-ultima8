@@ -308,6 +308,10 @@ impl World {
         }
         w.seq_back = w.entries.len() as i32;
         let actors: Vec<ObjId> = w.ids.iter().copied().filter(|&id| id != 0 && id < 256).collect();
+        // What they last did, as saved (the scripts ask: "This person" or "That person").
+        if let Some(d) = &gd.npcdata {
+            w.last_anim = actors.iter().filter_map(|&id| Some((id, map::npc_last_anim(d, id as usize)?))).collect();
+        }
         for i in 0..w.entries.len() {
             w.file(i);
             w.note_egg(i);

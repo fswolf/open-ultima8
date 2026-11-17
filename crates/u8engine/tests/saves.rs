@@ -431,3 +431,34 @@ fn people_near_the_avatar_are_saved_as_active() {
     assert!(g.put_avatar(41, (20206, 12538, 64)));
     assert_eq!(active(&g, 3) & 0x2000, 0x2000, "Salkind");
 }
+
+/// A hatched guard (slot 2's 63 in the castle) is put away when the Avatar leaves the map, and
+/// the save says so (ethereal, as DOS keeps its put-away slots, 0x2000 and all). It used to keep
+/// DOS's record of him standing there, so loading brought him back.
+#[test]
+#[ignore]
+fn a_hatched_guard_left_behind_is_saved_put_away() {
+    let Some(dir) = std::env::var_os("U8_DATA") else { return };
+    let Ok(mut g) = Game::open(std::path::Path::new(&dir), Some(2), None) else { return };
+    assert!(g.put_avatar(41, (13055, 3423, 48)));
+    let f = u8data::flex::Flex::parse(g.snapshot().get("ITEMCACH.DAT").unwrap().to_vec()).unwrap();
+    let e0 = f.get(0).unwrap();
+    let flags = u16::from_le_bytes([e0[0x12000 + 2 * 63], e0[0x12001 + 2 * 63]]);
+    assert_eq!(flags & 0x2880, 0x2880, "put away: {flags:#x}");
+}
+
+/// What people last did is loaded from NPCDATA and saved back (ScummVM reads bytes 5–6 so; the
+/// scripts ask it). Slot 1's DOS save has Devon at the talk (53) long after speaking.
+#[test]
+#[ignore]
+fn people_keep_their_last_action_over_a_save() {
+    let Some(dir) = std::env::var_os("U8_DATA") else { return };
+    let dir = std::path::PathBuf::from(dir);
+    let Ok(mut g) = Game::open(&dir, Some(1), None) else { return };
+    g.put_avatar(39, (0, 0, 0));
+    assert_eq!(g.world.last_anim(2), 53, "Devon, as DOS saved him");
+    g.world.set_last_anim(2, 7);
+    let gd = GameData::load_save(&dir, Some(&g.snapshot())).unwrap();
+    let back = Game::new(gd, None, Some(39)).unwrap();
+    assert_eq!(back.world.last_anim(2), 7);
+}
