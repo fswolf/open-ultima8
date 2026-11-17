@@ -29,9 +29,6 @@ pub(crate) struct Flight {
     top: i32,
     /// Scripts waiting for it to come to rest.
     pids: Vec<Pid>,
-    /// Where it set off from and what it touched there (contact events on landing).
-    from: (i32, i32, i32),
-    touching: Vec<ObjId>,
 }
 
 impl Game {
@@ -49,9 +46,7 @@ impl Game {
                 f.pids.extend(pid);
             }
             None => {
-                let touching = self.world.contacts(id);
-                let (pids, from) = (pid.into_iter().collect(), (it.x, it.y, it.z));
-                self.flights.push(Flight { id, v, gravity, top: it.z, pids, from, touching });
+                self.flights.push(Flight { id, v, gravity, top: it.z, pids: pid.into_iter().collect() });
             }
         }
     }
@@ -75,20 +70,23 @@ impl Game {
     /// One tick of everything in the air.
     pub(crate) fn fly(&mut self) {
         let mut flights = std::mem::take(&mut self.flights);
+        // Each tick's move is one collideMove (ScummVM): what it meets on the way that it wasn't
+        // touching where this tick began gets hit (a body part landing on the next one it lay
+        // beside when thrown, but bounced off the ceiling since).
+        let starts: Vec<_> = flights
+            .iter()
+            .filter(|f| f.id != crate::world::AVATAR && !self.world.is_void(f.id))
+            .filter_map(|f| self.world.get(f.id).map(|it| (f.id, (it.x, it.y, it.z), self.world.contacts(f.id))))
+            .collect();
         let mut landed = vec![];
         flights.retain_mut(|f| {
             let Some(it) = self.world.get(f.id).filter(|_| !self.world.is_void(f.id)) else {
-                landed.push((f.id, 0, std::mem::take(&mut f.pids), None));
+                landed.push((f.id, 0, std::mem::take(&mut f.pids)));
                 return false;
             };
             f.top = f.top.max(it.z);
             if it.z <= 0 && f.v.2 < 0 {
-                landed.push((
-                    f.id,
-                    f.top - it.z,
-                    std::mem::take(&mut f.pids),
-                    Some((f.from, std::mem::take(&mut f.touching))),
-                ));
+                landed.push((f.id, f.top - it.z, std::mem::take(&mut f.pids)));
                 return false;
             }
             let to = (it.x + f.v.0, it.y + f.v.1, (it.z + f.v.2).max(0));
@@ -135,12 +133,7 @@ impl Game {
                 }
                 let z = self.world.get(f.id).map_or(0, |i| i.z);
                 if done {
-                    landed.push((
-                        f.id,
-                        f.top - z,
-                        std::mem::take(&mut f.pids),
-                        Some((f.from, std::mem::take(&mut f.touching))),
-                    ));
+                    landed.push((f.id, f.top - z, std::mem::take(&mut f.pids)));
                     return false;
                 }
                 f.top = z; // touched down, bouncing on
@@ -160,13 +153,12 @@ impl Game {
         });
         flights.append(&mut self.flights); // any started meanwhile
         self.flights = flights;
-        for (id, height, pids, from) in landed {
-            if let (Some((f, touching)), Some(it)) = (from, self.world.get(id)) {
-                // Came down somewhere: what it lands on knows (a plate, say).
-                if id != crate::world::AVATAR {
-                    self.touched(id, &touching, (it.x - f.0, it.y - f.1, it.z - f.2));
-                }
+        for (id, from, before) in starts {
+            if let Some(it) = self.world.get(id).filter(|it| (it.x, it.y, it.z) != from) {
+                self.touched(id, &before, (it.x - from.0, it.y - from.1, it.z - from.2));
             }
+        }
+        for (id, height, pids) in landed {
             self.landed(id, height);
             self.finish_all(pids);
         }

@@ -199,18 +199,7 @@ impl App {
         #[cfg(feature = "audio")]
         if let Some(a) = &mut self.audio {
             let (world, cam) = (&self.game.world, self.view.cam);
-            a.place(|id| {
-                // Emitters are often invisible markers: place by world position, not sprite.
-                let it = world.get(id)?;
-                let (sx, sy) = project(it.x, it.y, it.z);
-                let (dx, dy) = (sx as f32 - cam.0, sy as f32 - cam.1);
-                let pan = (dx / 320.0).clamp(-1.0, 1.0);
-                // Not through a floor: a fire or a clock in the hall under the roof is silent up there.
-                if !world.same_floor(AVATAR, id) {
-                    return Some((0.0, pan));
-                }
-                Some(((1.0 - dx.hypot(dy) / HEARING).clamp(0.0, 1.0), pan))
-            });
+            a.place(|id| sound_place(world, cam, id));
         }
         self.show_presence();
         let talking = self.ui.as_ref().is_some_and(|u| !u.is_empty());
@@ -289,7 +278,10 @@ impl App {
     pub(super) fn sound(&mut self, e: &UiEvent) -> Option<f32> {
         let a = self.audio.as_mut()?;
         match e {
-            UiEvent::Sfx { sfx, item, looping } => a.sfx(*sfx, *item, *looping),
+            UiEvent::Sfx { sfx, item, looping } => {
+                let at = (*item != 0).then(|| sound_place(&self.game.world, self.view.cam, *item)).flatten();
+                a.sfx(*sfx, *item, *looping, at)
+            }
             UiEvent::StopSfx { sfx, item } => a.stop_sfx(*sfx, *item),
             UiEvent::SfxVolume { sfx, volume } => a.set_sfx_volume(*sfx, *volume),
             UiEvent::Music(n) => a.play_track(*n as usize),
@@ -570,9 +562,50 @@ impl App {
     }
 }
 
+/// Where a sound at `id` is heard from the view centred on `cam`: (volume 0–1, pan −1…1), or
+/// None if it isn't anywhere. By its world position (emitters are often invisible markers),
+/// what it's in counts (something carried sounds from its carrier); nothing through a floor (a
+/// fire or a clock in the hall under the roof is silent up there); fading with the square of
+/// the distance left, so what's at the edge of a wide view is faint.
+#[cfg(feature = "audio")]
+fn sound_place(world: &u8engine::world::World, cam: (f32, f32), id: ObjId) -> Option<(f32, f32)> {
+    let root = world.root(id);
+    let it = world.get(root)?;
+    let (sx, sy) = project(it.x, it.y, it.z);
+    let (dx, dy) = (sx as f32 - cam.0, sy as f32 - cam.1);
+    let pan = (dx / 320.0).clamp(-1.0, 1.0);
+    if !world.same_floor(AVATAR, root) {
+        return Some((0.0, pan));
+    }
+    let near = (1.0 - dx.hypot(dy) / HEARING).clamp(0.0, 1.0);
+    Some((near * near, pan))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sounds are placed where they are: something the Avatar carries is heard from the Avatar
+    /// (not from its spot in a bag's window), at full volume at the centre of the view and
+    /// faint across a wide one; something gone isn't anywhere.
+    #[cfg(feature = "audio")]
+    #[test]
+    #[ignore]
+    fn sounds_come_from_where_things_are() {
+        let Ok(dir) = std::env::var("U8_DATA") else { return };
+        let gd = u8data::GameData::load_fixed(std::path::Path::new(&dir)).unwrap();
+        let world = u8engine::world::World::build(&gd, 40);
+        let a = world.get(AVATAR).unwrap();
+        let (sx, sy) = project(a.x, a.y, a.z);
+        let cam = (sx as f32, sy as f32);
+        let carried = world.contents(AVATAR).into_iter().find(|&id| !world.contents(id).is_empty()).unwrap();
+        let deep = world.contents(carried)[0];
+        assert_eq!(sound_place(&world, cam, deep), Some((1.0, 0.0)), "from the Avatar");
+        let (far, _) = sound_place(&world, (cam.0 + 300.0, cam.1), AVATAR).unwrap();
+        assert!(far > 0.0 && far < 0.15, "faint across the view: {far}");
+        let gone = (1..u16::MAX).rev().find(|&id| world.get(id).is_none()).unwrap();
+        assert_eq!(sound_place(&world, cam, gone), None);
+    }
 
     /// The gauge comes up twice its old size in the bottom-left corner, answers clicks over all
     /// of it, and fills its bars from the bottom; the paperdoll's numbers sit centred between

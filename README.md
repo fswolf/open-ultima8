@@ -38,7 +38,7 @@ it look and handle as if it were made this decade.
   both work.
 - **Readable.** Books and scrolls in a clean book typeface at your screen's full resolution;
   speech placed over whoever's speaking, and hidden when they're on another floor.
-- **Quieter.** Fireplaces, dripping water and other background loops at a sensible volume.
+- **Quieter.** Fireplaces, dripping water and other background sounds well below other effects, fading fast with distance, with their own "Ambience" level in the options.
 - **Little extras.** Discord status (where you are, what you're doing), quick save/load,
   remembered settings, a health and mana gauge, and a picker that asks where your game is.
 

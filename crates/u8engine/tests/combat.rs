@@ -147,11 +147,13 @@ fn people_fight_back() {
     g.receive_hit(guard, AVATAR, 0, 1, u8engine::combat::dmg::PIERCE);
     assert_eq!(g.world.target(guard).now, AVATAR);
     assert!(g.world.in_combat(guard));
-    // Struck, he doesn't cry "Guardsmen, to arms!" (DOS doesn't), but the guards nearby come:
-    // the next one (NPC 51) is running in within a second or two in DOS.
+    // Struck, he cries "Guardsmen, to arms!" (his going-into-combat script, as DOS shows it),
+    // once, and the guards nearby come: the next one (NPC 51) is running in within a second or
+    // two in DOS.
+    g.receive_hit(guard, AVATAR, 0, 1, u8engine::combat::dmg::PIERCE);
     g.update(1.0 / 30.0, &Input::default());
-    let barks: Vec<_> = g.vm().unwrap().events.drain(..).collect();
-    assert!(!format!("{barks:?}").contains("to arms"), "{barks:?}");
+    let barks = format!("{:?}", g.vm().unwrap().events.drain(..).collect::<Vec<_>>());
+    assert_eq!(barks.matches("to arms").count(), 3, "50 once, and 51 and 61 called in: {barks}");
     assert!(g.world.in_combat(51) && g.world.target(51).now == AVATAR, "the next guard comes too");
     assert!(!g.world.in_combat(7), "Mordea (no quarrel with the Avatar) stays out of it");
     let d51 = |g: &Game| {

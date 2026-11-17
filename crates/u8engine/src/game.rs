@@ -53,9 +53,6 @@ pub struct Game {
     pub(crate) walks: Vec<Walk>,
     /// What people in combat are up to (see [`fight`](crate::fight)).
     pub(crate) fights: HashMap<ObjId, crate::fight::Fighter>,
-    /// Drawn into a fight by a blow or a call for help: no `cast` script on joining (see
-    /// [`Game::call_for_help`]).
-    pub(crate) roused: std::collections::HashSet<ObjId>,
     /// People wandering about (activity 0; see [`spawn`](crate::spawn)).
     pub(crate) loiters: HashMap<ObjId, crate::spawn::Loiter>,
     /// People speaking: the speech or question's process, and who (see [`Game::gesture`]).
@@ -147,7 +144,6 @@ impl Game {
             fast: FastArea,
             walks: vec![],
             fights: HashMap::new(),
-            roused: Default::default(),
             loiters: HashMap::new(),
             talkers: vec![],
             rising: vec![],
@@ -168,7 +164,7 @@ impl Game {
             map_changed: false,
         };
         g.new_game = g.data.clock.is_none(); // no kernel state: the start of a new game
-        g.resume_fights();
+        g.resume_fights(true);
         g.avatar_dead = g.stats.get(AVATAR).is_some_and(|s| s.dead);
         g.avatar = Avatar::new(&g.data, &g.world);
         Ok(g)

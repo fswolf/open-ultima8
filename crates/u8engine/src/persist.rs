@@ -47,6 +47,15 @@ pub fn snapshot<'a>(
         let mut npcdata = stats.as_ref().and_then(|f| f.get(0)).map(<[u8]>::to_vec);
         let mut done = HashSet::new();
         let mut carriers: Vec<(&World, u16)> = vec![];
+        // People in the area the DOS game holds round the Avatar carry 0x2000 (as its own saves
+        // have them, the Avatar too; the same window as the glob expansions). Without it the
+        // original loads them frozen: they neither turn nor speak.
+        let held = worlds
+            .iter()
+            .find_map(|w| w.avatar().and(w.get(crate::world::AVATAR)).map(|a| (w.map(), (a.x >> 9, a.y >> 9))));
+        let active = |map: u16, it: &map::Item| {
+            held.is_some_and(|(m, around)| m == map && map::in_glob_window((it.x >> 9, it.y >> 9), around))
+        };
         for (k, w) in worlds.iter().enumerate() {
             for e in w.entries().iter().filter(|e| e.origin == Origin::Actor && !e.gone) {
                 let npc = e.it.npc;
@@ -55,7 +64,12 @@ pub fn snapshot<'a>(
                     continue;
                 }
                 let on = if here { w.map() as usize } else { e.it.mapnum as usize };
-                map::store_actor(&mut npcs, npc as usize, on, &e.it);
+                let mut it = e.it;
+                it.flags &= !map::IN_CACHE;
+                if here && active(w.map(), &it) {
+                    it.flags |= map::IN_CACHE;
+                }
+                map::store_actor(&mut npcs, npc as usize, on, &it);
                 carriers.push((w, npc));
                 if let Some(d) = &mut npcdata {
                     map::store_npc_frame_high(d, npc as usize, e.it.frame);

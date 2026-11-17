@@ -66,6 +66,8 @@ pub enum Setting {
     Music,
     Effects,
     Volume,
+    /// Background sounds' level (fires, drips, fountains).
+    Ambience,
     Cutaway,
     Fullscreen,
     Buttons,

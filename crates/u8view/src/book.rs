@@ -30,6 +30,7 @@ impl App {
         #[cfg(feature = "audio")]
         if let Some(a) = &mut self.audio {
             a.change_volume(s.volume - a.volume);
+            a.set_ambience(s.ambience);
             a.sfx_on = s.effects;
             if !s.music {
                 a.music_off();
@@ -62,7 +63,7 @@ impl App {
         };
         #[cfg(feature = "audio")]
         if let Some(a) = &self.audio {
-            (s.music, s.effects, s.volume) = (a.music_on(), a.sfx_on, a.volume);
+            (s.music, s.effects, s.volume, s.ambience) = (a.music_on(), a.sfx_on, a.volume, a.ambience);
         }
         s
     }
@@ -142,10 +143,10 @@ impl App {
         let v = &self.view;
         let on = |b: bool| if b { "on" } else { "off" };
         #[allow(unused_mut)]
-        let mut audio = (false, false, 0.0f32);
+        let mut audio = (false, false, 0.0f32, 0.0f32);
         #[cfg(feature = "audio")]
         if let Some(a) = &self.audio {
-            audio = (a.music_on(), a.sfx_on, a.volume);
+            audio = (a.music_on(), a.sfx_on, a.volume, a.ambience);
         }
         let classic = self.ui.as_ref().is_some_and(|u| u.style == ui::Style::Classic);
         vec![
@@ -155,6 +156,7 @@ impl App {
             (Music, format!("Music: {}", on(audio.0))),
             (Effects, format!("Sound effects: {}", on(audio.1))),
             (Volume, format!("Music volume: {} of 10", (audio.2 * 10.0).round())), // the fonts have no % or /
+            (Ambience, format!("Ambience: {} of 10", (audio.3 * 10.0).round())),   // fires, drips, fountains
             (Cutaway, format!("See inside: {}", on(v.cutaway))),
             (Fullscreen, format!("Full screen: {}", on(self.fullscreen))),
             (Buttons, format!("Mouse: {}", if self.swapped { "left-handed" } else { "right-handed" })),
@@ -202,6 +204,13 @@ impl App {
                         if let Some(a) = &mut self.audio {
                             let v = if a.volume > 0.95 { 0.0 } else { a.volume + 0.1 };
                             a.change_volume(v - a.volume);
+                        }
+                        Command::Recentre
+                    }
+                    Setting::Ambience => {
+                        #[cfg(feature = "audio")]
+                        if let Some(a) = &mut self.audio {
+                            a.set_ambience(if a.ambience > 0.95 { 0.0 } else { a.ambience + 0.1 });
                         }
                         Command::Recentre
                     }

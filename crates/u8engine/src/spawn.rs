@@ -108,7 +108,6 @@ impl Game {
         self.world.set_void(id, true);
         self.world.set_in_combat(id, false);
         self.fights.remove(&id);
-        self.roused.remove(&id);
         self.loiters.remove(&id);
         self.rising.retain(|&(r, _)| r != id);
         self.stop_walking(id);

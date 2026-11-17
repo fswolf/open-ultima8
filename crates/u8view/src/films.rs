@@ -98,7 +98,7 @@ impl App {
                 match cue {
                     Cue::Music(n) => a.play_track(n as usize),
                     Cue::MusicLevel(l) => a.set_music_level(l),
-                    Cue::Sfx(n) => a.sfx(n, 0, false),
+                    Cue::Sfx(n) => a.sfx(n, 0, false, None),
                     Cue::StopSfx(n) => a.stop_sfx(n, None),
                     Cue::Line(l) => a.say(&l),
                 }

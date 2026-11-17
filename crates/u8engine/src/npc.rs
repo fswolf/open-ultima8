@@ -73,14 +73,18 @@ impl Walk {
                 Some(r) => (self.route, self.next) = (Some(r.steps), 0),
                 None => {
                     self.stand(gd, world);
-                    return Some(false); // walled in, or already as close as it gets
+                    return Some(false); // no way there (ScummVM's walk fails too: nobody goes part way)
                 }
             }
         }
         let Some(&s) = self.route.as_ref()?.get(self.next) else {
-            // The end of a route to the closest place found (the goal itself is out of reach).
-            self.stand(gd, world);
-            return Some(false);
+            // Steps all taken but not there (they came out other than planned): plan again.
+            if self.replans >= REPLANS {
+                self.stand(gd, world);
+                return Some(false);
+            }
+            (self.replans, self.route) = (self.replans + 1, None);
+            return None;
         };
         if world.walk_fits(gd, self.actor, act, s.dir, s.frames).is_some() {
             self.dir = s.dir;
@@ -95,7 +99,9 @@ impl Walk {
         None
     }
 
-    /// Back to standing, facing the way it was going.
+    /// Back to standing, facing the way it was going. The walk stays its last action (ScummVM's
+    /// pathfinder plays no stand at the end): Corinth, his round cut short by Beren's coming, says
+    /// "That person is a thief!" as in DOS, which a last action of standing turns to "This".
     pub fn stand(&self, gd: &GameData, world: &mut World) {
         let Some(mut it) = world.get(self.actor) else { return };
         if let Some((f, flip)) = anim_frame(gd, it.shape, action::STAND, self.dir, 0) {
@@ -103,6 +109,5 @@ impl Walk {
             it.flags = if flip { it.flags | FLIPPED } else { it.flags & !FLIPPED };
             world.set(gd, self.actor, it);
         }
-        world.set_last_anim(self.actor, action::STAND);
     }
 }

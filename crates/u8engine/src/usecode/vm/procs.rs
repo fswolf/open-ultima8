@@ -48,6 +48,23 @@ impl Vm {
     }
 
     /// Processes not yet finished (including ones waiting on the UI).
+    /// Each live process, for diagnostics: pid, item, type, where it is (class and ip, or what
+    /// kind of native wait) and what it waits on.
+    pub fn describe(&self) -> Vec<String> {
+        self.procs
+            .iter()
+            .filter(|p| !p.done)
+            .map(|p| {
+                let at = match &p.body {
+                    Body::Uc(s) => format!("class {:#x} ip {:#x}", s.class, s.ip),
+                    Body::Native => "native".into(),
+                    Body::Timer(n) => format!("timer {n}"),
+                };
+                format!("[{}] item {} type {:#x} {at} waits {:?}", p.pid, p.item, p.ptype, p.wait_for)
+            })
+            .collect()
+    }
+
     pub fn running(&self) -> usize {
         self.procs.iter().filter(|p| !p.done).count()
     }

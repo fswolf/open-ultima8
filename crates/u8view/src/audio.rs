@@ -101,21 +101,32 @@ impl Bank {
 }
 
 /// MUSIC.FLX songs: fighting, an enemy falling, the Avatar dying (ScummVM's constants).
-/// Looping background effects (fireplaces, fountains: the scripts' playAmbientSFX) at half
-/// volume. The original plays them at full volume and other effects at half (ScummVM's
-/// AudioProcess: 0xff against 0x80), so a fireplace drowns out everything near it.
-const AMBIENT: f32 = 0.5;
+/// Background sounds: looping effects (fireplaces, fountains: the scripts' playAmbientSFX) and
+/// the ones that repeat on their own ([`QUIETER`]), at a quarter of other effects, times the
+/// player's "Background sounds" setting. The original plays its loops at full volume and other
+/// effects at half (ScummVM's AudioProcess: 0xff against 0x80), so a fireplace drowns out
+/// everything near it; Ryan finds them far too loud there and here.
+const AMBIENT: f32 = 0.25;
 
-/// Effects that repeat on their own and grate, toned down: (effect, volume).
-const QUIETER: [(u16, f32); 1] = [
-    (0xa3, 0.5), // dripping water (DRIPS, DRIPS2: each drip as it animates)
+/// Effects that repeat on their own and grate: background sounds too.
+const QUIETER: [u16; 1] = [
+    0xa3, // dripping water (DRIPS, DRIPS2: each drip as it animates)
 ];
 
-/// Effect `sfx`'s volume: what the script set (1 if nothing), less for a background loop or
-/// one of the [`QUIETER`] ones.
-fn sfx_level(sfx: u16, script: Option<f32>, looping: bool) -> f32 {
-    let quieter = QUIETER.iter().find(|q| q.0 == sfx).map_or(1.0, |q| q.1);
-    script.unwrap_or(1.0) * quieter * if looping { AMBIENT } else { 1.0 }
+/// Left and right gains for a sound at `vol` (0–1) panned `pan` (−1 left … 1 right).
+fn gain(vol: f32, pan: f32) -> [f32; 2] {
+    [vol * (1.0 - pan.max(0.0) * 0.7), vol * (1.0 + pan.min(0.0) * 0.7)]
+}
+
+/// Is `sfx` a background sound?
+fn background(sfx: u16, looping: bool) -> bool {
+    looping || QUIETER.contains(&sfx)
+}
+
+/// Effect `sfx`'s volume: what the script set (1 if nothing), less for a background sound
+/// (`ambience`: the player's setting for those, 0 to 1).
+fn sfx_level(sfx: u16, script: Option<f32>, looping: bool, ambience: f32) -> f32 {
+    script.unwrap_or(1.0) * if background(sfx, looping) { AMBIENT * ambience } else { 1.0 }
 }
 const COMBAT_SONG: usize = 98;
 const FANFARE_SONG: usize = 109;
@@ -140,6 +151,8 @@ pub struct Audio {
     combat: bool,
     /// Script-set volume per effect.
     sfx_volume: HashMap<u16, f32>,
+    /// The player's level for background sounds (fires, drips, fountains), 0–1.
+    pub ambience: f32,
     speech: HashMap<u32, Option<(Bank, Vec<String>)>>,
 }
 
@@ -192,6 +205,7 @@ impl Audio {
             effects,
             sfx_on: true,
             sfx_volume: HashMap::new(),
+            ambience: 1.0,
             speech: HashMap::new(),
         })
     }
@@ -320,19 +334,22 @@ impl Audio {
 
     // --- effects ---
 
-    /// Start effect `sfx` (placed at `item` unless 0); a looping one replaces itself.
-    pub fn sfx(&mut self, sfx: u16, item: ObjId, looping: bool) {
+    /// Start effect `sfx` (placed at `item` unless 0, at `at`: (volume, pan) where it is now, if
+    /// known); a looping one replaces itself.
+    pub fn sfx(&mut self, sfx: u16, item: ObjId, looping: bool, at: Option<(f32, f32)>) {
         if !self.sfx_on {
             return;
         }
         let Some((pcm, rate)) = self.effects.as_mut().and_then(|b| b.clip(sfx as usize)) else { return };
-        let volume = sfx_level(sfx, self.sfx_volume.get(&sfx).copied(), looping);
+        let volume = sfx_level(sfx, self.sfx_volume.get(&sfx).copied(), looping, self.ambience);
         let step = rate as f64 / self.rate as f64;
         let mut mix = self.mixer();
         if looping {
             mix.voices.retain(|v| (v.kind, v.item) != (Kind::Sfx(sfx), item));
         }
-        mix.voices.push(Voice { kind: Kind::Sfx(sfx), item, pcm, pos: 0.0, step, looping, volume, gain: [1.0; 2] });
+        // (Placed from the start: a far drip doesn't tick at full volume for a frame.)
+        let gain = at.map_or([1.0; 2], |(vol, pan)| gain(vol, pan));
+        mix.voices.push(Voice { kind: Kind::Sfx(sfx), item, pcm, pos: 0.0, step, looping, volume, gain });
     }
 
     pub fn stop_sfx(&mut self, sfx: u16, item: Option<ObjId>) {
@@ -344,7 +361,18 @@ impl Audio {
         self.sfx_volume.insert(sfx, v);
         let mut mix = self.mixer();
         for x in mix.voices.iter_mut().filter(|x| x.kind == Kind::Sfx(sfx)) {
-            x.volume = sfx_level(sfx, Some(v), x.looping);
+            x.volume = sfx_level(sfx, Some(v), x.looping, self.ambience);
+        }
+    }
+
+    /// The player's level for background sounds (0–1): those playing follow at once.
+    pub fn set_ambience(&mut self, level: f32) {
+        self.ambience = level.clamp(0.0, 1.0);
+        let mut mix = self.mixer();
+        for x in mix.voices.iter_mut() {
+            if let Kind::Sfx(sfx) = x.kind {
+                x.volume = sfx_level(sfx, self.sfx_volume.get(&sfx).copied(), x.looping, self.ambience);
+            }
         }
     }
 
@@ -360,7 +388,7 @@ impl Audio {
     pub fn place(&mut self, place: impl Fn(ObjId) -> Option<(f32, f32)>) {
         for v in self.mixer().voices.iter_mut().filter(|v| v.item != 0) {
             if let Some((vol, pan)) = place(v.item) {
-                v.gain = [vol * (1.0 - pan.max(0.0) * 0.7), vol * (1.0 + pan.min(0.0) * 0.7)];
+                v.gain = gain(vol, pan);
             }
         }
     }
@@ -514,13 +542,14 @@ mod tests {
     }
 
     #[test]
-    fn background_loops_play_at_half_volume() {
+    fn background_sounds_are_quieter() {
         // Ryan: fireplaces (playAmbientSFX's loops) were far too loud next to everything else.
-        assert_eq!(sfx_level(1, None, false), 1.0);
-        assert_eq!(sfx_level(0x86, None, true), 0.5);
-        assert_eq!(sfx_level(0x86, Some(0.5), true), 0.25, "a script's own volume still applies");
-        // And the gargoyles' dripping (one drip at a time) at half too.
-        assert_eq!(sfx_level(0xa3, None, false), 0.5);
+        assert_eq!(sfx_level(1, None, false, 0.0), 1.0, "other effects aren't background");
+        assert_eq!(sfx_level(0x86, None, true, 1.0), 0.25);
+        assert_eq!(sfx_level(0x86, Some(0.5), true, 1.0), 0.125, "a script's own volume still applies");
+        assert_eq!(sfx_level(0x86, None, true, 0.5), 0.125, "and the player's background level");
+        // And the dripping (one drip at a time) as a background sound too.
+        assert_eq!(sfx_level(0xa3, None, false, 1.0), 0.25);
     }
 
     /// The Guardian's lines (barked from object 666) are recorded in SOUND/E666.FLX.

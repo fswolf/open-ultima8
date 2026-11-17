@@ -87,6 +87,8 @@ pub enum Request {
     /// Item::receiveHit: `target` is struck by `by` from direction `dir` (0 damage: the
     /// striker's usual).
     Hit { target: ObjId, by: ObjId, dir: usize, damage: i32, kind: u16 },
+    /// Actor::setDead / clrDead behind a blow on the same one still to land (see `set_dead`).
+    SetDead(ObjId, bool),
     /// hurl(xs, ys, zs, gravity): send a thing flying; `pid` ends when it comes to rest.
     Hurl { id: ObjId, v: (i32, i32, i32), gravity: i32, pid: Pid },
     /// fall: drop, if nothing holds it up.

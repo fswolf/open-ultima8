@@ -183,8 +183,7 @@ fn jumps_dont_land_on_nothing() {
 }
 
 /// A running jump at a wall (Mythran's house, 88 high, on the plateau): the first hop is stopped
-/// by the wall, so that's where the leap ends, on the ground. Its second hop doesn't start from
-/// mid-air and catch the top; 88 is out of reach, as the original's standing climb (72) says.
+/// by the wall, so that's where the leap ends, on the ground; 88 is out of reach, as the original's standing climb (72) says.
 #[test]
 #[ignore]
 fn a_running_jump_at_a_high_wall_ends_on_the_ground() {
@@ -205,6 +204,34 @@ fn a_running_jump_at_a_high_wall_ends_on_the_ground() {
         assert!(top > 0, "run-up {run_up}: it jumped");
         let av = g.avatar.as_ref().unwrap();
         assert!(z <= 16 && !av.hanging(), "run-up {run_up}: on the ground, not up the wall (z {z})");
+    }
+}
+
+/// A running jump is one hop, as the original's (ANIM 10 is two-step like the run: one half a
+/// jump, off whichever foot is next), with the keys held through it as the keyboard does.
+#[test]
+#[ignore]
+fn a_running_jump_is_one_hop() {
+    let Some(mut g) = saved(10) else { return };
+    for run_up in 4..14 {
+        g.put_avatar(8, (2541, 2827, 0));
+        let run = Input { dir: Some(4), run: true, ..Input::default() };
+        for _ in 0..run_up {
+            g.update(1.0 / 30.0, &run);
+        }
+        let (x0, y0) = g.world.get(AVATAR).map(|a| (a.x, a.y)).unwrap();
+        g.update(1.0 / 30.0, &Input { jump: true, ..run });
+        let (mut hops, mut was, mut air) = (0, 0, 0);
+        while air < 60 {
+            g.update(1.0 / 30.0, &run);
+            let z = g.world.get(AVATAR).unwrap().z;
+            hops += (was == 0 && z > 0) as i32;
+            (was, air) = (z, air + 1);
+        }
+        let it = g.world.get(AVATAR).unwrap();
+        let (x, y, z) = (it.x, it.y, it.z);
+        assert_eq!((hops, z), (1, 0), "run-up {run_up}: one hop, back on the ground");
+        assert!((x - x0).abs() + (y - y0).abs() > 100, "run-up {run_up}: it went somewhere");
     }
 }
 

@@ -20,7 +20,13 @@ const USAGE: &str = "usage: u8cmp <cmd> …
   play <root> <slot|g> steps…           play headless. steps:
        wait=T  walk=DIR,T  run=DIR,T  at=x,y,z[,map]  use=ID  useshape=SHAPE  look=ID
        answer=N|last  shot=out.png  state=out.txt  gamedat=dir  log  mins=M  jump  combat
-       bark=T (ticks a line of speech stays up; default by length)";
+       bark=T (ticks a line of speech stays up; default by length)
+  people <root> <slot> hour=H           everyone on every map at an hour
+  attack <root> <slot> map=M npc=N [hour=H] [swings=N] [watch=T] [hp=N] [side=dx,dy] [move=x,y,z]
+       [cast] [kill] [procs] [out=dir]  strike someone and watch what follows (procs: live processes)
+  steal <root> <slot> map=M npc=N [hour=H] [list] [r=600] [shape=S,..] [item=ID,..] [times=K] [how=take|floor]
+       [gap=T] [watch=T] [stand=x,y,z] [answer=N] [move=x,y,z] [out=dir]
+                                        take things near someone and watch what follows";
 
 fn slot(s: &str) -> Option<u32> {
     (s != "g").then(|| s.parse().expect("slot number or g"))
@@ -51,6 +57,9 @@ fn main() {
         "fuzz" => fuzz(root, slot(&a[2]), &a[3..]),
         "talk" => talk(root, slot(&a[2]), &a[3..]),
         "soak" => soak(root, slot(&a[2]), &a[3..]),
+        "people" => people(root, slot(&a[2]), &a[3..]),
+        "attack" => attack(root, slot(&a[2]), &a[3..]),
+        "steal" => steal(root, slot(&a[2]), &a[3..]),
         _ => eprintln!("{USAGE}"),
     }
 }
@@ -224,6 +233,7 @@ struct Drv {
     cap: u32,
     script: Vec<String>,
     keep: bool,
+    stamp: bool,
 }
 
 impl Drv {
@@ -241,7 +251,8 @@ impl Drv {
                     UiEvent::Bark { pid, item, text } => {
                         self.said += 1;
                         if self.keep {
-                            self.script.push(format!("  {item}: {}", text.trim()));
+                            let at = if self.stamp { format!("[{:.1}s] ", t as f32 / 30.0) } else { String::new() };
+                            self.script.push(format!("  {at}{item}: {}", text.trim()));
                         }
                         if self.log {
                             println!("[t{t}] {item} says: {}", text.trim());
@@ -257,7 +268,8 @@ impl Drv {
                             }
                             self.open_ask = Some((pid as u32, 924));
                             if self.keep {
-                                self.script.push(format!("  ? {options:?} -> (silence)"));
+                                let at = if self.stamp { format!("[{:.1}s] ", t as f32 / 30.0) } else { String::new() };
+                                self.script.push(format!("  {at}? {options:?} -> (silence)"));
                             }
                             continue;
                         }
@@ -1297,4 +1309,547 @@ fn soak(root: &Path, slot: Option<u32>, args: &[String]) {
         }
     }
     println!("soak done: {} ticks, {loads} loads, script errors seen {errs_total}", d.t);
+}
+
+fn arg<'a>(args: &'a [String], k: &str) -> Option<&'a str> {
+    args.iter().find_map(|a| a.strip_prefix(k).and_then(|v| v.strip_prefix('=')))
+}
+
+/// A free spot beside someone, nearest first.
+fn beside(g: &Game, n: &map::Item) -> Option<(i32, i32, i32)> {
+    for r in [96, 112, 128, 160, 80] {
+        for (dx, dy) in [(0, 1), (1, 0), (0, -1), (-1, 0), (1, 1), (-1, -1), (1, -1), (-1, 1)] {
+            let at = (n.x + dx * r, n.y + dy * r, n.z);
+            if g.world.fits(&g.data, AVATAR, at) {
+                return Some(at);
+            }
+        }
+    }
+    None
+}
+
+fn dir_to(dx: i32, dy: i32) -> usize {
+    let ang = (dy as f32).atan2(dx as f32);
+    (((ang / std::f32::consts::FRAC_PI_4).round() as i32 + 2).rem_euclid(8)) as usize
+}
+
+/// Everyone on every map at an hour: people <root> <slot> hour=H
+fn people(root: &Path, slot: Option<u32>, args: &[String]) {
+    let hour: u32 = arg(args, "hour").and_then(|v| v.parse().ok()).unwrap_or(10);
+    for map in 0..256u16 {
+        let mut g = open(root, slot);
+        g.put_avatar(map, (0, 0, 0));
+        g.set_minutes(hour * 60);
+        g.put_avatar(map, (0, 0, 0));
+        for id in 2..256u16 {
+            let Some(it) = g.world.get(id).filter(|_| !g.world.is_void(id)) else { continue };
+            let st = g.stats.get(id).unwrap_or_default();
+            println!(
+                "map {map:3} npc {id:3} shape {:4} at {:5},{:5},{:3} hp {:3} str {:2} dex {:2} align {:x}/{:x} dead {} immortal {} fl {:04x} spot {}",
+                it.shape, it.x, it.y, it.z, st.hp, st.str, st.dex, st.alignment, st.enemies, st.dead, st.immortal, it.flags,
+                beside(&g, &it).is_some()
+            );
+        }
+    }
+}
+
+/// Attack one person and watch what follows.
+/// attack <root> <slot> map=M npc=N hour=H [swings=6] [watch=1200] [out=dir] [kill] [move=x,y,z]
+/// With out=dir the state just before the first blow is written there as a GAMEDAT folder
+/// (the same start for the original).
+fn attack(root: &Path, slot: Option<u32>, args: &[String]) {
+    let map: u16 = arg(args, "map").and_then(|v| v.parse().ok()).unwrap();
+    let id: u16 = arg(args, "npc").and_then(|v| v.parse().ok()).unwrap();
+    let hour: u32 = arg(args, "hour").and_then(|v| v.parse().ok()).unwrap_or(10);
+    let swings: u32 = arg(args, "swings").and_then(|v| v.parse().ok()).unwrap_or(6);
+    let watch: u32 = arg(args, "watch").and_then(|v| v.parse().ok()).unwrap_or(1200);
+    let hp: i16 = arg(args, "hp").and_then(|v| v.parse().ok()).unwrap_or(200);
+    let kill = args.iter().any(|a| a == "kill");
+    let mut g = open(root, slot);
+    g.put_avatar(map, (0, 0, 0));
+    if arg(args, "hour") != Some("keep") {
+        g.set_minutes(hour * 60);
+    }
+    g.put_avatar(map, (0, 0, 0));
+    if let Some(p) = arg(args, "move") {
+        // put them somewhere else first (to tell a place from a person)
+        let p: Vec<i32> = p.split(',').filter_map(|x| x.parse().ok()).collect();
+        g.world.move_to_map(&g.data, id, (p[0], p[1], p[2]));
+    }
+    let Some(n) = g.world.get(id).filter(|_| !g.world.is_void(id)) else {
+        println!("map {map} npc {id}: not there");
+        return;
+    };
+    let side = arg(args, "side").and_then(|v| {
+        let p: Vec<i32> = v.split(',').filter_map(|x| x.parse().ok()).collect();
+        (p.len() == 2).then(|| (n.x + p[0], n.y + p[1], n.z))
+    });
+    let Some(at) = side.filter(|&a| g.world.fits(&g.data, AVATAR, a)).or_else(|| beside(&g, &n)) else {
+        println!("map {map} npc {id}: no free spot beside");
+        return;
+    };
+    g.put_avatar(map, at);
+    let dir = dir_to(n.x - at.0, n.y - at.1);
+    if let Some(a) = g.avatar.as_mut() {
+        a.turn(&g.data, &mut g.world, dir);
+    }
+    if let Some(s) = g.stats.get_mut(AVATAR) {
+        s.hp = hp;
+    }
+    let mut d = Drv { keep: true, ..Default::default() };
+    let mut input = Input::default();
+    d.run(&mut g, 2, &mut input);
+    if let Some(o) = arg(args, "out") {
+        write_dir(&g.snapshot(), &PathBuf::from(o));
+        let (sx, sy) = project(n.x, n.y, n.z + 20);
+        let (ax, ay) = project(at.0, at.1, at.2 + 20);
+        println!("start: avatar {at:?} dir {dir} npc at {},{},{} screen offset {},{}", n.x, n.y, n.z, sx - ax, sy - ay);
+    }
+    let before: std::collections::HashMap<u16, (i32, i32)> = (2..256u16)
+        .filter(|&i| !g.world.is_void(i))
+        .filter_map(|i| g.world.get(i).map(|it| (i, (it.x, it.y))))
+        .collect();
+    let hp0 = g.stats.get(id).map_or(0, |s| s.hp);
+    input.combat = true;
+    d.run(&mut g, 1, &mut input);
+    d.run(&mut g, 30, &mut Input::default());
+    let (mut done, mut landed) = (0, 0);
+    let mut t_end = d.t + 60 * 30;
+    while d.t < t_end && !g.avatar_dead() {
+        let st = g.stats.get(id).unwrap_or_default();
+        // struck: hurt, or (the immortal lose no hit points) roused against the Avatar
+        let hurt = st.hp < hp0 || st.dead || g.world.target(id).now == AVATAR;
+        let more = if kill { !st.dead && done < 60 } else { !hurt && done < swings };
+        if !more {
+            break;
+        }
+        let mut i = Input::default();
+        if g.avatar.as_ref().is_some_and(|a| !a.busy()) && !g.in_stasis() {
+            // keep facing them, and follow if they walk off
+            if let (Some(a), Some(nn)) = (g.world.get(AVATAR), g.world.get(id)) {
+                let dd = dir_to(nn.x - a.x, nn.y - a.y);
+                if (nn.x - a.x).abs().max((nn.y - a.y).abs()) > 112 {
+                    i.dir = Some(dd);
+                } else {
+                    if let Some(av) = g.avatar.as_mut() {
+                        av.turn(&g.data, &mut g.world, dd);
+                    }
+                    i.attack = true;
+                    done += 1;
+                }
+            }
+        }
+        d.run(&mut g, 1, &mut i);
+        let now = g.stats.get(id).unwrap_or_default();
+        if now.hp < st.hp || (now.dead && !st.dead) || (g.world.target(id).now == AVATAR && landed == 0) {
+            landed += 1;
+        }
+        if g.in_stasis() {
+            t_end = t_end.min(d.t + 1);
+        }
+    }
+    let t_hit = d.t;
+    if args.iter().any(|a| a == "cast") && g.stats.get(id).is_some_and(|s| !s.dead) && landed > 0 {
+        // what the original does on a blow: the struck one's going-into-combat script
+        g.trigger_with(id, 17, &[0, 0]);
+    }
+    let mut died_at = None;
+    for _ in 0..watch {
+        d.run(&mut g, 1, &mut Input::default());
+        if g.avatar_dead() && died_at.is_none() {
+            died_at = Some(d.t - t_hit);
+        }
+    }
+    let a = g.world.get(AVATAR).unwrap();
+    let st = g.stats.get(id).unwrap_or_default();
+    let av = g.stats.get(AVATAR).unwrap_or_default();
+    let mut after: Vec<String> = vec![];
+    for i in 2..256u16 {
+        if g.world.is_void(i) {
+            continue;
+        }
+        let Some(it) = g.world.get(i) else { continue };
+        let dist = (it.x - a.x).abs().max((it.y - a.y).abs());
+        let was = before.get(&i);
+        let moved = was.map_or(9999, |w| (it.x - w.0).abs().max((it.y - w.1).abs()));
+        let s = g.stats.get(i).unwrap_or_default();
+        if i == id || g.world.in_combat(i) || (dist < 700 && (was.is_none() || moved > 300)) {
+            after.push(format!(
+                "{i}(s{} d{dist}{}{}{}{})",
+                it.shape,
+                if was.is_none() { " NEW" } else { "" },
+                if moved > 300 && was.is_some() { " came" } else { "" },
+                if g.world.in_combat(i) { " fights" } else { "" },
+                if s.dead { " dead" } else { "" }
+            ));
+        }
+    }
+    let vm = g.scripts.as_ref().map(|s| &s.vm).unwrap();
+    if args.iter().any(|a| a == "procs") {
+        vm.describe().iter().filter(|l| !l.contains("native")).for_each(|l| println!("  {l}"));
+        for i in [AVATAR, id, 32] {
+            if let (Some(it), Some(s)) = (g.world.get(i), g.stats.get(i)) {
+                println!(
+                    "  {i}: at {},{},{} hp {} combat {} target {:?}",
+                    it.x,
+                    it.y,
+                    it.z,
+                    s.hp,
+                    g.world.in_combat(i),
+                    g.world.target(i).now
+                );
+            }
+        }
+    }
+    println!(
+        "map {map} npc {id} shape {}: swings {done} landed {landed} npc hp {hp0}->{} dead {} | avatar hp {hp}->{} dead {} (after {:?} ticks) stasis {} map {} | {} | errors {} | said: {}",
+        n.shape,
+        st.hp,
+        st.dead,
+        av.hp,
+        g.avatar_dead(),
+        died_at,
+        g.in_stasis(),
+        g.map(),
+        after.join(" "),
+        vm.errors,
+        d.script.iter().map(|l| l.trim().to_string()).collect::<Vec<_>>().join(" / ")
+    );
+}
+
+/// Something loose on the map that nobody owns: what the player could take.
+fn loose(g: &Game, id: u16) -> bool {
+    let Some(i) = g.world.index(id) else { return false };
+    let e = g.world.entry(i);
+    let tf = g.data.typeflags.get(e.it.shape);
+    id >= 256
+        && e.parent.is_none()
+        && !e.void
+        && !e.gone
+        && !e.traits.actor
+        && !e.traits.egg
+        && !e.traits.editor
+        && e.origin == u8engine::world::Origin::Movable
+        && !tf.has(u8data::typeflag::flag::FIXED)
+        && e.it.flags & 0x4 == 0
+        && tf.weight != 0
+}
+
+/// Where the middle of a thing's box is drawn, from the Avatar's feet (game pixels).
+fn offset(g: &Game, id: u16) -> (i32, i32) {
+    let (Some(b), Some(a)) = (g.world.abs_box(id), g.world.get(AVATAR)) else { return (0, 0) };
+    let (sx, sy) = project((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2);
+    let (ax, ay) = project(a.x, a.y, a.z);
+    (sx - ax, sy - ay)
+}
+
+/// Where to point at a thing in the original's 320 by 200 view: a pixel where it is the topmost
+/// thing drawn, nearest the middle of all such pixels. None if it is hidden.
+fn aim(g: &mut Game, id: u16) -> Option<(i32, i32)> {
+    let (x, y, z) = g.camera()?;
+    let (sx, sy) = project(x, y, z);
+    let cam = (sx - 160, sy - 100);
+    let max_z = g.world.ceiling(AVATAR).map(|z| z - 1);
+    let opts = DrawOpts { max_z, ..Default::default() };
+    let mut p = Painter::new();
+    p.sync(&g.data, &mut g.world, [cam.0, cam.1, 320, 200]);
+    let r = p.rect(&g.world, id)?;
+    let mut pts = vec![];
+    for py in r[1]..r[1] + r[3] {
+        for px in r[0]..r[0] + r[2] {
+            let (vx, vy) = (px - cam.0, py - cam.1);
+            if (2..318).contains(&vx)
+                && (2..196).contains(&vy)
+                && p.pick(&g.data, &mut g.world, px, py, opts) == Some(id)
+            {
+                pts.push((vx, vy));
+            }
+        }
+    }
+    if pts.is_empty() {
+        return None;
+    }
+    let n = pts.len() as i32;
+    let (mx, my) = (pts.iter().map(|p| p.0).sum::<i32>() / n, pts.iter().map(|p| p.1).sum::<i32>() / n);
+    // (the original draws its view two pixels lower)
+    pts.into_iter().min_by_key(|p| (p.0 - mx).pow(2) + (p.1 - my).pow(2)).map(|p| (p.0, p.1 + 2))
+}
+
+/// Take things near someone and watch what follows.
+/// steal <root> <slot> map=M npc=N [hour=H] [list] [shape=S,..] [item=ID,..] [times=K] [how=take|floor]
+fn steal(root: &Path, slot: Option<u32>, args: &[String]) {
+    let num = |k: &str, d: i32| arg(args, k).and_then(|v| v.parse().ok()).unwrap_or(d);
+    let list = |k: &str| -> Vec<i32> {
+        arg(args, k).map_or(vec![], |v| v.split(',').filter_map(|x| x.parse().ok()).collect())
+    };
+    let map = num("map", 0) as u16;
+    let id = num("npc", 0) as u16;
+    let (r, times, gap, watch) = (num("r", 600), num("times", 1), num("gap", 300) as u32, num("watch", 1500) as u32);
+    let floor = arg(args, "how") == Some("floor");
+    let mut g = open(root, slot);
+    g.put_avatar(map, (0, 0, 0));
+    if arg(args, "hour") != Some("keep") {
+        g.set_minutes(num("hour", 10) as u32 * 60);
+    }
+    g.put_avatar(map, (0, 0, 0));
+    let mv = list("move");
+    if mv.len() == 3 {
+        g.world.move_to_map(&g.data, id, (mv[0], mv[1], mv[2]));
+    }
+    let br = list("bring");
+    if br.len() == 4 {
+        // put a thing somewhere else first (to have one of the kinds a script looks for at hand)
+        g.world.move_to_map(&g.data, br[0] as u16, (br[1], br[2], br[3]));
+    }
+    if args.iter().any(|a| a == "room") {
+        // make room in the pack: the pack carried inside it goes, with what's in it
+        if let Some(pack) = g.backpack() {
+            for o in g.world.contents(pack) {
+                if g.world.get(o).is_some_and(|it| it.shape == 529) {
+                    g.world.take_contents(o);
+                    g.world.remove(o);
+                }
+            }
+        }
+    }
+    let Some(n) = g.world.get(id).filter(|_| !g.world.is_void(id)) else {
+        println!("map {map} npc {id}: not there");
+        return;
+    };
+    let dist = |g: &Game, o: u16| g.world.get(o).map_or(9999, |it| (it.x - n.x).abs().max((it.y - n.y).abs()));
+    let mut near: Vec<u16> = g.world.area(n.x, n.y, r).into_iter().filter(|&o| loose(&g, o)).collect();
+    near.sort_by_key(|&o| dist(&g, o));
+    if args.iter().any(|a| a == "list") {
+        println!(
+            "map {map} npc {id} shape {} at {},{},{}: {} loose things within {r}",
+            n.shape,
+            n.x,
+            n.y,
+            n.z,
+            near.len()
+        );
+        for &o in &near {
+            let it = g.world.get(o).unwrap();
+            let tf = g.data.typeflags.get(it.shape);
+            println!(
+                "  item {o:5} shape {:4} f{:3} q{:5} at {:5},{:5},{:3} dist {:4} family {} weight {} fl {:04x}",
+                it.shape,
+                it.frame,
+                it.quality,
+                it.x,
+                it.y,
+                it.z,
+                dist(&g, o),
+                tf.family,
+                tf.weight,
+                it.flags
+            );
+        }
+        return;
+    }
+    let (shapes, ids) = (list("shape"), list("item"));
+    let mut picks: Vec<u16> = if !ids.is_empty() {
+        ids.iter().map(|&i| i as u16).collect()
+    } else {
+        near.iter()
+            .copied()
+            .filter(|&o| shapes.is_empty() || shapes.contains(&(g.world.get(o).unwrap().shape as i32)))
+            .collect()
+    };
+    if picks.is_empty() {
+        println!("map {map} npc {id}: nothing to take");
+        return;
+    }
+    // Somewhere to stand from which the first thing can be handled (and as many more as possible).
+    let first = g.world.get(picks[0]).unwrap();
+    let st = list("stand");
+    let mut spots: Vec<(i32, i32, i32)> = vec![];
+    if st.len() == 3 {
+        spots.push((st[0], st[1], st[2]));
+    } else {
+        for z in [n.z, first.z] {
+            for rr in [64, 80, 96, 112, 128, 144, 48].into_iter().filter(|&r| r <= num("ring", 144)) {
+                for k in 0..16 {
+                    let a = k as f32 * std::f32::consts::PI / 8.0;
+                    let at = (first.x + (a.cos() * rr as f32) as i32, first.y + (a.sin() * rr as f32) as i32, z);
+                    if g.world.fits(&g.data, AVATAR, at) {
+                        spots.push(at);
+                    }
+                }
+            }
+        }
+        // (a little way off the person, so neither hides the other on screen)
+        let off = num("off", 150);
+        spots.sort_by_key(|s| ((s.0 - n.x).abs().max((s.1 - n.y).abs()) - off).abs());
+    }
+    let mut stand = None;
+    let mut second = None;
+    // (a thing that can't be picked up from anywhere: stand by it anyway and try)
+    let fallback = spots.first().copied();
+    for at in spots {
+        g.put_avatar(map, at);
+        if g.can_pick_up(picks[0]).is_ok() {
+            second = second.or(Some(at));
+            if aim(&mut g, picks[0]).is_some() && aim(&mut g, AVATAR).is_some() {
+                stand = Some(at);
+                break;
+            }
+        }
+    }
+    let stand = stand.or(second).or(fallback);
+    if let Some(at) = stand {
+        g.put_avatar(map, at);
+    }
+    let Some(at) = stand else {
+        println!("map {map} npc {id}: nowhere to stand by item {} at {},{},{}", picks[0], first.x, first.y, first.z);
+        return;
+    };
+    if ids.is_empty() {
+        picks.retain(|&o| g.can_pick_up(o).is_ok());
+        if floor {
+            picks.truncate(1);
+        }
+    }
+    let dir = dir_to(first.x - at.0, first.y - at.1);
+    if let Some(a) = g.avatar.as_mut() {
+        a.turn(&g.data, &mut g.world, dir);
+    }
+    if let Some(s) = g.stats.get_mut(AVATAR) {
+        s.hp = num("hp", 200) as i16;
+    }
+    let mut d = Drv { keep: true, stamp: true, silent: arg(args, "answer").is_none(), ..Default::default() };
+    d.answer = arg(args, "answer").and_then(|v| v.parse().ok());
+    d.run(&mut g, 2, &mut Input::default());
+    let npc_d = (n.x - at.0).abs().max((n.y - at.1).abs());
+    println!(
+        "map {map} npc {id} shape {}: avatar {at:?} dir {dir}, npc at {},{},{} ({npc_d} away), pack {:?}",
+        n.shape,
+        n.x,
+        n.y,
+        n.z,
+        g.backpack()
+    );
+    for &o in picks.iter().take(times.max(1) as usize) {
+        let it = g.world.get(o).unwrap();
+        let (off, to) = (offset(&g, o), aim(&mut g, o));
+        println!(
+            "  thing {o} shape {} f{} at {},{},{} screen offset from the feet {off:?} point at {to:?}",
+            it.shape, it.frame, it.x, it.y, it.z
+        );
+    }
+    println!("  avatar: point at {:?}; {} things in reach", aim(&mut g, AVATAR), picks.len());
+    // (floor moves: its place, and one a little way off that is free)
+    let home0 = (first.x, first.y, first.z);
+    let mut away = None;
+    if floor {
+        let mut ways =
+            [(40, -40), (-40, 40), (48, 48), (-48, -48), (64, 0), (0, 64), (-64, 0), (0, -64), (32, 32), (-32, -32)];
+        ways.sort_by_key(|w| (home0.0 + w.0 - at.0).abs().max((home0.1 + w.1 - at.1).abs()));
+        for (dx, dy) in ways {
+            let p = (home0.0 + dx, home0.1 + dy, home0.2);
+            if g.world.fits(&g.data, picks[0], p) {
+                let at = aim(&mut g, picks[0]).map(|a| (a.0 + (dx - dy) / 4, a.1 + (dx + dy) / 8));
+                // (not onto the Avatar's own picture: that would put it in the pack)
+                if at.is_some_and(|a| (138..182).contains(&a.0) && (66..128).contains(&a.1)) {
+                    continue;
+                }
+                away = Some(p);
+                println!("  floor move to {p:?}: drag to {at:?}");
+                break;
+            }
+        }
+    }
+    if let Some(o) = arg(args, "out") {
+        write_dir(&g.snapshot(), &PathBuf::from(o));
+    }
+    if let Some(p) = arg(args, "shot") {
+        shot(&mut g, &mut Painter::new(), &mut SpriteCache::unscaled(), p);
+    }
+    let before: std::collections::HashMap<u16, (i32, i32)> = (2..256u16)
+        .filter(|&i| !g.world.is_void(i))
+        .filter_map(|i| g.world.get(i).map(|it| (i, (it.x, it.y))))
+        .collect();
+    let globals0 = g.scripts.as_ref().map(|s| s.vm.globals.clone()).unwrap_or_default();
+    d.t = 0;
+    for k in 0..times.max(1) as usize {
+        let o = picks[k % picks.len()];
+        let it = g.world.get(o).unwrap();
+        let res = if floor {
+            // along the floor: to and fro between its place and one a little way off
+            let to = if k % 2 == 0 { away } else { Some(home0) };
+            match to {
+                Some(p) => g.move_item(o, Place::Map(p)).map(|_| format!("moved to {p:?}")),
+                None => Err("no room to move it"),
+            }
+        } else {
+            g.stow(o).map(|_| "into the pack".to_string())
+        };
+        d.script.push(format!(
+            "  [{:.1}s] TAKE {} (shape {}): {}",
+            d.t as f32 / 30.0,
+            o,
+            it.shape,
+            res.unwrap_or_else(|e| format!("REFUSED: {e}"))
+        ));
+        let wait = if k + 1 == times.max(1) as usize { watch } else { gap };
+        for _ in 0..wait {
+            d.run(&mut g, 1, &mut Input::default());
+            if g.avatar_dead() {
+                break;
+            }
+        }
+        if g.avatar_dead() {
+            d.script.push(format!("  [{:.1}s] the Avatar is dead", d.t as f32 / 30.0));
+            d.run(&mut g, 60, &mut Input::default());
+            break;
+        }
+    }
+    let a = g.world.get(AVATAR).unwrap();
+    let av = g.stats.get(AVATAR).unwrap_or_default();
+    let mut after: Vec<String> = vec![];
+    for i in 2..256u16 {
+        if g.world.is_void(i) {
+            continue;
+        }
+        let Some(it) = g.world.get(i) else { continue };
+        let dd = (it.x - a.x).abs().max((it.y - a.y).abs());
+        let was = before.get(&i);
+        let moved = was.map_or(9999, |w| (it.x - w.0).abs().max((it.y - w.1).abs()));
+        let s = g.stats.get(i).unwrap_or_default();
+        if i == id || g.world.in_combat(i) || (dd < 700 && (was.is_none() || moved > 100)) {
+            after.push(format!(
+                "{i}(s{} d{dd}{}{}{}{})",
+                it.shape,
+                if was.is_none() { " NEW" } else { "" },
+                if moved > 100 && was.is_some() { " moved" } else { "" },
+                if g.world.in_combat(i) { " fights" } else { "" },
+                if s.dead { " dead" } else { "" }
+            ));
+        }
+    }
+    let vm = g.scripts.as_ref().map(|s| &s.vm).unwrap();
+    let changed: Vec<String> = vm
+        .globals
+        .iter()
+        .zip(globals0.iter())
+        .enumerate()
+        .filter(|(_, (a, b))| a != b)
+        .map(|(i, (a, b))| format!("{i:#x}:{b:02x}->{a:02x}"))
+        .collect();
+    println!(
+        "  end: avatar hp {} dead {} at {},{},{} map {} stasis {} | people: {} | globals {} | errors {}",
+        av.hp,
+        g.avatar_dead(),
+        a.x,
+        a.y,
+        a.z,
+        g.map(),
+        g.in_stasis(),
+        after.join(" "),
+        changed.join(" "),
+        vm.errors
+    );
+    for l in &d.script {
+        println!("{l}");
+    }
 }

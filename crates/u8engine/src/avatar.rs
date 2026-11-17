@@ -66,6 +66,9 @@ struct Act {
     stopped: bool,
     /// How it carries the Avatar along.
     moves: Moves,
+    /// The frames it plays: all, or one step of a two-step action (a running jump is one hop).
+    from: usize,
+    to: usize,
 }
 
 /// How an action moves the Avatar.
@@ -82,7 +85,18 @@ enum Moves {
 
 impl Act {
     fn new(action: usize, fwd: i32, pace: f32) -> Self {
-        Self { action, step: 0, fwd, wait: 0.0, pace, struck: false, stopped: false, moves: Moves::Fixed }
+        Self {
+            action,
+            step: 0,
+            fwd,
+            wait: 0.0,
+            pace,
+            struck: false,
+            stopped: false,
+            moves: Moves::Fixed,
+            from: 0,
+            to: usize::MAX,
+        }
     }
     fn moving(action: usize, moves: Moves) -> Self {
         Self { moves, ..Self::new(action, 0, ACT_FRAME) }
@@ -348,7 +362,21 @@ impl Avatar {
                         (true, _, _) | (_, true, _) => (action::JUMP, 16),
                         _ => (action::JUMP_UP, 0),
                     };
-                    self.act = Some(Act::new(a, fwd, JUMP_FRAME));
+                    let mut act = Act::new(a, fwd, JUMP_FRAME);
+                    if a == action::RUNNING_JUMP {
+                        // A two-step action, as running: one hop, off the foot after the one the
+                        // run is on (ScummVM's AnimationTracker plays half of it each time).
+                        let len = |a| {
+                            world
+                                .get(AVATAR)
+                                .and_then(|it| gd.anims.get(it.shape, a))
+                                .map_or(1, |a| a.frames[0].len().max(1))
+                        };
+                        let (run, jump) = (len(action::RUN), len(a));
+                        let second = self.step % run < run / 2;
+                        (act.from, act.to) = if second { (jump / 2, jump) } else { (0, jump / 2) };
+                    }
+                    self.act = Some(act);
                 }
                 self.moving = false;
             }
@@ -553,7 +581,9 @@ impl Avatar {
             return false;
         }
         let dir = self.dir;
-        let frames = gd.anims.get(it.shape, j.action).and_then(|a| a.frames.get(dir)).cloned().unwrap_or_default();
+        let mut frames = gd.anims.get(it.shape, j.action).and_then(|a| a.frames.get(dir)).cloned().unwrap_or_default();
+        frames.truncate(j.to);
+        frames.drain(..j.from.min(frames.len()));
         if j.step >= frames.len() {
             // Done (landed): settle onto whatever is underneath, or more than a step over it, fall.
             match world.floor_under(AVATAR) {
@@ -579,7 +609,7 @@ impl Avatar {
         }
         let f = frames[j.step];
         show(&mut it, (f.frame, f.flags & AnimFrame::FLIPPED != 0));
-        self.pose = (j.action, j.step);
+        self.pose = (j.action, j.from + j.step);
         if f.attack_range() > 0 && !j.struck {
             self.swing = Some((dir, f.attack_range()));
         }
@@ -616,8 +646,7 @@ impl Avatar {
         let leap = j.action == action::JUMP || j.action == action::RUNNING_JUMP;
         // Stopped going forward (a wall, the map's edge), it goes on up and down where it is (and
         // can catch the ledge on the way down), but that hop is its last: at its end, or as soon
-        // as it can't come down further, it lands or drops. A running jump's second hop never
-        // starts from mid-air.
+        // as it can't come down further, it lands or drops.
         j.stopped |= leap && (dx, dy) != (0, 0) && moved.is_none_or(|(x, y, _)| (x, y) == (it.x, it.y));
         if let Some((x, y, z)) = moved {
             (it.x, it.y, it.z) = (x, y, z);

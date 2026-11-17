@@ -63,6 +63,7 @@ fn items_move_between_bags_and_the_floor_and_saves_keep_it() {
             && !e.traits.egg
             && (e.it.x - av.x).abs() > 2000
             && !g.data.typeflags.get(e.it.shape).has(u8data::typeflag::flag::FIXED)
+            && g.data.typeflags.get(e.it.shape).weight != 0 // (no weight: never movable)
     });
     if let Some(far) = far {
         assert_eq!(g.can_pick_up(far), Err("You can't reach that."));

@@ -130,10 +130,12 @@ impl Game {
             let friend =
                 at != AVATAR && self.stats.get(target).zip(self.stats.get(at)).is_some_and(|(t, a)| !t.is_enemy(&a));
             if !friend {
-                if !self.world.in_combat(target) {
-                    self.roused.insert(target);
-                }
                 self.world.set_target(target, at);
+                // In at once (the original's receiveHit): its script starts before those it
+                // calls in, so a struck townsperson's scene is the one Beren comes to.
+                if !self.fights.contains_key(&target) {
+                    self.join_fight(target);
+                }
             }
             if by == AVATAR {
                 self.call_for_help(target);
@@ -158,26 +160,25 @@ impl Game {
         }
     }
 
-    /// `struck` was attacked by the Avatar: those on its side nearby who count the Avatar's side
-    /// as enemies come for it. ScummVM leaves this a TODO; in DOS, striking a castle guard brings
-    /// the next (NPC 51, 640 away) running within a second or two, a third after about five.
-    /// Townsfolk and the like with no quarrel with the Avatar's side stay out of it.
+    /// `struck` was attacked by the Avatar: everyone alive with the same alignment (side and
+    /// enemies both) within 1024 of the Avatar goes into combat against it, and so runs its
+    /// going-into-combat script: guards shout and come, acolytes and the undead join in,
+    /// townsfolk cry for Beren. ScummVM leaves this a TODO. As DOS has it (claude/attack-compare.md):
+    /// a second acolyte (1/0) joins each time, guard 47 from 1024 away, nobody from 1152 or more;
+    /// Orlok cries out when Jenna is struck and the other way round; peasant 66 (1/2) stays out
+    /// when guard 65 (1/e) is struck, 640 away.
     pub(crate) fn call_for_help(&mut self, struck: ObjId) {
-        let (Some(side), Some(av)) = (self.stats.get(struck).map(|s| s.alignment), self.stats.get(AVATAR)) else {
-            return;
-        };
+        let Some(side) = self.stats.get(struck).map(|s| (s.alignment, s.enemies)) else { return };
         let Some(a) = self.world.get(AVATAR) else { return };
         let near = |it: &u8data::map::Item| (it.x - a.x).abs().max((it.y - a.y).abs()) <= crate::fast_area::RANGE;
         let helpers: Vec<ObjId> = (2..256)
             .filter(|&id| id != struck && !self.world.in_combat(id) && !self.world.is_void(id))
             .filter(|&id| self.world.get(id).is_some_and(|it| near(&it)))
-            .filter(|&id| {
-                self.stats.get(id).is_some_and(|s| !s.dead && s.alignment == side && s.enemies & av.alignment != 0)
-            })
+            .filter(|&id| self.stats.get(id).is_some_and(|s| !s.dead && (s.alignment, s.enemies) == side))
             .collect();
         for id in helpers {
-            self.roused.insert(id);
             self.world.set_target(id, AVATAR);
+            self.join_fight(id);
         }
     }
 

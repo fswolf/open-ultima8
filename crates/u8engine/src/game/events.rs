@@ -66,6 +66,7 @@ impl Game {
                 Request::CameraScroll { pid, to } => done.extend(self.camera.scroll_to(&self.world, pid, to)),
                 Request::CameraMove(to) => done.extend(self.camera.move_to(to)),
                 Request::Hit { target, by, dir, damage, kind } => self.receive_hit(target, by, dir, damage, kind),
+                Request::SetDead(id, dead) => _ = self.stats.get_mut(id).map(|s| s.dead = dead),
                 Request::GrantPeace => self.cast_grant_peace(),
                 Request::Fireball(at) => self.tonys_ball(at),
                 Request::Moved(id) => self.note_footing(id),
@@ -121,7 +122,10 @@ impl Game {
         let (talking, done): (Vec<_>, Vec<_>) = self.talkers.iter().copied().partition(|&(pid, _)| alive(pid));
         self.talkers = talking;
         let speaking = |id| self.talkers.iter().any(|&(_, t)| t == id);
-        // (Back to standing the way they were facing, if the talking was still theirs.)
+        // (Back to standing the way they were facing, if the talking was still theirs; but the
+        // talk stays their last action, as the original's saves have it (Devon and Mordea keep
+        // 53 long after speaking): class 1419 then has the accuser say "That person..." without
+        // turning, as DOS does, where a last action of standing gives "This person...".)
         let facing = |w: &crate::world::World, gd: &GameData, id| {
             w.last_dir(id).or_else(|| w.get(id).and_then(|it| crate::avatar::facing(gd, &it))).unwrap_or(0)
         };
@@ -129,6 +133,7 @@ impl Game {
             let acting = self.world.acting(id).map(|a| a.0);
             if self.world.last_anim(id) == action::TALK && acting.is_none_or(|a| a == action::TALK) {
                 self.world.play(&self.data, id, action::STAND, facing(&self.world, &self.data, id));
+                self.world.set_last_anim(id, action::TALK);
             }
         }
         let quiet: Vec<ObjId> = self.talkers.iter().map(|&(_, id)| id).collect();

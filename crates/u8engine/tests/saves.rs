@@ -392,3 +392,42 @@ fn saves_dont_double_animated_scenery() {
         }
     }
 }
+
+/// People in the area the DOS game holds round the Avatar (the glob window: chunk sums within 7,
+/// differences within 3) are saved with 0x2000, as the original's own saves have them; without
+/// it the original loads them frozen (they neither turn nor speak). Slot 2, the castle: DOS
+/// flags the Avatar, 7, 46, 47, 50, 51, 61 and 63, and not 11, 45, 48, 49.
+#[test]
+#[ignore]
+fn people_near_the_avatar_are_saved_as_active() {
+    let Some(dir) = std::env::var_os("U8_DATA") else { return };
+    let root = std::path::Path::new(&dir);
+    let Ok(g) = Game::open(root, Some(2), None) else { return };
+    let s = g.snapshot();
+    let f = u8data::flex::Flex::parse(s.get("ITEMCACH.DAT").unwrap().to_vec()).unwrap();
+    // (ITEMCACH entry 0's flags column, as the original reads it)
+    let e0 = f.get(0).unwrap();
+    let flags = |npc: usize| e0.get(0x12000 + 2 * npc..0x12002 + 2 * npc).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    for npc in [1, 7, 46, 47, 50, 51, 61, 63] {
+        assert_eq!(flags(npc).map(|f| f & 0x2000), Some(0x2000), "NPC {npc} active");
+    }
+    for npc in [11, 45, 48, 49] {
+        assert_eq!(flags(npc).map(|f| f & 0x2000), Some(0), "NPC {npc} not");
+    }
+    // Moved north beside guard 11 (13055, 3327): he's in the window now, the guards south of the
+    // throne room are out of it, whatever the loaded save said.
+    let active = |g: &Game, npc: usize| {
+        let f = u8data::flex::Flex::parse(g.snapshot().get("ITEMCACH.DAT").unwrap().to_vec()).unwrap();
+        f.get(0).unwrap()[0x12000 + 2 * npc] as u16 | (f.get(0).unwrap()[0x12001 + 2 * npc] as u16) << 8
+    };
+    let mut g = g;
+    assert!(g.put_avatar(40, (13055, 3423, 48)));
+    assert_eq!(active(&g, 11) & 0x2000, 0x2000, "guard 11 by the Avatar");
+    for npc in [46, 47, 61] {
+        assert_eq!(active(&g, npc) & 0x2000, 0, "NPC {npc} now far off");
+    }
+    // A save made beside Salkind (slot 1, map 41): in DOS he answered a theft only with it.
+    let Ok(mut g) = Game::open(root, Some(1), None) else { return };
+    assert!(g.put_avatar(41, (20206, 12538, 64)));
+    assert_eq!(active(&g, 3) & 0x2000, 0x2000, "Salkind");
+}

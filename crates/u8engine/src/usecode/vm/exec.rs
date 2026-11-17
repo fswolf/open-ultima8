@@ -405,6 +405,11 @@ impl Vm {
             st.write(st.sp + 2, &((index + 1) as u16).to_le_bytes());
             st.push2(1)
         } else {
+            // Run out: the variable is left 0 ("found nothing"), as the original has it. Scripts
+            // read it after the loop: Beren's verdict after his warnings is "assault" for 0
+            // (DOS), a fire spell's flames clear on time, a puzzle's sound plays at volume 0.
+            // ScummVM leaves the last thing looked at there.
+            st.write(st.bp_at(var), &0u16.to_le_bytes());
             self.heap.free_list(lid, false);
             self.loop_scripts.remove(&lid);
             st.write(st.sp + 4, &0u16.to_le_bytes());

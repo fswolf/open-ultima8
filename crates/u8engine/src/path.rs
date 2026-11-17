@@ -67,8 +67,9 @@ impl Visited {
     }
 }
 
-/// Steps of `action` taking `id` to within `reach` (either way) of `goal`. If the goal can't be
-/// reached, the steps to the closest place found; None if none gets closer.
+/// Steps of `action` taking `id` to within `reach` (either way) of `goal`; None if it can't be
+/// reached (or not within the search), as ScummVM's Pathfinder: no walking part of the way. In
+/// DOS Jenna, called in when Orlok is struck behind the bar, cries out and stays where she is.
 pub fn find(
     world: &World,
     gd: &GameData,
@@ -88,7 +89,6 @@ pub fn find(
     open.push(Reverse((0u32, 0usize)));
     let mut visited = Visited::default();
     visited.add(start.at);
-    let mut best = (octile((start.at.0, start.at.1), goal), 0);
     let mut found = None;
     let mut expanded = 0;
     while let Some(Reverse((_, n))) = open.pop() {
@@ -142,9 +142,6 @@ pub fn find(
                 let left = octile((to.0, to.1), goal);
                 let total = if reached(to) { 0 } else { 2 * cost + 3 * left };
                 nodes.push(Node { at: to, first, dir: Some(dir), cost, parent: n, frames });
-                if left < best.0 {
-                    best = (left, nodes.len() - 1);
-                }
                 open.push(Reverse((total, nodes.len() - 1)));
             };
             if !blocked && !visited.has(at) {
@@ -158,7 +155,7 @@ pub fn find(
             }
         }
     }
-    let mut n = found.unwrap_or(best.1);
+    let mut n = found?;
     let end = nodes[n].at;
     let mut steps = vec![];
     while n != 0 {

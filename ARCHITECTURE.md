@@ -60,7 +60,8 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   `usecode::Request::Walk`; the game steps it each tick and finishes the script's process on
   arrival or when it gets stuck). Routes come from **`path::find`**: A* over whole and part steps
   of the walk animation (advance in combat) in the 8 facings, each played out frame by frame with
-  `World::step_from` (the same collision as walking), as ScummVM's Pathfinder does. The walker
+  `World::step_from` (the same collision as walking), as ScummVM's Pathfinder does; a goal it
+  can't reach gives no route (nobody walks part of the way). The walker
   takes them one `World::play_part` at a time (the animation moves it) and plans again when a
   step won't go; people are ignored when planning and planned round when they turn out to be in
   the way.
@@ -112,15 +113,21 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   (in-combat from the worlds).
 - **`combat`**: `impl Game`: a swing's reach (the attack frame's range × 32 units ahead),
   `receive_hit` (ScummVM's rules: defences, armour, a DEX roll, damage; death; the struck turn
-  on the striker; things get `gotHit` or break); scripts' `Item::receiveHit` arrives as a
-  `Request::Hit`. The Avatar's numbers come from its gear, everyone else's from `monsters`.
+  on the striker and go into combat at once; things get `gotHit` or break); `call_for_help`: a
+  blow from the Avatar brings in everyone with the struck one's alignment within 1024 (as DOS
+  does; claude/attack-compare.md). Scripts' `Item::receiveHit` arrives as a `Request::Hit`
+  (a setDead/clrDead after it in the same turn waits behind it). The Avatar's numbers come
+  from its gear, everyone else's from `monsters`.
   `World::play` runs actor animations for scripts' `doAnim`, deaths and the like.
 - **`monsters`**: fighting numbers by shape (hit points, dexterity, damage, armour, damage and
   defence types, sides), ScummVM's u8monsters table.
 - **`fight`**: `impl Game`: everyone in combat but the Avatar (ScummVM's CombatProcess): the
   quarry a blow or script named (`World::target`), else the nearest enemy; close in (`npc::Walk`),
   turn a step at a time, swing in reach, the blow landing on the frame that reaches; a pause by
-  DEX. Joining a fight stops the person's scripts and walks; schedules skip fighters.
+  DEX. Joining a fight stops the person's scripts and walks and runs its going-into-combat
+  script (event 17, `cast`: guards shout, townsfolk cry for Beren), which it waits for; those
+  put back in a fight by a load or a return to the map don't run it again. Schedules skip
+  fighters.
 - **The ethereal stack**: `World::{push_ethereal, ethereal_top}`, `Host::pop_ethereal(Pop)`:
   scripts make things (`Item::create`, `Actor::createActor`) or push them into the void, then pop
   the *top* of the stack back, to a point or into a container (ScummVM's reading). Left over on
@@ -135,6 +142,9 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   on non-floor (or hard) bounces at a random angle, edges slide off; people falling 80+ are hurt
   (the Avatar, over an edge (`Avatar::take_drop`) falls this way too, unsteered; hurt 6+ it's
   knocked flat, and while it's down its armour counts half and blows always land).
+  Each tick in the air is one move for contact events (as ScummVM's collideMove a tick): what
+  it meets that it wasn't touching where that tick began gets `hit`/`gotHit`, what it leaves
+  `release`.
   `explode` (sprite 578, sfx 31/158, 6–11 blunt+fire within 160) and `ignite` (oil flasks).
   Struck things: `gotHit`, else explode, break, or get knocked flying.
 - **`heal`**: the Avatar's recovery: 1 HP a real minute, mana at the half, hunger; `feedAvatar`.
@@ -161,7 +171,8 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
 
 The engine takes time as `dt` seconds, never reads the clock, so it is deterministic and testable.
 Behaviour tests against a real install are in `u8engine/tests/`: `game.rs` (the map, moving,
-scenery), `people.rs`, `items.rs`, `combat.rs`, `saves.rs`, with helpers in `tests/common/`.
+scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer a blow),
+`stealing.rs` (taking what isn't the Avatar's), `saves.rs`, with helpers in `tests/common/`.
 
 ## u8render: pixels
 

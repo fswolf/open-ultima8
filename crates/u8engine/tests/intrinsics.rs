@@ -476,3 +476,23 @@ fn shot_things_land_where_aimed_and_fireballs_find_the_avatar() {
     assert!(!g.world.objects().any(|id| g.world.get(id).is_some_and(|it| it.shape == 260)), "no fireballs left");
     assert!(!g.world.objects().any(|id| g.world.get(id).is_some_and(|it| it.shape == 261)), "its flames gone too");
 }
+
+/// receiveHit lands after the script's turn; a setDead or clrDead after it in the same turn
+/// waits behind it, in the script's order (Mythran's death spell strikes, then marks dead: the
+/// blow must find the Avatar alive). With nothing queued, they act at once.
+#[test]
+#[ignore]
+fn set_dead_waits_behind_a_blow_in_the_same_turn() {
+    let Some(mut g) = game(40) else { return };
+    let hp = g.stats.get(50).unwrap().hp;
+    call(&mut g, 0x8D, "Actor::setDead", &this(51));
+    assert!(g.stats.get(51).unwrap().dead, "at once with nothing queued");
+    // A 1-point piercing blow (it always lands, through any armour), marked dead, up again.
+    call(&mut g, 0x53, "Item::receiveHit", &args(50, &[AVATAR, 0, 1, 0x80]));
+    call(&mut g, 0x8D, "Actor::setDead", &this(50));
+    assert!(!g.stats.get(50).unwrap().dead, "not before the blow");
+    call(&mut g, 0x8E, "Actor::clrDead", &this(50));
+    g.update(1.0 / 30.0, &Input::default());
+    let s = g.stats.get(50).unwrap();
+    assert_eq!((s.hp, s.dead), (hp - 1, false), "the blow found him alive; dead, then not, in that order");
+}

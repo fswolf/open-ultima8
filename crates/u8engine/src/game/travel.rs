@@ -3,13 +3,17 @@
 use super::*;
 
 impl Game {
-    /// A map just loaded: those saved in combat are fighting again.
-    pub(super) fn resume_fights(&mut self) {
+    /// A map just loaded (`fresh`: from the save, else as it was left): those in combat are
+    /// fighting again, without their going-into-combat script a second time.
+    pub(super) fn resume_fights(&mut self, fresh: bool) {
         for id in 1..256 {
             let here = self.world.get(id).is_some() && !self.world.is_void(id);
-            if here && self.stats.get(id).is_some_and(|s| s.in_combat && !s.dead) {
+            if fresh && here && self.stats.get(id).is_some_and(|s| s.in_combat && !s.dead) {
                 self.world.set_in_combat(id, true);
             }
+        }
+        for id in self.world.fighters().into_iter().filter(|&id| id != AVATAR) {
+            self.resume_fight(id);
         }
     }
 
@@ -42,15 +46,12 @@ impl Game {
         let fresh = !self.visited.contains_key(&map);
         let next = self.visited.remove(&map).unwrap_or_else(|| World::build(&self.data, map));
         let old = std::mem::replace(&mut self.world, next);
-        if fresh {
-            self.resume_fights();
-        }
         self.world.clear_flag(GUMP_OPEN); // windows don't survive leaving a map
         self.visited.insert(old.map(), old);
         self.arrivals();
         self.walks.clear();
         self.fights.clear();
-        self.roused.clear();
+        self.resume_fights(fresh);
         self.loiters.clear();
         self.rising.clear();
         self.sprites.clear(); // (their scripts went with the map)

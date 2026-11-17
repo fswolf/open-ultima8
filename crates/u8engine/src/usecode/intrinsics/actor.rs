@@ -245,11 +245,25 @@ pub fn set_mana(c: &mut Ctx) -> u32 {
 pub fn is_dead(c: &mut Ctx) -> u32 {
     c.host.npc_dead(c.this()).unwrap_or(true) as u32
 }
+/// setDead / clrDead. A blow on the same one that the script dealt just before (receiveHit,
+/// which the game lands after the script's turn) comes first, as the script's order has it, and
+/// so does a change of these already waiting behind one: Mythran's death spell strikes the
+/// Avatar for all its hit points, then marks it dead; marked first, the blow struck a corpse and
+/// the Avatar stood on, dead but unhurt. (isDead reads the mark as it is now.)
+fn mark_dead(c: &mut Ctx, dead: bool) -> u32 {
+    let id = c.this();
+    let behind = |r: &Request| matches!(r, Request::Hit { target, .. } | Request::SetDead(target, _) if *target == id);
+    if c.vm.requests.iter().any(behind) {
+        c.vm.requests.push(Request::SetDead(id, dead));
+        return 0;
+    }
+    with_stats(c, |s| s.dead = dead)
+}
 pub fn set_dead(c: &mut Ctx) -> u32 {
-    with_stats(c, |s| s.dead = true)
+    mark_dead(c, true)
 }
 pub fn clr_dead(c: &mut Ctx) -> u32 {
-    with_stats(c, |s| s.dead = false)
+    mark_dead(c, false)
 }
 pub fn is_immortal(c: &mut Ctx) -> u32 {
     stat(c, |s| s.immortal as i32)

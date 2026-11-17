@@ -14,6 +14,8 @@ pub struct Settings {
     pub effects: bool,
     /// 0–1.
     pub volume: f32,
+    /// Background sounds (fires, drips, fountains), 0–1.
+    pub ambience: f32,
     pub cutaway: bool,
     pub fullscreen: bool,
     pub left_handed: bool,
@@ -39,6 +41,7 @@ impl Default for Settings {
             music: true,
             effects: true,
             volume: 0.5,
+            ambience: 0.5,
             cutaway: true,
             fullscreen: false,
             left_handed: false,
@@ -78,6 +81,7 @@ impl Settings {
                 "music" => s.music = on,
                 "effects" => s.effects = on,
                 "volume" => s.volume = v.parse::<f32>().map_or(s.volume, |x| x.clamp(0.0, 1.0)),
+                "ambience" => s.ambience = v.parse::<f32>().map_or(s.ambience, |x| x.clamp(0.0, 1.0)),
                 "cutaway" => s.cutaway = on,
                 "fullscreen" => s.fullscreen = on,
                 "left_handed" => s.left_handed = on,
@@ -98,7 +102,7 @@ impl Settings {
     pub fn to_text(&self) -> String {
         format!(
             "# Open Ultima8 settings (written by the game; edit while it isn't running)\n\
-             upscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nvolume = {:.1}\n\
+             upscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nvolume = {:.1}\nambience = {:.1}\n\
              cutaway = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\n\
              discord = {}\ndata = {}\nfinished = {}\n",
             self.upscaler,
@@ -108,6 +112,7 @@ impl Settings {
             self.music,
             self.effects,
             self.volume,
+            self.ambience,
             self.cutaway,
             self.fullscreen,
             self.left_handed,
@@ -144,6 +149,7 @@ mod tests {
             zoom: 3.75,
             music: false,
             volume: 0.7,
+            ambience: 0.3,
             discord: false,
             data: "/home/me/Games/Ultima 8".into(),
             finished: true,
@@ -153,5 +159,6 @@ mod tests {
         let odd = Settings::parse("scale = lots\nvolume = 9\nnonsense\nwho = me\n");
         assert_eq!((odd.scale, odd.volume, odd.zoom), (2, 1.0, 2.0));
         assert_eq!(Settings::parse("scale = 4\n").zoom, 4.0, "an older file's scale was the zoom too");
+        assert_eq!(Settings::parse("volume = 0.6\n").ambience, 0.5, "background sounds default to half");
     }
 }

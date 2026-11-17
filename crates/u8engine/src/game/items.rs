@@ -65,6 +65,7 @@ impl Game {
     /// window position, or onto the map. The Avatar has to be able to reach both ends.
     pub fn move_item(&mut self, id: ObjId, to: Place) -> Result<(), &'static str> {
         self.can_pick_up(id)?;
+        self.taking(id);
         self.check_move(id, to)?;
         let lifted = self.lift(id);
         match to {
@@ -163,11 +164,10 @@ impl Game {
         Ok(())
     }
 
-    /// The player picks `id` up: anyone about may see it taken (if it isn't the Avatar's own).
-    /// Returns where it was, what it touched there, and what rested on it.
+    /// The player picks `id` up (who saw has been told: [`taking`](Self::taking)). Returns where
+    /// it was, what it touched there, and what rested on it.
     fn lift(&mut self, id: ObjId) -> Lifted {
         let Some(it) = self.world.get(id) else { return Lifted::default() };
-        self.taking(id);
         let on_map = self.world.container(id).is_none();
         let top = self.world.index(id).map(|i| self.world.entry(i).bounds());
         let resting = match top.filter(|_| on_map) {
@@ -188,9 +188,11 @@ impl Game {
         Lifted { from: on_map.then_some((it.x, it.y, it.z)), touching: self.world.contacts(id), resting }
     }
 
-    /// The player takes `id`: if it isn't the Avatar's, anyone about sees (their scripts
-    /// decide what to make of it). What the Avatar already carries is its own, flag or not (some
-    /// saves leave it off).
+    /// The player lets go of `id` somewhere: if it isn't the Avatar's, anyone about sees (their
+    /// scripts decide what to make of it), whether the drop then goes or is refused. In DOS
+    /// Korick's hammer dragged onto the Avatar with its pack full brings "Stop! Thief!" (ScummVM's
+    /// movedByPlayer, before the drop is tried). What the Avatar already carries is its own, flag
+    /// or not (some saves leave it off).
     fn taking(&mut self, id: ObjId) {
         let Some(it) = self.world.get(id) else { return };
         if it.flags & item_flag::OWNED != 0 || self.world.root(id) == AVATAR {
@@ -216,12 +218,12 @@ impl Game {
             return Ok(());
         }
         self.can_pick_up(id)?;
+        self.taking(id);
         let part = self.part_of(id, n);
         if let Err(why) = self.check_move(part, to) {
             self.world.remove(part);
             return Err(why);
         }
-        self.taking(id);
         self.take_from(id, n);
         self.trigger(part, event::COMBINE);
         match to {
@@ -247,6 +249,7 @@ impl Game {
             return self.merge(id, onto);
         }
         self.can_pick_up(id)?;
+        self.taking(id);
         if !self.can_merge(id, onto) {
             return Err("They don't go together.");
         }
@@ -264,7 +267,6 @@ impl Game {
             self.world.remove(part);
             heavy?;
         }
-        self.taking(id);
         pile.quality += n;
         self.world.set(&self.data, onto, pile);
         self.take_from(id, n);
@@ -365,6 +367,7 @@ impl Game {
     /// look by the amount.
     pub fn merge(&mut self, id: ObjId, onto: ObjId) -> Result<(), &'static str> {
         self.can_pick_up(id)?;
+        self.taking(id);
         if !self.can_merge(id, onto) {
             return Err("They don't go together.");
         }
@@ -413,6 +416,7 @@ impl Game {
     /// Wear or wield `id` (it must have a slot); what was in that slot goes into the backpack.
     pub fn equip(&mut self, id: ObjId) -> Result<(), &'static str> {
         self.can_pick_up(id)?;
+        self.taking(id);
         let shape = self.world.get(id).ok_or("It's gone.")?.shape;
         let slot = equip::Slot::of(&self.data, shape).ok_or("You can't wear that.")?;
         self.check_load(id, AVATAR)?; // before anything moves
@@ -445,6 +449,7 @@ impl Game {
             Some(pack) => self.move_item(id, Place::Into { container: pack, at: STOW_AT }),
             None if equip::holds(&self.data, &self.world, id) => {
                 self.can_pick_up(id)?;
+                self.taking(id);
                 self.wear(id, equip::BACKPACK_SPOT)
             }
             None => Err("You have no backpack."),
@@ -509,7 +514,9 @@ impl Game {
         let it = w.get(id).ok_or("It's gone.")?;
         let e = w.entry(w.index(id).ok_or("It's gone.")?);
         let tf = self.data.typeflags.get(it.shape);
-        if e.traits.actor || e.traits.egg || e.origin != Origin::Movable || tf.has(flag::FIXED) {
+        // (Nothing of no weight either: tables, beds, doors, thrones; ScummVM's canDrag, and DOS
+        // leaves Devon's table where it is.)
+        if e.traits.actor || e.traits.egg || e.origin != Origin::Movable || tf.has(flag::FIXED) || tf.weight == 0 {
             return Err("You can't move that.");
         }
         if !self.within_reach(id) {
