@@ -32,6 +32,8 @@ it look and handle as if it were made this decade.
 
 - **One-to-one with the original.** Your saved games load, and new saves use the original's format.
   People keep their schedules, scripts run as written and combat follows the original's rules.
+- **On every desktop.** Ultima VIII was only ever released for DOS. Open Ultima8 runs it natively
+  on Linux, Windows and macOS (Apple Silicon and Intel), using the data files from your own copy.
 - **Sharp at any size.** Several upscalers (crisp pixels, xBRZ, xBR, CRT scanlines) and a
   smooth zoom from 1× to 8×. Windows, speech and menus keep their own size.
 - **Smooth movement.** The Avatar glides instead of hopping a pixel at a time; mouse and keyboard
