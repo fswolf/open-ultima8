@@ -25,7 +25,7 @@ const USAGE: &str = "usage: u8cmp <cmd> …
   attack <root> <slot> map=M npc=N [hour=H] [swings=N] [watch=T] [hp=N] [side=dx,dy] [move=x,y,z]
        [cast] [kill] [procs] [out=dir]  strike someone and watch what follows (procs: live processes)
   steal <root> <slot> map=M npc=N [hour=H] [list] [r=600] [shape=S,..] [item=ID,..] [times=K] [how=take|floor]
-       [gap=T] [watch=T] [stand=x,y,z] [answer=N] [move=x,y,z] [out=dir]
+       [gap=T] [watch=T] [stand=x,y,z] [answer=N] [move=x,y,z] [out=dir] [shots=PREFIX,EVERY] [frames=ID,..]
                                         take things near someone and watch what follows";
 
 fn slot(s: &str) -> Option<u32> {
@@ -1772,6 +1772,12 @@ fn steal(root: &Path, slot: Option<u32>, args: &[String]) {
         .collect();
     let globals0 = g.scripts.as_ref().map(|s| s.vm.globals.clone()).unwrap_or_default();
     d.t = 0;
+    // (shots=PREFIX,EVERY: a picture every EVERY ticks; frames=ID,..: each one's look as it changes)
+    let shots =
+        arg(args, "shots").and_then(|v| v.rsplit_once(',')).map(|(p, e)| (p.to_string(), e.parse().unwrap_or(0)));
+    let frames: Vec<u16> = list("frames").into_iter().map(|f| f as u16).collect();
+    let (mut painter, mut cache, mut seen) =
+        (Painter::new(), SpriteCache::unscaled(), std::collections::HashMap::new());
     for k in 0..times.max(1) as usize {
         let o = picks[k % picks.len()];
         let it = g.world.get(o).unwrap();
@@ -1795,6 +1801,27 @@ fn steal(root: &Path, slot: Option<u32>, args: &[String]) {
         let wait = if k + 1 == times.max(1) as usize { watch } else { gap };
         for _ in 0..wait {
             d.run(&mut g, 1, &mut Input::default());
+            if let Some((pre, _)) = shots.as_ref().filter(|s| s.1 > 0 && d.t.is_multiple_of(s.1)) {
+                shot(&mut g, &mut painter, &mut cache, &format!("{pre}{:05}.png", d.t));
+            }
+            for &w in &frames {
+                let now = g
+                    .world
+                    .get(w)
+                    .filter(|_| !g.world.is_void(w))
+                    .map(|it| (it.shape, it.frame, it.flags, (it.x, it.y, it.z)));
+                if seen.get(&w) != Some(&now) {
+                    let act = g.world.acting(w);
+                    let shown = g.world.index(w).is_some_and(|i| g.world.entry(i).shown());
+                    println!(
+                        "  [t{}] {w}: {now:?} shown {shown} acting {act:?} last {} camera {:?}",
+                        d.t,
+                        g.world.last_anim(w),
+                        g.camera()
+                    );
+                    seen.insert(w, now);
+                }
+            }
             if g.avatar_dead() {
                 break;
             }

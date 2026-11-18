@@ -52,6 +52,14 @@ pub fn teleport(c: &mut Ctx) -> u32 {
         c.host.set_ethereal(id, true);
         return 0;
     }
+    if !c.host.here(id) && (2..256).contains(&id) {
+        // Someone from another map (ScummVM keeps everyone in one world, so they just come): the
+        // game brings them, and the script waits till they're here.
+        let pid = c.vm.spawn_external(id, 0);
+        c.vm.wait_on(c.pid, pid);
+        c.vm.requests.push(Request::Fetch { id, at: (x, y, z), pid });
+        return 0;
+    }
     c.host.set_ethereal(id, false);
     c.update(|i| (i.x, i.y, i.z, i.mapnum) = (x, y, z, map as u8));
     let by = c.vm.item_of(c.pid).unwrap_or(0);

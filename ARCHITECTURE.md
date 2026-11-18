@@ -99,7 +99,10 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
     disassembly and the "unimplemented" report. Handlers are grouped by domain: `item`, `actor`,
     `egg`, `ui`, `audio`, `misc`.
   - `host.rs`: the `Host` trait is everything scripts can see of the game; `WorldHost` implements
-    it over a `World`. Tests run the VM against a stub host.
+    it over a `World`, with the other maps' worlds for people who are elsewhere (as the original,
+    which keeps everyone in one world: a person's map is built when a script first changes them).
+    A person teleported here from elsewhere is brought over (`Request::Fetch`, `Game::fetch`).
+    Tests run the VM against a stub host.
   - Scripts talk to the player through `UiEvent`s (bark, ask, read, music, sfx); the UI answers
     with `Vm::finish` / `Vm::answer`.
 - **`persist`**: a `Game` as a save: starts from the loaded files and writes back what the engine

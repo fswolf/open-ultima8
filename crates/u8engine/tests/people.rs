@@ -139,7 +139,7 @@ fn the_ethereal_stack_and_made_actors() {
     use u8engine::usecode::{Host, Pop, WorldHost};
     let Some(mut g) = game(40) else { return };
     let pack = g.backpack().unwrap();
-    let mut h = WorldHost { world: &mut g.world, data: &g.data, stats: &mut g.stats };
+    let mut h = WorldHost { world: &mut g.world, data: &g.data, stats: &mut g.stats, others: None };
     // Made in the void, a script pops it into a bag: the top of the stack goes, whatever's named.
     let coin = h.create(u8data::map::Item { shape: 143, quality: 5, ..Default::default() }, false);
     assert_eq!(h.ethereal_top(), Some(coin));

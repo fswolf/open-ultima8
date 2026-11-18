@@ -173,7 +173,18 @@ impl Game {
     /// Open an install's game: saved game `slot` from SAVEGAME/, or (None) the one in GAMEDAT.
     /// Scripts are optional: without EUSECODE.FLX the world still works, it just doesn't talk.
     pub fn open(root: &Path, slot: Option<u32>, map: Option<u16>) -> Result<Self, String> {
-        let save = slot.map(|n| Save::load(root, n).map_err(|e| format!("save {n}: {e}"))).transpose()?;
+        // No game in GAMEDAT (a fresh install has none: DOS makes it from the first save when a
+        // game begins): a new game, from SAVEGAME/U8SAVE.000 as the original and ScummVM start it.
+        let fresh = slot.is_none() && !Self::has_game(root);
+        let from = if fresh { Some(0) } else { slot };
+        let save = from
+            .map(|n| {
+                Save::load(root, n).map_err(|e| match fresh {
+                    true => format!("no game to start: GAMEDAT holds none and SAVEGAME/U8SAVE.000 can't be read ({e})"),
+                    false => format!("save {n}: {e}"),
+                })
+            })
+            .transpose()?;
         let gd = GameData::load_save(root, save.as_ref()).map_err(|e| format!("loading {}: {e}", root.display()))?;
         let scripts = Scripts::load(root, &gd).map_err(|e| eprintln!("scripts disabled: {e}")).ok();
         let mut g = Self::new(gd, scripts, map)?;
@@ -190,6 +201,13 @@ impl Game {
             }
         }
         Ok(g)
+    }
+
+    /// Does GAMEDAT hold a game (the map's items, the item cache and the people)?
+    fn has_game(root: &Path) -> bool {
+        ["NONFIXED.DAT", "ITEMCACH.DAT", "NPCDATA.DAT"]
+            .iter()
+            .all(|f| u8data::find_file(root, &format!("GAMEDAT/{f}")).is_ok())
     }
 
     /// The game as it stands, as a save (see [`persist`](crate::persist)).

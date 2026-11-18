@@ -141,12 +141,14 @@ fn run_event(a: &Args, gd: &GameData, uc: &Usecode, flags: Option<&[u8]>) -> Res
     );
     let mut vm = Vm::new(uc, flags);
     let mut stats = Stats::load(gd.npcdata.as_deref());
-    let Some(pid) = vm.item_event(uc, &WorldHost { world: &mut world, data: gd, stats: &mut stats }, id, ev) else {
+    let Some(pid) =
+        vm.item_event(uc, &WorldHost { world: &mut world, data: gd, stats: &mut stats, others: None }, id, ev)
+    else {
         bail!("no handler for event {ev}")
     };
     say!("started pid {pid}");
     for t in 0..3000 {
-        vm.tick(uc, &mut WorldHost { world: &mut world, data: gd, stats: &mut stats });
+        vm.tick(uc, &mut WorldHost { world: &mut world, data: gd, stats: &mut stats, others: None });
         auto_ui(
             &mut vm,
             |options| {
@@ -216,10 +218,10 @@ fn smoke(a: &Args, gd: &GameData, uc: &Usecode, flags: Option<&[u8]>) -> Result<
             let mut world = World::build(gd, m);
             let mut vm = Vm::new(uc, flags);
             let mut stats = Stats::load(gd.npcdata.as_deref());
-            vm.item_event(uc, &WorldHost { world: &mut world, data: gd, stats: &mut stats }, id, ev);
+            vm.item_event(uc, &WorldHost { world: &mut world, data: gd, stats: &mut stats, others: None }, id, ev);
             runs += 1;
             let done = (0..TICKS).any(|_| {
-                vm.tick(uc, &mut WorldHost { world: &mut world, data: gd, stats: &mut stats });
+                vm.tick(uc, &mut WorldHost { world: &mut world, data: gd, stats: &mut stats, others: None });
                 auto_ui(
                     &mut vm,
                     |o| o.len().saturating_sub(1),

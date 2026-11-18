@@ -8,7 +8,12 @@ impl Game {
     /// [`event::USE`](crate::usecode::event::USE) on double-click). False if it has none.
     pub fn trigger(&mut self, id: ObjId, ev: usize) -> bool {
         let Some(s) = &mut self.scripts else { return false };
-        let host = WorldHost { world: &mut self.world, data: &self.data, stats: &mut self.stats };
+        let host = WorldHost {
+            world: &mut self.world,
+            data: &self.data,
+            stats: &mut self.stats,
+            others: Some(&mut self.visited),
+        };
         s.vm.item_event(&s.usecode, &host, id, ev).is_some()
     }
 
@@ -30,7 +35,12 @@ impl Game {
     /// asks of the game is carried out on the next update.
     pub fn call_intrinsic(&mut self, num: u16, args: &[u8]) -> u32 {
         let Some(s) = &mut self.scripts else { return 0 };
-        let mut host = WorldHost { world: &mut self.world, data: &self.data, stats: &mut self.stats };
+        let mut host = WorldHost {
+            world: &mut self.world,
+            data: &self.data,
+            stats: &mut self.stats,
+            others: Some(&mut self.visited),
+        };
         s.vm.call_intrinsic(&s.usecode, &mut host, num, args)
     }
 
@@ -51,7 +61,15 @@ impl Game {
             s.vm.free_npcs = f;
         }
         (s.vm.minutes, s.vm.clock) = (minutes, self.clock);
-        s.vm.tick(&s.usecode, &mut WorldHost { world: &mut self.world, data: &self.data, stats: &mut self.stats });
+        s.vm.tick(
+            &s.usecode,
+            &mut WorldHost {
+                world: &mut self.world,
+                data: &self.data,
+                stats: &mut self.stats,
+                others: Some(&mut self.visited),
+            },
+        );
         let asked: Vec<Request> = s.vm.requests.drain(..).collect();
         let mut done = vec![];
         for r in asked {
@@ -82,6 +100,10 @@ impl Game {
                 }
                 Request::Created(id) => self.made_actor(id),
                 Request::Teleported { id, by } => self.redraw_sleepers(id, by),
+                Request::Fetch { id, at, pid } => {
+                    self.fetch(id, at);
+                    done.push(pid);
+                }
                 Request::Hurl { id, v, gravity, pid } => self.hurl(id, v, gravity, Some(pid)),
                 Request::Fall(id) => self.fall(id),
                 Request::Explode { id, destroy } => self.explode(id, destroy),

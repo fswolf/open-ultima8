@@ -308,7 +308,11 @@ impl GameData {
 
     /// The Avatar (NPC 1) as saved in GAMEDAT, with its map number.
     pub fn avatar(&self) -> Option<(usize, map::Item)> {
-        map::load_actor(self.itemcach.as_ref()?, 1).map(|(m, a)| (m, self.full_frame(a)))
+        self.actor(1)
+    }
+    /// NPC `npc` as saved, with its map number.
+    pub fn actor(&self, npc: u16) -> Option<(usize, map::Item)> {
+        map::load_actor(self.itemcach.as_ref()?, npc as usize).map(|(m, a)| (m, self.full_frame(a)))
     }
     /// An NPC with its whole frame number (the high byte lives in NPCDATA.DAT).
     fn full_frame(&self, mut a: map::Item) -> map::Item {

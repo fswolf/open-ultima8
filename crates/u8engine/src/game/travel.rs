@@ -1,6 +1,7 @@
 //! Changing maps: each visited map's world is kept as it was left; teleports take the Avatar
 //! (and what it carries) along.
 use super::*;
+use u8data::map;
 
 impl Game {
     /// A map just loaded (`fresh`: from the save, else as it was left): those in combat are
@@ -85,6 +86,39 @@ impl Game {
             self.world.put_actor(&self.data, it);
             self.world.set_void(id, false);
             self.world.give_contents(&self.data, id, &things);
+        }
+    }
+
+    /// Bring NPC `id` to `at` on this map from wherever it is: another map we've been on (with
+    /// what it carries), else the save's item cache.
+    pub(crate) fn fetch(&mut self, id: ObjId, at: (i32, i32, i32)) {
+        let here = self.map() as u8;
+        let mut got = None;
+        for w in self.visited.values_mut() {
+            if let Some(it) = w.get(id) {
+                let (things, last) = (w.take_contents(id), w.last_anim(id));
+                w.remove(id);
+                got = Some((it, things, Some(last)));
+                break;
+            }
+        }
+        let (it, things, last) = match got {
+            Some(g) => g,
+            None => {
+                let Some((_, it)) = self.data.actor(id) else { return };
+                (it, vec![], None)
+            }
+        };
+        self.world.put_actor(&self.data, map::Item { x: at.0, y: at.1, z: at.2, mapnum: here, ..it });
+        self.world.set_void(id, false);
+        if !things.is_empty() {
+            self.world.give_contents(&self.data, id, &things);
+        } else if let (None, Some(cache)) = (last, &self.data.itemcach) {
+            self.world.add_carried(&self.data, &map::load_cache_contents(cache), &[id]);
+        }
+        let last = last.or_else(|| self.data.npcdata.as_deref().and_then(|d| map::npc_last_anim(d, id as usize)));
+        if let Some(a) = last {
+            self.world.set_last_anim(id, a);
         }
     }
 

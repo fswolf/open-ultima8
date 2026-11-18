@@ -46,6 +46,11 @@ pub trait Host {
         None
     }
     fn map_num(&self) -> u16;
+    /// Is `id` in this map's world (on it, or in its void)? People elsewhere are still known to
+    /// [`item`](Self::item), as the original keeps everyone in one world.
+    fn here(&self, _id: ObjId) -> bool {
+        true
+    }
     /// Move an item into (true) or back out of (false) the ethereal void (temporarily off the map).
     fn set_ethereal(&mut self, id: ObjId, on: bool);
     /// Facing (0–7) of an actor.
@@ -176,9 +181,17 @@ pub struct WorldHost<'a> {
     pub world: &'a mut World,
     pub data: &'a GameData,
     pub stats: &'a mut Stats,
+    /// The other maps' worlds (people there are still the scripts' to read and change).
+    pub others: Option<&'a mut std::collections::HashMap<u16, World>>,
 }
 
 impl WorldHost<'_> {
+    /// The other map where person `id` is (on it rather than in its void, if both).
+    fn elsewhere(&self, id: ObjId) -> Option<u16> {
+        let others = self.others.as_ref().filter(|_| (2..256).contains(&id))?;
+        others.iter().filter(|(_, w)| w.get(id).is_some()).min_by_key(|(_, w)| w.is_void(id)).map(|(&m, _)| m)
+    }
+
     /// Into container (or person) `c` — if it won't go, it stays in the void; onto the map where
     /// `c` is if it holds nothing; gone if `c` is (ScummVM's popToContainer).
     fn pop_into(&mut self, id: ObjId, c: ObjId) {
@@ -192,10 +205,26 @@ impl WorldHost<'_> {
 
 impl Host for WorldHost<'_> {
     fn item(&self, id: ObjId) -> Option<Item> {
-        self.world.get(id)
+        self.world.get(id).or_else(|| match self.elsewhere(id) {
+            Some(m) => self.others.as_ref()?.get(&m)?.get(id),
+            // (on a map not built yet: as saved)
+            None if self.others.is_some() && (2..256).contains(&id) => self.data.actor(id).map(|(_, it)| it),
+            None => None,
+        })
     }
     fn set_item(&mut self, id: ObjId, it: Item) {
-        self.world.set(self.data, id, it);
+        if self.world.get(id).is_some() || self.others.is_none() || !(2..256).contains(&id) {
+            return self.world.set(self.data, id, it);
+        }
+        // Someone on another map: changed there (its world built first, if it hasn't been).
+        let data = self.data;
+        let m = self.elsewhere(id).or_else(|| data.actor(id).map(|(m, _)| m as u16));
+        if let (Some(m), Some(others)) = (m, self.others.as_mut()) {
+            let w = others.entry(m).or_insert_with(|| World::build(data, m));
+            if w.get(id).is_some() {
+                w.set(data, id, it);
+            }
+        }
     }
     /// Gone for good — but never the Avatar, and what was inside spills into the container's own
     /// container or onto the map where it stood (ScummVM's Container::destroy).
@@ -354,6 +383,9 @@ impl Host for WorldHost<'_> {
     }
     fn map_num(&self) -> u16 {
         self.world.map()
+    }
+    fn here(&self, id: ObjId) -> bool {
+        self.world.get(id).is_some()
     }
     fn set_ethereal(&mut self, id: ObjId, on: bool) {
         self.world.set_void(id, on);

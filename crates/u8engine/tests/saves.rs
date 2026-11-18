@@ -462,3 +462,31 @@ fn people_keep_their_last_action_over_a_save() {
     let back = Game::new(gd, None, Some(39)).unwrap();
     assert_eq!(back.world.last_anim(2), 7);
 }
+
+/// A fresh install has no game in GAMEDAT (DOS makes one there when a game begins): the game
+/// starts new from SAVEGAME/U8SAVE.000, as the original and ScummVM do, with the Avatar, the
+/// people and the things on the shore. GitHub issue #1: an empty map and no Avatar.
+#[test]
+#[ignore]
+fn a_fresh_install_starts_a_new_game_from_the_first_save() {
+    let Some(dir) = std::env::var_os("U8_DATA").map(PathBuf::from) else { return };
+    let Ok(first) = u8data::find_file(&dir, "SAVEGAME/U8SAVE.000") else { return };
+    let root = std::env::temp_dir().join(format!("u8-fresh-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("SAVEGAME")).unwrap();
+    for d in ["STATIC", "USECODE", "SOUND", "U8.EXE"] {
+        if let Ok(p) = u8data::find_file(&dir, d) {
+            std::os::unix::fs::symlink(p, root.join(d)).unwrap();
+        }
+    }
+    std::os::unix::fs::symlink(first, root.join("SAVEGAME/U8SAVE.000")).unwrap();
+    let mut g = Game::open(&root, None, None).unwrap();
+    assert!(g.needs_name(), "a new game asks for the name");
+    g.set_avatar_name("Fritz");
+    assert_eq!(g.map(), 3, "on the shore");
+    assert!(g.world.get(AVATAR).is_some(), "the Avatar is there");
+    let people = (2..256).filter(|&id| g.world.get(id).is_some()).count();
+    let things = (256..u16::MAX).filter(|&id| g.world.get(id).is_some()).count();
+    assert!(people > 0 && things > 1000, "people {people}, things {things}");
+    std::fs::remove_dir_all(&root).unwrap();
+}

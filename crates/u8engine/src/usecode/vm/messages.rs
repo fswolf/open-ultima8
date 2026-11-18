@@ -76,6 +76,9 @@ pub enum Request {
     /// An actor teleported within the map by a script running for item `by` (what shows where
     /// people are may need redrawing).
     Teleported { id: ObjId, by: ObjId },
+    /// Someone not on this map teleported onto it (Beren called to a theft): brought over from
+    /// where they are, then `pid` finished.
+    Fetch { id: ObjId, at: (i32, i32, i32), pid: Pid },
     /// Walk `actor` until within `range` of `to`.
     Walk { pid: Pid, actor: ObjId, to: (i32, i32, i32), range: i32 },
     /// Point the camera: follow an item, or (None) hold still.

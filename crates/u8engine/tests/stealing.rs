@@ -138,3 +138,21 @@ fn a_pile_is_noticed_before_the_count() {
     let said = play(&mut g, 10);
     assert!(!said.iter().any(|(i, _)| *i == 32), "told once: {said:?}");
 }
+
+/// Beren called to a theft on another map (Corinth's, map 7) comes there and is seen: the
+/// scripts hide him on his own map before teleporting him (ScummVM keeps everyone in one world,
+/// so they can), and show him once he's walked up. He wasn't brought at all, so his questions
+/// came from nowhere; then brought without the hiding, the showing hid him for good.
+#[test]
+#[ignore]
+fn beren_comes_to_another_map_and_is_seen() {
+    let Some(mut g) = at(7, (12709, 21721, 8)) else { return };
+    g.world.move_to_map(&g.data, 24484, (12799, 21631, 32));
+    make_room(&mut g);
+    let pack = g.backpack().unwrap();
+    g.move_item(24484, Place::Into { container: pack, at: (20, 20) }).unwrap();
+    let said = play(&mut g, 22);
+    assert!(says(&said, 32, "This one?"), "{said:?}");
+    let shown = g.world.index(32).is_some_and(|i| g.world.entry(i).shown());
+    assert!(shown, "Beren on map 7, in sight: {:?}", g.world.get(32));
+}
