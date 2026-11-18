@@ -12,7 +12,8 @@
   <a href="../../releases/latest"><b>Download</b></a> ·
   <a href="#getting-started">Getting started</a> ·
   <a href="#controls">Controls</a> ·
-  <a href="#building-from-source">Build it yourself</a>
+  <a href="#building-from-source">Build it yourself</a> ·
+  <a href="https://discord.gg/wEqrYjPxAU">Discord</a>
 </p>
 
 <p align="center">
@@ -111,6 +112,7 @@ out, the faster you go.
 | **J** | the diary: save and load |
 | **Esc** | the game menu; first puts away pages and speech |
 | **Backspace** | put away pages and speech |
+| **Space or → / ←** | a book's next pages / the ones before (or click; the left page's turned-up corner goes back) |
 | **F7 / F8** | quick save / quick load |
 | **Alt-X** or **Ctrl-Q** | quit |
 | **Alt-H** | swap mouse buttons (left-handed) |
@@ -197,7 +199,9 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 <summary><b>Where it deliberately differs from the original</b></summary>
 
 - Upscaling, zoom, smooth movement and the modern interface options.
-- Books and scrolls in a modern typeface (the page art and paging are the original's).
+- Books and scrolls in a modern typeface (the page art and paging are the original's). Books
+  get a leather cover round the original's open pages, and the page corners turn up where
+  there are more pages; the left one turns back, which the original can't.
 - Background loops (fires, water drips) at half volume. The original plays them twice as loud as
   everything else.
 - Speech and sound from another floor (the hall under the roof you're on) are hidden.
@@ -221,6 +225,9 @@ Catacombs, the Hall of the Mountain King, Argentrock Isle, Carthax Lake or Daemo
 </details>
 
 ## Discord
+
+Come talk about the project, report bugs or share screenshots on the
+[Open Ultima8 Discord](https://discord.gg/wEqrYjPxAU).
 
 While Discord is running, your profile shows where you are ("In Tenebrae"), what you're doing
 (exploring, in combat, talking, reading...), health and mana, and how long you've played. Turn it

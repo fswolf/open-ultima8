@@ -41,14 +41,17 @@ const CLASSIC_WIDTH: i32 = 160;
 
 /// How the original shows something to read (ScummVM's BookGump, ScrollGump, ReadableGump):
 /// U8GUMPS shape, page size and where pages go in it (a book has two side by side). The text
-/// is in [`PageFont`] where the original had its font 9.
+/// is in [`PageFont`] where the original had its font 9. A book also gets our cover and its
+/// pages' bottom outer corners (in the gump) turn up when there are more ([`crate::cover`]).
 struct Layout {
     gump: u32,
     page: (u32, u32),
     boxes: &'static [(i32, i32)],
+    corners: &'static [(i32, i32)],
 }
-const BOOK: Layout = Layout { gump: 6, page: (123, 129), boxes: &[(9, 5), (150, 5)] };
-const SCROLL: Layout = Layout { gump: 19, page: (204, 115), boxes: &[(22, 29)] };
+// (ScummVM's book pages are 129 high: ours stop 3 short, so the turned-up corners clear the text.)
+const BOOK: Layout = Layout { gump: 6, page: (123, 126), boxes: &[(9, 5), (150, 5)], corners: &[(6, 140), (278, 140)] };
+const SCROLL: Layout = Layout { gump: 19, page: (204, 115), boxes: &[(22, 29)], corners: &[] };
 const GRAVE_FONT: usize = 11;
 const PLAQUE_FONT: usize = 10;
 
@@ -60,6 +63,10 @@ struct Readable {
     /// Top-left of each page shown at once, in the gump, and a page's size.
     boxes: Vec<(i32, i32)>,
     size: (i32, i32),
+    /// A book's: its pages' bottom outer corners, in the gump (none: no cover either).
+    corners: &'static [(i32, i32)],
+    /// Where the gump was last drawn (for clicks on the corners).
+    at: Option<(i32, i32)>,
     pages: Pages,
     /// The page in the first box.
     first: usize,
@@ -115,6 +122,8 @@ impl Readable {
                     boxes,
                     size,
                     pages,
+                    corners: &[],
+                    at: None,
                     first: 0,
                     sign: true,
                     keys_only: false,
@@ -125,7 +134,44 @@ impl Readable {
         let pages = Pages::Type { lines: type_font.pages(text, lay.page), drawn: None };
         let size = (lay.page.0 as i32, lay.page.1 as i32);
         let boxes = lay.boxes.to_vec();
-        Self { pid, gump: lay.gump, boxes, size, pages, first: 0, sign: false, keys_only: false, last_click: None }
+        let corners = lay.corners;
+        Self {
+            pid,
+            gump: lay.gump,
+            boxes,
+            size,
+            pages,
+            corners,
+            at: None,
+            first: 0,
+            sign: false,
+            keys_only: false,
+            last_click: None,
+        }
+    }
+
+    /// Turn back a page; false if this is the first.
+    fn back(&mut self) -> bool {
+        let n = self.boxes.len();
+        if self.sign || self.first == 0 {
+            return false;
+        }
+        self.first = self.first.saturating_sub(n);
+        true
+    }
+
+    /// Is there a page before the first shown (left), or after the last (right)?
+    fn more(&self, left: bool) -> bool {
+        match left {
+            true => self.first > 0,
+            false => self.first + self.boxes.len() < self.pages.len(),
+        }
+    }
+
+    /// Is (x, y) on the turned-up corner of the left page (where a click turns back)?
+    fn on_back(&self, (x, y): (i32, i32)) -> bool {
+        let (Some(at), Some(&c)) = (self.at, self.corners.first()) else { return false };
+        self.more(true) && crate::cover::on_curl((x - at.0, y - at.1), c, true)
     }
 
     /// Turn the page; false if there was no more.
@@ -150,7 +196,11 @@ impl Readable {
         let (x0, y0) = match art {
             Some(art) if gw > 0 => {
                 let at = ((vw - gw) / 2, (vh - gh) / 2);
+                if !self.corners.is_empty() {
+                    crate::cover::cover(canvas, ss, (at.0, at.1, gw, gh));
+                }
                 art.draw(canvas, self.gump, 0, at.0, at.1);
+                self.at = Some(at);
                 at
             }
             _ => {
@@ -179,7 +229,22 @@ impl Readable {
                 }
             }
         }
+        // (over the text: a corner turned up hides what's under it)
+        for (k, &c) in self.corners.iter().enumerate().filter(|_| self.at.is_some()) {
+            let left = k == 0;
+            if self.more(left) {
+                crate::cover::curl(canvas, ss, (x0 + c.0, y0 + c.1), left);
+            }
+        }
     }
+}
+
+/// What a key does to pages open to read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PageKey {
+    On,
+    Back,
+    Other,
 }
 
 /// How conversation choices are laid out (F1 switches).
@@ -407,7 +472,10 @@ impl ScriptUi {
             }
             let now = Instant::now();
             let double = r.last_click.is_some_and(|t| now - t < crate::DOUBLE_CLICK);
-            if double || !r.next() {
+            if !double && r.on_back((x, y)) {
+                r.back();
+                r.last_click = Some(now);
+            } else if double || !r.next() {
                 self.close_reading(i, vm);
             } else {
                 r.last_click = Some(now);
@@ -423,16 +491,16 @@ impl ScriptUi {
         }
     }
 
-    /// A key while something is open to read: Space turns a page (or closes past the last); any
-    /// key puts away a grave or plaque. True if it was used.
-    pub fn read_key(&mut self, space: bool, vm: &mut Vm) -> bool {
+    /// A key while something is open to read: Space (or Right) turns a page on (closing past
+    /// the last), Left back; any key puts away a grave or plaque. True if used.
+    pub fn read_key(&mut self, key: PageKey, vm: &mut Vm) -> bool {
         let Some(i) = self.panels.iter().position(|p| matches!(p, Panel::Read(_))) else { return false };
         let Panel::Read(r) = &mut self.panels[i] else { return false };
-        if !(r.sign || space) {
-            return false;
-        }
-        if !r.next() {
-            self.close_reading(i, vm);
+        match key {
+            PageKey::Other if !r.sign => return false,
+            PageKey::Back if !r.sign => _ = r.back(),
+            _ if !r.next() => self.close_reading(i, vm),
+            _ => {}
         }
         true
     }
@@ -785,10 +853,10 @@ mod tests {
         ui.push(read(ReadKind::Book, 0, &long), &d.pal, None, Some(&d.art));
         assert!(reading(&ui).pages.len() > 4, "{} pages", reading(&ui).pages.len());
         shot(&mut ui, &mut d.art, "book_long");
-        assert!(ui.read_key(true, &mut vm), "Space turns the page");
+        assert!(ui.read_key(PageKey::On, &mut vm), "Space turns the page");
         assert_eq!(reading(&ui).first, 2);
         shot(&mut ui, &mut d.art, "book_long2");
-        assert!(!ui.read_key(false, &mut vm), "other keys don't");
+        assert!(!ui.read_key(PageKey::Other, &mut vm), "other keys don't");
         ui.click(0, 0, &mut vm);
         assert_eq!(reading(&ui).first, 4);
         ui.click(0, 0, &mut vm);
@@ -798,6 +866,46 @@ mod tests {
         ui.push(read(ReadKind::Scroll, 0, &long), &d.pal, None, Some(&d.art));
         assert_eq!((reading(&ui).gump, reading(&ui).boxes.len()), (19, 1));
         shot(&mut ui, &mut d.art, "scroll");
+        ui.close(&mut vm);
+    }
+
+    /// Ours on the original's book: a leather cover round it, and the bottom outer corner of a
+    /// page turned up where there's a page to turn to; a click on the left one turns back, as
+    /// Left does (Space on); at the first pages, back does nothing.
+    #[test]
+    #[ignore]
+    fn books_have_a_cover_and_turned_up_corners() {
+        let Some(Data { fonts, pal, mut art, uc }) = data() else { return };
+        let (mut vm, mut ui) = (Vm::new(&uc, None), ScriptUi::new(fonts));
+        let text = game_text(&uc, "The Spell of Resurrection~~");
+        let ev = UiEvent::Read { pid: 1, kind: ReadKind::Book, item: 0, gump: 0, text };
+        ui.push(ev, &pal, None, Some(&art));
+        let mut px = vec![0u8; 960 * 600 * 4];
+        let mut draw = |ui: &mut ScriptUi, px: &mut Vec<u8>| {
+            px.fill(0);
+            ui.draw_reading(&mut Canvas::new(px, 960, 600), Some(&mut art), 3, (320, 200));
+        };
+        draw(&mut ui, &mut px);
+        let at = (18, 25); // (the 284×150 gump centred in 320×200)
+        let pixel = |px: &[u8], (x, y): (i32, i32)| {
+            let d = (((y * 3 + 1) * 960 + x * 3 + 1) * 4) as usize;
+            [px[d], px[d + 1], px[d + 2], px[d + 3]]
+        };
+        let leather = pixel(&px, (at.0 - 3, at.1 + 75));
+        assert!(leather[3] == 255 && leather[0] > leather[2] + 20, "the cover beside the pages: {leather:?}");
+        assert!(!reading(&ui).more(true) && reading(&ui).more(false), "only the right corner up");
+        assert!(ui.read_key(PageKey::Back, &mut vm) && reading(&ui).first == 0, "nothing before the first");
+        assert!(ui.read_key(PageKey::On, &mut vm) && reading(&ui).first == 2);
+        draw(&mut ui, &mut px);
+        let (l, r) = (BOOK.corners[0], BOOK.corners[1]);
+        assert!(reading(&ui).more(true) && reading(&ui).more(false), "both corners up");
+        // (the flap's light back, a little in from each corner)
+        let flap = |c: (i32, i32), dx: i32| pixel(&px, (at.0 + c.0 + dx, at.1 + c.1 - 7));
+        assert!(flap(l, 7)[0] > 230 && flap(r, -7)[0] > 230, "{:?} {:?}", flap(l, 7), flap(r, -7));
+        ui.click(at.0 + l.0 + 3, at.1 + l.1 - 3, &mut vm);
+        assert_eq!(reading(&ui).first, 0, "the left corner turns back");
+        assert!(ui.read_key(PageKey::On, &mut vm) && ui.read_key(PageKey::Back, &mut vm));
+        assert_eq!(reading(&ui).first, 0, "and Left");
         ui.close(&mut vm);
     }
 
@@ -824,7 +932,7 @@ mod tests {
         assert!(at.1 >= 0 && at.1 + img.h as i32 <= gh);
         assert_eq!(img.h, 2 * 18 + 14, "three lines, 18 apart");
         shot(&mut ui, &mut d.art, "plaque");
-        assert!(ui.read_key(false, &mut vm));
+        assert!(ui.read_key(PageKey::Other, &mut vm));
         assert!(!ui.blocking());
         let ev = UiEvent::Read {
             pid: 1,
@@ -850,6 +958,6 @@ mod tests {
         ui.click(5, 5, &mut vm);
         ui.click(5, 5, &mut vm);
         assert!(ui.reading(), "clicks, even double, leave it");
-        assert!(ui.read_key(false, &mut vm) && !ui.reading(), "a key puts it away");
+        assert!(ui.read_key(PageKey::Other, &mut vm) && !ui.reading(), "a key puts it away");
     }
 }

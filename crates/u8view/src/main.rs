@@ -18,6 +18,7 @@ mod audio;
 mod book;
 mod commands;
 mod controls;
+mod cover;
 mod credits;
 mod films;
 mod frame;

@@ -65,10 +65,17 @@ impl App {
         closed
     }
 
-    /// A key while something is open to read (Space turns the page; any key puts away a grave).
+    /// A key while something is open to read (Space or Right on, Left back; any key puts away a
+    /// grave). Backspace isn't one: it puts the pages away.
     pub(super) fn read_key(&mut self, k: winit::keyboard::KeyCode) -> bool {
+        use {crate::ui::PageKey, winit::keyboard::KeyCode as K};
         let (Some(ui), Some(s)) = (&mut self.ui, &mut self.game.scripts) else { return false };
-        let used = ui.read_key(k == winit::keyboard::KeyCode::Space, &mut s.vm);
+        let key = match k {
+            K::Space | K::ArrowRight => PageKey::On,
+            K::ArrowLeft => PageKey::Back,
+            _ => PageKey::Other,
+        };
+        let used = ui.read_key(key, &mut s.vm);
         self.dirty |= used;
         used
     }

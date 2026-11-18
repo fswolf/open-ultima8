@@ -207,7 +207,8 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   `gumps.rs` is item windows (opened by scripts' `Item::openGump`: bags, chests, the paperdoll),
   `art.rs` the original's window art (U8GUMPS.FLX) and item areas (GUMPAGE.DAT), shared with the
   menus. `ui.rs` shows barks, conversation choices (numbered panel or the original's bulleted style),
-  pages and notices. `menu.rs` is the original's book menus drawn with its own art (U8GUMPS.FLX
+  pages and notices; book and scroll text is in `pagefont.rs`, and `cover.rs` adds a book's
+  leather cover and turned-up page corners to the original's art. `menu.rs` is the original's book menus drawn with its own art (U8GUMPS.FLX
   35 book, 32 logo, 37 menu entries): main menu, diary (save/load), options, the quit question
   (17 window, 18 question, 47/50 Yes/No); it returns `menu::Action`s for `App::menu_action`; the
   game is paused while it's open. `credits.rs` rolls the credits and quotes (decoded by
@@ -217,6 +218,11 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   re-placed (volume, pan) every frame from where the item is relative to the camera.
 - **u8tool**: `main.rs` dispatches to one module per command group (`export`, `map`, which also
   makes `kit` saves, `uc`, `music`); `cli.rs` has the argument and image helpers.
+- **u8cmp** (the harness for comparisons with DOS): `main.rs` dispatches to one module per
+  command (`dump`, `play`, `fuzz` with `soak`, `talk`, `people`, `attack`, `steal`) and keeps the
+  helpers they share (`open`, `shot`, `arg`, `write_dir`); `drive.rs` plays the engine headless
+  for all of them (`Drv`), `scene.rs` sets up scenes as in the original (where to stand, what's
+  loose, where to point in the 320 by 200 view).
 
 ## Adding things
 
@@ -229,6 +235,7 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
 | something the player sees from scripts | a `UiEvent` variant, handled in `u8view/src/ui.rs` |
 | a key | `Command` + `bind` in `u8view/src/input.rs`, action in `App::command` |
 | a CLI command | a function in the matching `u8tool` module (and the usage text) |
+| a harness command | a module in `u8cmp` with its function, its `main` arm and usage line |
 
 ## Checking a change
 
