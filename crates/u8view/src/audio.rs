@@ -109,7 +109,8 @@ impl Bank {
 const AMBIENT: f32 = 0.25;
 
 /// Effects that repeat on their own and grate: background sounds too.
-const QUIETER: [u16; 1] = [
+const QUIETER: [u16; 2] = [
+    0x7a, // the hourglass's tick (HOURGLAS, as it turns; nothing else plays it)
     0xa3, // dripping water (DRIPS, DRIPS2: each drip as it animates)
 ];
 
@@ -550,6 +551,8 @@ mod tests {
         assert_eq!(sfx_level(0x86, None, true, 0.5), 0.125, "and the player's background level");
         // And the dripping (one drip at a time) as a background sound too.
         assert_eq!(sfx_level(0xa3, None, false, 1.0), 0.25);
+        // And the hourglass's tick.
+        assert_eq!(sfx_level(0x7a, None, false, 1.0), 0.25);
     }
 
     /// The Guardian's lines (barked from object 666) are recorded in SOUND/E666.FLX.
