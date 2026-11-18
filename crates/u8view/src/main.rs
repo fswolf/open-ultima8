@@ -139,6 +139,28 @@ impl Mode {
 }
 
 /// How the world is shown: camera, zoom, upscaler and what to hide.
+/// The smooth camera: how fast its height eases (seconds to about two thirds of the way); a
+/// change too big to ease (a teleport); how far over its footing the Avatar can be and still be
+/// taken for on it (a jump's arc; higher, it's climbing, hanging or falling, and followed); and
+/// close enough to be there (so the view stops redrawing).
+const EYE_EASE: f32 = 0.08;
+const EYE_SNAP: f32 = 160.0;
+const EYE_LIFT: i32 = 32;
+const EYE_THERE: f32 = 0.01;
+
+/// The height the view looks at: the camera's own (`z`), or with the smooth camera (`smooth`),
+/// eased over `dt` seconds from where it was (`at`) towards the Avatar's footing (the camera's
+/// own height when it's well above it), straight there when it's new or too far.
+fn eye_height(z: i32, footing: Option<i32>, at: Option<f32>, dt: f32, smooth: bool) -> f32 {
+    let to = footing.filter(|&f| smooth && z - f <= EYE_LIFT).unwrap_or(z) as f32;
+    match at {
+        Some(at) if smooth && (to - at).abs() < EYE_SNAP && (to - at).abs() > EYE_THERE => {
+            at + (to - at) * (1.0 - (-dt / EYE_EASE).exp())
+        }
+        _ => to,
+    }
+}
+
 struct View {
     /// Centre of the view, unscaled screen coordinates.
     cam: (f32, f32),
@@ -150,6 +172,10 @@ struct View {
     mode: Mode,
     opts: DrawOpts,
     cutaway: bool,
+    /// Ease up and down with the Avatar's footing (Options: smooth camera); the height the view
+    /// looks at now (world units).
+    smooth: bool,
+    eye: Option<f32>,
     follow: bool,
     gamma: f32,
     colour_fix: bool,
@@ -289,6 +315,8 @@ impl App {
                 mode: Mode::Nearest,
                 opts: DrawOpts::default(),
                 cutaway: true,
+                smooth: true,
+                eye: None,
                 follow: true,
                 gamma: 1.0,
                 colour_fix: std::env::var_os("U8_COLOUR_FIX").is_some(),
@@ -375,6 +403,7 @@ impl App {
     }
 
     fn on_map_loaded(&mut self) {
+        self.view.eye = None; // (a new place: the view starts at the Avatar's height)
         self.apply_cheats();
         if let Some(ui) = &mut self.ui {
             ui.clear();
@@ -400,11 +429,21 @@ impl App {
     /// Follow the game's camera if it moved.
     /// Keep what the camera follows in the middle, to the world frame's fineness (people are
     /// drawn as finely: the one followed stays put while the world glides by).
-    fn follow_camera(&mut self) {
+    /// Centre the view on the camera, `dt` seconds on. With the smooth camera, following the
+    /// Avatar, the height eases to its footing rather than its feet: a jump doesn't bounce the
+    /// world, a step glides (the original follows the feet, which zoomed in jolts the screen).
+    fn follow_camera(&mut self, dt: f32) {
         if let Some((x, y, z)) = self.game.camera() {
             let s = self.world_ss() as i32;
-            let (sx, sy) = u8render::project_fine(x, y, z, s);
-            let cam = (sx as f32 / s as f32, sy as f32 / s as f32);
+            // (Only while the view is on the Avatar itself: not where it was left when the
+            // Avatar's gone to the map's corner, drowned.)
+            let on = self.game.world.get(AVATAR).is_some_and(|a| (a.x, a.y) == (x, y));
+            let smooth = self.view.smooth && self.game.camera_on_avatar() && on;
+            let footing = self.game.world.floor_under(AVATAR).map(|f| f + u8engine::camera::EYE);
+            let eye = eye_height(z, footing, self.view.eye, dt, smooth);
+            self.view.eye = Some(eye);
+            let (sx, sy) = u8render::project_fine(x, y, 0, s);
+            let cam = (sx as f32 / s as f32, sy as f32 / s as f32 - eye);
             if cam != self.view.cam {
                 self.view.cam = cam;
                 self.dirty = true;
@@ -631,6 +670,28 @@ fn start() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The smooth camera eases a step up over a fraction of a second, ignores a jump's arc (the
+    /// footing doesn't change), snaps to a teleport, and off it follows the camera's own height.
+    #[test]
+    fn the_smooth_camera_eases_up_and_down() {
+        let frame = 1.0 / 60.0;
+        assert_eq!(eye_height(92, Some(68), Some(48.0), frame, false), 92.0, "off: the camera's height");
+        assert_eq!(eye_height(92, Some(68), Some(68.0), frame, true), 68.0, "mid-jump: still the footing");
+        let mut at = 68.0;
+        for _ in 0..3 {
+            at = eye_height(76, Some(76), Some(at), frame, true);
+        }
+        assert!(at > 68.5 && at < 75.0, "a step up eases: {at}");
+        for _ in 0..60 {
+            at = eye_height(76, Some(76), Some(at), frame, true);
+        }
+        assert_eq!(at, 76.0, "and gets there (the view stops changing) within a second");
+        assert_eq!(eye_height(500, Some(500), Some(68.0), frame, true), 500.0, "a teleport snaps");
+        // Falling (or climbing, hanging): well above its footing, the Avatar itself is followed.
+        let falling = eye_height(160, Some(68), Some(150.0), frame, true);
+        assert!(falling > 150.0 && falling < 160.0, "{falling}");
+    }
 
     /// The game folder is found whether it's picked itself or the folder with a U8 (any case)
     /// in it; anything else isn't the game.

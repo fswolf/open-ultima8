@@ -45,6 +45,11 @@ impl Camera {
         }
     }
 
+    /// What it follows, if it isn't gliding or holding still.
+    pub fn following(&self) -> Option<ObjId> {
+        self.follow.filter(|_| self.glide.is_none())
+    }
+
     /// Follow `id`, or (None) stay where the view is now. Returns a glide that was cut short.
     pub fn set_center_on(&mut self, world: &World, id: Option<ObjId>) -> Option<Pid> {
         if let Some(p) = self.focus(world) {

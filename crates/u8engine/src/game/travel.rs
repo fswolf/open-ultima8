@@ -92,24 +92,24 @@ impl Game {
     /// Bring NPC `id` to `at` on this map from wherever it is: another map we've been on (with
     /// what it carries), else the save's item cache.
     pub(crate) fn fetch(&mut self, id: ObjId, at: (i32, i32, i32)) {
-        let here = self.map() as u8;
-        let mut got = None;
-        for w in self.visited.values_mut() {
-            if let Some(it) = w.get(id) {
-                let (things, last) = (w.take_contents(id), w.last_anim(id));
+        let here = self.map();
+        // (on another map rather than in its void, if both)
+        let from = self.visited.iter().filter(|(_, w)| w.get(id).is_some()).min_by_key(|(_, w)| w.is_void(id));
+        let (it, things, last) = match from.map(|(&m, _)| m) {
+            Some(m) => {
+                let w = self.visited.get_mut(&m).expect("just found");
+                let (it, things, last) = (w.get(id).expect("just found"), w.take_contents(id), w.last_anim(id));
                 w.remove(id);
-                got = Some((it, things, Some(last)));
-                break;
+                (it, things, Some(last))
             }
-        }
-        let (it, things, last) = match got {
-            Some(g) => g,
+            // As saved, on a map not built yet (not one it's gone from).
             None => {
-                let Some((_, it)) = self.data.actor(id) else { return };
+                let built = |m: usize| m == here as usize || self.visited.contains_key(&(m as u16));
+                let Some((_, it)) = self.data.actor(id).filter(|(m, _)| !built(*m)) else { return };
                 (it, vec![], None)
             }
         };
-        self.world.put_actor(&self.data, map::Item { x: at.0, y: at.1, z: at.2, mapnum: here, ..it });
+        self.world.put_actor(&self.data, map::Item { x: at.0, y: at.1, z: at.2, mapnum: here as u8, ..it });
         self.world.set_void(id, false);
         if !things.is_empty() {
             self.world.give_contents(&self.data, id, &things);

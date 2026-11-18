@@ -207,8 +207,13 @@ impl Host for WorldHost<'_> {
     fn item(&self, id: ObjId) -> Option<Item> {
         self.world.get(id).or_else(|| match self.elsewhere(id) {
             Some(m) => self.others.as_ref()?.get(&m)?.get(id),
-            // (on a map not built yet: as saved)
-            None if self.others.is_some() && (2..256).contains(&id) => self.data.actor(id).map(|(_, it)| it),
+            // (on a map not built yet: as saved; not if they're gone from here or from where the
+            // save had them)
+            None if (2..256).contains(&id) => {
+                let others = self.others.as_ref()?;
+                let (m, it) = self.data.actor(id)?;
+                (m as u16 != self.world.map() && !others.contains_key(&(m as u16))).then_some(it)
+            }
             None => None,
         })
     }
@@ -218,7 +223,8 @@ impl Host for WorldHost<'_> {
         }
         // Someone on another map: changed there (its world built first, if it hasn't been).
         let data = self.data;
-        let m = self.elsewhere(id).or_else(|| data.actor(id).map(|(m, _)| m as u16));
+        let here = self.world.map();
+        let m = self.elsewhere(id).or_else(|| data.actor(id).map(|(m, _)| m as u16)).filter(|&m| m != here);
         if let (Some(m), Some(others)) = (m, self.others.as_mut()) {
             let w = others.entry(m).or_insert_with(|| World::build(data, m));
             if w.get(id).is_some() {

@@ -199,6 +199,9 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 <summary><b>Where it deliberately differs from the original</b></summary>
 
 - Upscaling, zoom, smooth movement and the modern interface options.
+- The smooth camera (Options): the view eases up and down with the Avatar's footing instead of
+  following every jump and step, which zoomed in jolts the whole screen. Turn it off for the
+  original's camera.
 - Books and scrolls in a modern typeface (the page art and paging are the original's). Books
   get a leather cover round the original's open pages, and the page corners turn up where
   there are more pages; the left one turns back, which the original can't.

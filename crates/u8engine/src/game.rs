@@ -428,6 +428,11 @@ impl Game {
         self.camera.focus(&self.world)
     }
 
+    /// Is the camera following the Avatar (rather than a scene's glide, or something else)?
+    pub fn camera_on_avatar(&self) -> bool {
+        self.camera.following() == Some(AVATAR)
+    }
+
     /// The Avatar is dead: the game is over until a save is loaded.
     pub fn avatar_dead(&self) -> bool {
         self.avatar_dead

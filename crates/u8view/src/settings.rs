@@ -17,6 +17,8 @@ pub struct Settings {
     /// Background sounds (fires, drips, fountains), 0–1.
     pub ambience: f32,
     pub cutaway: bool,
+    /// The view eases up and down with the Avatar's footing instead of every hop (ours).
+    pub smooth_camera: bool,
     pub fullscreen: bool,
     pub left_handed: bool,
     pub gamma: f32,
@@ -43,6 +45,7 @@ impl Default for Settings {
             volume: 0.5,
             ambience: 0.5,
             cutaway: true,
+            smooth_camera: true,
             fullscreen: false,
             left_handed: false,
             gamma: 1.0,
@@ -83,6 +86,7 @@ impl Settings {
                 "volume" => s.volume = v.parse::<f32>().map_or(s.volume, |x| x.clamp(0.0, 1.0)),
                 "ambience" => s.ambience = v.parse::<f32>().map_or(s.ambience, |x| x.clamp(0.0, 1.0)),
                 "cutaway" => s.cutaway = on,
+                "smooth_camera" => s.smooth_camera = on,
                 "fullscreen" => s.fullscreen = on,
                 "left_handed" => s.left_handed = on,
                 "gamma" => s.gamma = v.parse::<f32>().map_or(s.gamma, |x| x.clamp(0.3, 3.0)),
@@ -103,7 +107,7 @@ impl Settings {
         format!(
             "# Open Ultima8 settings (written by the game; edit while it isn't running)\n\
              upscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nvolume = {:.1}\nambience = {:.1}\n\
-             cutaway = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\n\
+             cutaway = {}\nsmooth_camera = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\n\
              discord = {}\ndata = {}\nfinished = {}\n",
             self.upscaler,
             self.scale,
@@ -114,6 +118,7 @@ impl Settings {
             self.volume,
             self.ambience,
             self.cutaway,
+            self.smooth_camera,
             self.fullscreen,
             self.left_handed,
             self.gamma,
@@ -151,6 +156,7 @@ mod tests {
             volume: 0.7,
             ambience: 0.3,
             discord: false,
+            smooth_camera: false,
             data: "/home/me/Games/Ultima 8".into(),
             finished: true,
             ..Default::default()

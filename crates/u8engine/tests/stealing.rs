@@ -2,30 +2,7 @@
 //! player lets go of it, everyone about is told (event 19), and their scripts decide.
 mod common;
 use common::*;
-use u8engine::usecode::UiEvent;
 use u8engine::Place;
-
-/// Run `secs`, showing each line of speech for as long as the client would. Returns what was said.
-fn play(g: &mut Game, secs: u32) -> Vec<(u16, String)> {
-    let (mut said, mut up) = (vec![], vec![]);
-    for _ in 0..secs * 30 {
-        g.update(1.0 / 30.0, &Input::default());
-        for e in g.take_events() {
-            if let UiEvent::Bark { pid, item, text } = e {
-                up.push((pid, 60 + 2 * text.len() as u32));
-                said.push((item, text.trim().to_string()));
-            }
-        }
-        for (pid, left) in &mut up {
-            *left -= 1;
-            if *left == 0 {
-                g.vm().unwrap().finish(*pid, 0);
-            }
-        }
-        up.retain(|b| b.1 > 0);
-    }
-    said
-}
 
 /// Slot 1 at 10:00 on `map`, the Avatar at `at`.
 fn at(map: u16, at: (i32, i32, i32)) -> Option<Game> {

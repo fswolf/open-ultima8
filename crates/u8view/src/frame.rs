@@ -165,7 +165,7 @@ impl App {
         if status.map_changed {
             self.on_map_loaded(); // walked through a teleporter
         } else if self.view.follow {
-            self.follow_camera(); // the Avatar walking, or a cutscene's camera
+            self.follow_camera(dt); // the Avatar walking, or a cutscene's camera
         }
         for e in self.game.take_events() {
             self.event(e);

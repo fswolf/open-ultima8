@@ -15,6 +15,7 @@ impl App {
         v.zoom = s.zoom.clamp(ZOOMS[0], ZOOMS[ZOOMS.len() - 1]);
         v.zoom_to = v.zoom;
         v.cutaway = s.cutaway;
+        v.smooth = s.smooth_camera;
         v.gamma = s.gamma;
         v.colour_fix |= s.colour_fix;
         self.swapped = s.left_handed;
@@ -48,6 +49,7 @@ impl App {
             zoom: (v.zoom_to * 100.0).round() / 100.0,
             classic_text: self.ui.as_ref().is_some_and(|u| u.style == ui::Style::Classic),
             cutaway: v.cutaway,
+            smooth_camera: v.smooth,
             fullscreen: self.fullscreen,
             left_handed: self.swapped,
             cheats: self.cheats,
@@ -158,6 +160,7 @@ impl App {
             (Volume, format!("Music volume: {} of 10", (audio.2 * 10.0).round())), // the fonts have no % or /
             (Ambience, format!("Ambience: {} of 10", (audio.3 * 10.0).round())),   // fires, drips, fountains
             (Cutaway, format!("See inside: {}", on(v.cutaway))),
+            (SmoothCamera, format!("Smooth camera: {}", on(v.smooth))),
             (Fullscreen, format!("Full screen: {}", on(self.fullscreen))),
             (Buttons, format!("Mouse: {}", if self.swapped { "left-handed" } else { "right-handed" })),
             (Cheats, format!("Cheats: {}", on(self.cheats))),
@@ -215,6 +218,10 @@ impl App {
                         Command::Recentre
                     }
                     Setting::Cutaway => Command::ToggleCutaway,
+                    Setting::SmoothCamera => {
+                        self.view.smooth = !self.view.smooth;
+                        Command::Recentre
+                    }
                     Setting::Fullscreen => Command::Fullscreen,
                     Setting::Buttons => Command::SwapButtons,
                     Setting::Cheats => {

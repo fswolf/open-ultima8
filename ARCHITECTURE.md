@@ -199,7 +199,8 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   xBR (after Hyllian's level 2: per screen pixel, each texel corner's edge found from a 4×4
   neighbourhood and cut at 45° or 2:1), CRT beams and shadow mask) and the overlay (windows, speech, menus, films; premultiplied
   alpha, its own `SpriteCache`, at the interface's whole `scale`). Mouse: `mouse_world` for the
-  map, `mouse_game` for the overlay. `App`'s work is split by concern: `window.rs` (winit events), `frame.rs` (update and
+  map, `mouse_game` for the overlay. The view follows the game's camera (`App::follow_camera`);
+  the smooth camera (an option) eases only its height, to the Avatar's footing (`eye_height`). `App`'s work is split by concern: `window.rs` (winit events), `frame.rs` (update and
   draw), `controls.rs` (the mouse), `commands.rs` (keys, save/load), `book.rs` (the game menu
   and settings), `slider.rs` (the original's "how many?" for part of a pile).
   `input.rs` is the only place keys are bound (`Command`). `mouse.rs` is the original's pointer:

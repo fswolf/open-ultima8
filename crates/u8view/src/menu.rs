@@ -69,6 +69,8 @@ pub enum Setting {
     /// Background sounds' level (fires, drips, fountains).
     Ambience,
     Cutaway,
+    /// The view easing up and down (ours).
+    SmoothCamera,
     Fullscreen,
     Buttons,
     Cheats,
