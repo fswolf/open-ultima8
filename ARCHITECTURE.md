@@ -33,8 +33,9 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   TYPEFLAG), addressed by `ObjId` (NPC number, or 256+), including eggs, editor markers and
   invisible items, which scripts need; `Entry::shown()` says what a player would see. A
   world-space grid answers `area()` and collision (`try_move`, `try_move_air`, `floor_under`,
-  `ceiling`). Every change marks the entry dirty; views pick changes up with `take_dirty()`.
-  Actors block movement but are never floors; eggs are never physical. Items can be inside
+  `ceiling`, `clear_at`, `supported`). Every change marks the entry dirty; views pick changes up
+  with `take_dirty()`. Actors block movement and are floors only when TYPEFLAG makes them land
+  (rats, spiders: `Entry::underfoot`); eggs are never physical. Items can be inside
   others (`Entry::parent`; `contents`, `container`): container contents come from NONFIXED,
   what people carry from the item cache; such items are never on the map. The Avatar takes its
   belongings along through teleporters (`take_contents` / `give_contents`). `move_inside`,
@@ -68,7 +69,9 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
 - **`camera::Camera`**: where the view looks: following an item (the Avatar, or whoever a
   cutscene centres on: `Camera::setCenterOn` 0xBE) or held and gliding to a point
   (`Camera::scrollTo` 0xB5, a process that ends on arrival). `Game::camera()` is the point hosts
-  centre on; it resets to the Avatar on a new map or when no script is running.
+  centre on; it resets to the Avatar on a new map or when no script is running. `Game::roof()`
+  is the cutaway height, from the roof over that point (not over the Avatar, which Flash parks
+  at 0,0,0).
 - **`film::Film`**: an SKF film (`u8data::skf`) played on a 320×200 palette screen: pictures
   one per frame (`speed`/70 s each), events for music, effects, recorded lines and subtitles,
   waits (1/15 s) and fades; hands the host `Cue`s. The viewer's `films.rs` shows it (the intro
@@ -197,12 +200,14 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   any 1–8, its frame placed by the GPU to a fraction of a pixel with sharp bilinear; xBRZ sprites
   made at the zoom, rounded; or the GPU's own looks in `shader.wgsl`: sharp bilinear, plain,
   xBR (after Hyllian's level 2: per screen pixel, each texel corner's edge found from a 4×4
-  neighbourhood and cut at 45° or 2:1), CRT beams and shadow mask) and the overlay (windows, speech, menus, films; premultiplied
-  alpha, its own `SpriteCache`, at the interface's whole `scale`). Mouse: `mouse_world` for the
-  map, `mouse_game` for the overlay. The view follows the game's camera (`App::follow_camera`);
-  the smooth camera (an option) eases only its height, to the Avatar's footing (`eye_height`). `App`'s work is split by concern: `window.rs` (winit events), `frame.rs` (update and
-  draw), `controls.rs` (the mouse), `commands.rs` (keys, save/load), `book.rs` (the game menu
-  and settings), `slider.rs` (the original's "how many?" for part of a pile).
+  neighbourhood and cut at 45° or 2:1), CRT beams and shadow mask) and the overlay (windows,
+  speech, menus, films; premultiplied alpha, its own `SpriteCache`, at the interface's whole
+  `scale`). Mouse: `mouse_world` for the map, `mouse_game` for the overlay. The view follows the
+  game's camera (`App::follow_camera`); the smooth camera (an option) eases only its height, to
+  the Avatar's footing (`eye_height`). `App`'s work is split by concern: `window.rs` (winit
+  events), `frame.rs` (update and draw), `controls.rs` (the mouse), `commands.rs` (keys,
+  save/load), `book.rs` (the game menu and settings), `slider.rs` (the original's "how many?"
+  for part of a pile).
   `input.rs` is the only place keys are bound (`Command`). `mouse.rs` is the original's pointer:
   aim and reach from the Avatar (→ `Input`), and the game's arrow cursors as OS cursors.
   `gumps.rs` is item windows (opened by scripts' `Item::openGump`: bags, chests, the paperdoll),
@@ -220,10 +225,11 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
 - **u8tool**: `main.rs` dispatches to one module per command group (`export`, `map`, which also
   makes `kit` saves, `uc`, `music`); `cli.rs` has the argument and image helpers.
 - **u8cmp** (the harness for comparisons with DOS): `main.rs` dispatches to one module per
-  command (`dump`, `play`, `fuzz` with `soak`, `talk`, `people`, `attack`, `steal`) and keeps the
-  helpers they share (`open`, `shot`, `arg`, `write_dir`); `drive.rs` plays the engine headless
-  for all of them (`Drv`), `scene.rs` sets up scenes as in the original (where to stand, what's
-  loose, where to point in the 320 by 200 view).
+  command (`dump`, `play`, `fuzz` with `soak`, `talk`, `people`, `attack`, `steal`, `magic`) and
+  keeps the helpers they share (`open`, `shot`, `arg`, `write_dir`); `drive.rs` plays the engine
+  headless for all of them (`Drv`), `scene.rs` sets up scenes as in the original (where to stand,
+  what's loose, where to point in the 320 by 200 view), `magic.rs` casts the kit's spells and
+  compares their pictures with the world.
 
 ## Adding things
 

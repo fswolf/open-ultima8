@@ -53,7 +53,7 @@ pub(super) fn aim(g: &mut Game, id: u16) -> Option<(i32, i32)> {
     let (x, y, z) = g.camera()?;
     let (sx, sy) = project(x, y, z);
     let cam = (sx - 160, sy - 100);
-    let max_z = g.world.ceiling(AVATAR).map(|z| z - 1);
+    let max_z = g.roof();
     let opts = DrawOpts { max_z, ..Default::default() };
     let mut p = Painter::new();
     p.sync(&g.data, &mut g.world, [cam.0, cam.1, 320, 200]);

@@ -119,7 +119,7 @@ fn trees_overhead_dont_cut_the_view_away_but_roofs_do() {
     g.put_avatar(41, (20112, 12820, 64));
     for _ in 0..30 {
         g.update(1.0 / 30.0, &Input { dir: Some(4), ..Default::default() });
-        assert_eq!(g.world.ceiling(AVATAR), Some(104), "at {:?}", g.world.get(AVATAR).map(|a| (a.x, a.y, a.z)));
+        assert_eq!(g.roof(), Some(103), "at {:?}", g.world.get(AVATAR).map(|a| (a.x, a.y, a.z)));
     }
     assert_eq!(g.world.get(AVATAR).unwrap().z, 48, "down the steps");
 }

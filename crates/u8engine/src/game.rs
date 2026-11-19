@@ -428,6 +428,14 @@ impl Game {
         self.camera.focus(&self.world)
     }
 
+    /// Where the view is cut away (what's at or above it isn't drawn): under the roof over where
+    /// the camera looks, as ScummVM's CameraProcess::findRoof (DOS keeps the room in view while
+    /// Flash parks the Avatar at the map's corner). None: nothing over it.
+    pub fn roof(&self) -> Option<i32> {
+        let (x, y, z) = self.camera()?;
+        self.world.ceiling_over((x, y, z - crate::camera::EYE)).map(|z| z - 1)
+    }
+
     /// Is the camera following the Avatar (rather than a scene's glide, or something else)?
     pub fn camera_on_avatar(&self) -> bool {
         self.camera.following() == Some(AVATAR)

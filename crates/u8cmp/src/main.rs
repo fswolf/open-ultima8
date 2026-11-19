@@ -1,8 +1,8 @@
 //! Comparison harness: get game states in and out of the form the DOS original reads, play our
 //! engine headless through scripted steps, and dump states as text that can be diffed against
 //! what the original saved after the same steps. One file per command (`play`, `fuzz` with
-//! `soak`, `talk`, `people`, `attack`, `steal`, `dump`); `drive` plays the engine for all of them,
-//! `scene` sets up scenes as in the original; the helpers they share are here.
+//! `soak`, `talk`, `people`, `attack`, `steal`, `magic`, `dump`); `drive` plays the engine for
+//! all of them, `scene` sets up scenes as in the original; the helpers they share are here.
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -20,6 +20,7 @@ mod attack;
 mod drive;
 mod dump;
 mod fuzz;
+mod magic;
 mod people;
 mod play;
 mod scene;
@@ -43,6 +44,9 @@ const USAGE: &str = "usage: u8cmp <cmd> …
                                         a long session: wander, talk, use things, save and load
   talk <root> <slot> map=M policy=first|last|cycle|silent [npc=N] [out=dir]
                                         talk to everyone on a map
+  magic <root> <slot> out=dir [at=x,y,z,map] [secs=10] [every=3] [only=shape[,frame[,q]]]
+       [target=self|near|floor:dx,dy|ID] [trace=1] [dump=T shapes=..] [state=dir]
+                                        cast the kit's spells; spell pictures against the world
   people <root> <slot> hour=H           everyone on every map at an hour
   attack <root> <slot> map=M npc=N [hour=H] [swings=N] [watch=T] [hp=N] [side=dx,dy] [move=x,y,z]
        [cast] [kill] [procs] [out=dir]  strike someone and watch what follows (procs: live processes)
@@ -83,6 +87,7 @@ fn main() {
         "people" => people::people(root, slot(&a[2]), &a[3..]),
         "attack" => attack::attack(root, slot(&a[2]), &a[3..]),
         "steal" => steal::steal(root, slot(&a[2]), &a[3..]),
+        "magic" => magic::magic(root, slot(&a[2]), &a[3..]),
         _ => eprintln!("{USAGE}"),
     }
 }
@@ -104,7 +109,7 @@ fn shot(g: &mut Game, painter: &mut Painter, cache: &mut SpriteCache, path: &str
     let Some((x, y, z)) = g.camera() else { return };
     let (sx, sy) = project(x, y, z);
     let cam = (sx - w as i32 / 2, sy - h as i32 / 2);
-    let max_z = g.world.ceiling(AVATAR).map(|z| z - 1);
+    let max_z = g.roof();
     let mut buf = vec![0u8; (w * h * 4) as usize];
     let mut canvas = Canvas::new(&mut buf, w, h);
     painter.draw(&g.data, &mut g.world, cache, cam, &mut canvas, DrawOpts { max_z, ..Default::default() });

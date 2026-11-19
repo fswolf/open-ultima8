@@ -102,6 +102,10 @@ pub trait Host {
     fn can_exist_at(&self, _shape: u32, _at: (i32, i32, i32)) -> bool {
         true
     }
+    /// Would something of `shape` at (x, y, z) stand on something (a top right under it)?
+    fn supported(&self, _shape: u32, _at: (i32, i32, i32)) -> bool {
+        true
+    }
     /// The ANIM.DAT action an actor last started.
     fn last_anim(&self, _id: ObjId) -> usize {
         2
@@ -430,6 +434,9 @@ impl Host for WorldHost<'_> {
     }
     fn can_exist_at(&self, shape: u32, at: (i32, i32, i32)) -> bool {
         self.world.clear_at(self.data, shape, at)
+    }
+    fn supported(&self, shape: u32, at: (i32, i32, i32)) -> bool {
+        self.world.supported(self.data, shape, at)
     }
     fn stats(&self, id: ObjId) -> Option<Npc> {
         self.stats.get(id).filter(|_| self.world.get(id).is_some_and(|it| it.npc != 0))

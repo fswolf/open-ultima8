@@ -183,10 +183,16 @@ pub fn is_avatar_in_combat(c: &mut Ctx) -> u32 {
     c.host.in_combat(crate::world::AVATAR) as u32
 }
 
-/// canExistAt(shape, x, y, z, …): room for it there?
+/// canExistAt(shape, x, y, z, a, b, c): room for it there? The scripts pass (1, 0, 0) (fire
+/// shield, daemons, Beren, the Avatar stepping back from a door, things set on things), where
+/// DOS also wants it standing on something (an empty place under a floor or in the air is
+/// refused; checked against the original's Fire Shield, which also refuses water: not yet here),
+/// or (4, the item itself, 0) for darts and death disks in flight, left as plain room for want
+/// of evidence. (ScummVM ignores all three.)
 pub fn can_exist_at(c: &mut Ctx) -> u32 {
     let (shape, x, y, z) = (c.arg2(0) as u32, c.arg2(2) as i32, c.arg2(4) as i32, c.arg1(6) as i32);
-    c.host.can_exist_at(shape, (x, y, z)) as u32
+    let at = (x, y, z);
+    (c.host.can_exist_at(shape, at) && (c.arg2(8) != 1 || c.host.supported(shape, at))) as u32
 }
 
 /// createSprite(shape, first, last, [?, repeats,] delay, x, y, z): an effect played out at a

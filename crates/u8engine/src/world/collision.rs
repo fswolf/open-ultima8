@@ -68,6 +68,17 @@ impl World {
         gd.typeflags.get(shape).flags & u8data::typeflag::flag::SOLID == 0 || !self.room(gd, shape, at, None).0
     }
 
+    /// Is there something to stand on right under something of `shape` with its base at `at`:
+    /// a top at that height under its footprint? (canExistAt's form 1: DOS refuses a place in
+    /// the air, or under a floor, that's merely empty.)
+    pub fn supported(&self, gd: &GameData, shape: u32, (x, y, z): (i32, i32, i32)) -> bool {
+        let (dx, dy, _) = gd.typeflags.get(shape).footpad(false);
+        let b = Bounds { x0: x - dx, y0: y - dy, z0: z, x1: x, y1: y, z1: z };
+        self.near(b.x0, b.y0, b.x1, b.y1)
+            .map(|j| &self.entries[j])
+            .any(|p| p.physical() && p.underfoot() && p.z1 == z && p.bounds().overlaps_xy(&b))
+    }
+
     /// The first solid thing in the way of something of `shape` moving to `at` from height
     /// `from_z` (the whole height it passes through counts: floors are flat), ignoring entry `skip`.
     fn blocker(
@@ -195,18 +206,22 @@ impl World {
     /// lowest roof over any part of a 64×64 footprint at its feet, from 36 up (a camera box 20
     /// up, 16 tall). Only roofs count — not trees, walls or what's at head height.
     pub fn ceiling(&self, id: ObjId) -> Option<i32> {
-        let it = self.get(id)?;
-        let (x0, y0, z) = (it.x - 64, it.y - 64, it.z + 36);
-        self.near(x0, y0, it.x, it.y)
+        self.get(id).and_then(|it| self.ceiling_over((it.x, it.y, it.z)))
+    }
+
+    /// [`ceiling`](Self::ceiling) over feet at (x, y, z).
+    pub fn ceiling_over(&self, (x, y, z): (i32, i32, i32)) -> Option<i32> {
+        let (x0, y0, z) = (x - 64, y - 64, z + 36);
+        self.near(x0, y0, x, y)
             .map(|i| &self.entries[i])
             .filter(|p| {
                 p.present()
                     && p.traits.roof
                     && !p.traits.actor
                     && p.it.z >= z
-                    && p.x0 < it.x
+                    && p.x0 < x
                     && x0 < p.it.x
-                    && p.y0 < it.y
+                    && p.y0 < y
                     && y0 < p.it.y
             })
             .map(|p| p.it.z)

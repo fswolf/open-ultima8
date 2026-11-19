@@ -180,9 +180,9 @@ impl App {
         if let (Some(ui), Some(vm)) = (&mut self.ui, self.game.scripts.as_mut().map(|s| &mut s.vm)) {
             self.dirty |= ui.expire(vm, dt);
         }
-        // Cutaway: hide what's above the Avatar's head.
+        // Cutaway: hide the roof over where the view looks.
         let max_z = match self.view.cutaway {
-            true => self.game.world.ceiling(AVATAR).map(|z| z - 1),
+            true => self.game.roof(),
             false => None,
         };
         if max_z != self.view.opts.max_z {
