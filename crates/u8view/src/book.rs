@@ -11,7 +11,9 @@ impl App {
         if let Some(m) = Mode::ALL.into_iter().find(|m| m.name() == name) {
             v.mode = m;
         }
-        v.scale = s.scale.clamp(1, MAX_SCALE);
+        // (None saved yet: 2 until the window shows how big the screen is.)
+        self.auto_scale = s.scale == 0;
+        v.scale = if self.auto_scale { 2 } else { s.scale.clamp(1, MAX_SCALE) };
         v.zoom = s.zoom.clamp(ZOOMS[0], ZOOMS[ZOOMS.len() - 1]);
         v.zoom_to = v.zoom;
         v.cutaway = s.cutaway;
@@ -22,6 +24,7 @@ impl App {
         self.cheats = s.cheats;
         self.apply_cheats();
         self.discord = s.discord;
+        self.touch.buttons = s.touch_buttons;
         (self.pad.on, self.pad.speed, self.pad.deadzone, self.pad.swap) =
             (s.pad, s.pad_speed, s.pad_deadzone, s.swap_sticks);
         if let Some(m) = &mut self.menu {
@@ -47,7 +50,8 @@ impl App {
         #[allow(unused_mut)]
         let mut s = settings::Settings {
             upscaler: v.mode.name().to_string(),
-            scale: v.scale,
+            scale: if self.auto_scale { 0 } else { v.scale },
+            touch_buttons: self.touch.buttons,
             zoom: (v.zoom_to * 100.0).round() / 100.0,
             classic_text: self.ui.as_ref().is_some_and(|u| u.style == ui::Style::Classic),
             cutaway: v.cutaway,
@@ -173,6 +177,7 @@ impl App {
             (Buttons, format!("Mouse: {}", if self.swapped { "left-handed" } else { "right-handed" })),
             (Cheats, format!("Cheats: {}", on(self.cheats))),
             (Discord, format!("Discord status: {}", on(self.discord))),
+            (TouchButtons, format!("Touch buttons: {}", on(self.touch.buttons))),
         ];
         #[cfg(feature = "gamepad")]
         lines.extend([
@@ -213,6 +218,7 @@ impl App {
                     Setting::Upscaler => Command::CycleUpscaler,
                     Setting::Scale => {
                         self.view.scale = self.view.scale % MAX_SCALE + 1;
+                        self.auto_scale = false; // (chosen now: kept)
                         Command::Recentre
                     }
                     Setting::TextStyle => Command::ToggleTextStyle,
@@ -260,11 +266,18 @@ impl App {
                             }
                         };
                         match s {
-                            Setting::Pad => (p.on, p.owns) = (!p.on, false),
+                            Setting::Pad => p.on = !p.on,
                             Setting::PadSpeed => p.speed = next(p.speed, 0.1, 1.0),
                             Setting::Deadzone => p.deadzone = next(p.deadzone, 0.1, 0.4),
                             _ => p.swap = !p.swap,
                         }
+                        if self.owner == crate::Owner::Pad {
+                            self.owner = crate::Owner::Mouse;
+                        }
+                        Command::Recentre
+                    }
+                    Setting::TouchButtons => {
+                        self.touch.buttons = !self.touch.buttons;
                         Command::Recentre
                     }
                 };

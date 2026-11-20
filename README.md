@@ -93,7 +93,7 @@ system places, in the game folder, or from `$U8_SOUNDFONT`. On Fedora:
 ### Steam Deck and ROG Ally
 
 > [!TIP]
-> **New in 0.5.0: controller support.** Play Pagan on a handheld, or with any Xbox-style pad.
+> **New in 0.5: controller and touch screen support.** Play Pagan on a handheld, or with any Xbox-style pad.
 > Tell us how it plays on yours, on [Discord](https://discord.gg/wEqrYjPxAU) or in [Issues](../../issues).
 
 **Steam Deck** (or any Linux handheld):
@@ -101,7 +101,7 @@ system places, in the game folder, or from `$U8_SOUNDFONT`. On Fedora:
 1. In Desktop Mode, unpack the **Linux** package next to your game.
 2. In Steam, choose *Add a Non-Steam Game* and pick `u8view`.
 3. In Game Mode, give it the **Gamepad** controller layout (Steam Input), so the built-in controls
-   show up as an ordinary pad. The touchscreen works as the mouse.
+   show up as an ordinary pad. The touch screen works too (see [Controls](#controls)).
 
 **ROG Ally** (Windows): use the **Windows** package. The built-in controller is already an Xbox
 pad, so there's nothing to set up.
@@ -165,7 +165,20 @@ out, the faster you go.
 | **Start / Back** | the game menu / the diary |
 | **L3 / R3** | recentre the camera / put the pointer back on the Avatar |
 
-The mouse and the pad share one pointer: whichever moved it last has it. Saving with a pad names
+| Touch screen | Does |
+|---|---|
+| **tap** / **double tap** | look at / use (as left click / double click; menus, books, replies and windows too) |
+| **press and slide** on a thing | drag it (into a bag, onto the paperdoll, onto the floor) |
+| **hold** on open ground | walk towards your finger (near: careful steps, further: walk, far: run) |
+| **second finger tap** while walking | jump, the way you walk |
+| **pinch** | zoom |
+| **two finger tap** | the right button's tap (one careful step; on the Avatar, twice: weapon out or away) |
+| **buttons on the right edge** | menu, backpack, paperdoll, combat (shown once you touch the screen; Options → Touch buttons) |
+
+In Game Mode Steam may pass touches on as mouse clicks instead: taps still look and use there,
+but holding to walk and the two finger gestures need the touches themselves.
+
+The mouse, the pad and the touch screen share one pointer: whichever moved it last has it. Saving with a pad names
 the save for you (where you are and the day); A takes it. The back paddles (Deck L4/L5/R4/R5, Ally
 M1/M2) aren't used: map them in Steam Input if you like.
 

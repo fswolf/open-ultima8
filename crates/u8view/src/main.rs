@@ -14,6 +14,8 @@
 //!   (tap look, double use, hold drag; accept in menus) · X use · RT right button · LT jump
 //!   B close (back in menus) · Y backpack · LB paperdoll · RB combat · Start menu · Back diary
 //!   L3 recentre · R3 pointer to the Avatar
+//! Touch: tap look · double tap use · press and slide drag · hold on the ground walk · second
+//!   finger tap jump (walking) · pinch zoom · two finger tap right button tap · edge buttons
 // A game, not a console program: no terminal window behind it on Windows (debug builds keep it,
 // for their messages).
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
@@ -37,6 +39,7 @@ mod pagefont;
 mod presence;
 mod settings;
 mod slider;
+mod touch;
 mod ui;
 mod window;
 
@@ -112,6 +115,25 @@ const STAT_NAMES: usize = 0;
 const STAT_VALUES: usize = 12;
 /// A quick right click still takes one careful step this long.
 const TAP_STEP: Duration = Duration::from_millis(200);
+
+/// Who moved the one pointer last (the mouse, the pad's stick, a finger).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Owner {
+    Mouse,
+    Pad,
+    Touch,
+}
+
+/// The interface size to start at when none is saved: on a small screen the game fills (a
+/// handheld's: the Deck 1280×800, the Ally 1920×1080), a size that reads and taps well there.
+fn first_scale(window: (u32, u32), monitor: (u32, u32)) -> u32 {
+    let full = window.0 >= monitor.0 && window.1 >= monitor.1;
+    if full && monitor.1 <= 1200 {
+        (monitor.1 / 266).max(2)
+    } else {
+        2
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Mode {
@@ -244,10 +266,21 @@ struct App {
     mods: input::Mods,
     step_until: Option<Instant>,
     cursors: Option<mouse::Cursors>,
-    /// The game controller, and the cursor drawn for its pointer (the system one hidden).
+    /// The game controller, and the cursor drawn for its pointer (the system one hidden); what
+    /// an action it started aims by.
     pad: pad::Pad,
     pad_cursor: Option<usize>,
     cursor_hidden: bool,
+    pad_aim: Option<pad::Aim>,
+    /// The touch screen.
+    touch: touch::Touch,
+    /// Who moved the one pointer last; where the system's cursor last was; the window has the
+    /// focus.
+    owner: Owner,
+    os_cursor: (f64, f64),
+    focused: bool,
+    /// No interface size saved yet: it's chosen for the screen (see `first_scale`).
+    auto_scale: bool,
     /// Item windows (bags, chests, the paperdoll) and the art they're drawn with.
     windows: gumps::Windows,
     art: Option<art::GumpArt>,
@@ -366,6 +399,12 @@ impl App {
             pad: pad::Pad::default(),
             pad_cursor: None,
             cursor_hidden: false,
+            pad_aim: None,
+            touch: touch::Touch::new(true),
+            owner: Owner::Mouse,
+            os_cursor: (-1.0, -1.0),
+            focused: true,
+            auto_scale: false,
             menu: None,
             windows: gumps::Windows::default(),
             art: None,
@@ -463,6 +502,18 @@ impl App {
             if cam != self.view.cam {
                 self.view.cam = cam;
                 self.dirty = true;
+            }
+        }
+    }
+
+    /// With no interface size saved, pick it for the screen (see [`first_scale`]).
+    fn fit_interface(&mut self) {
+        let Some(w) = self.window.as_ref().filter(|_| self.auto_scale) else { return };
+        let (sz, monitor) = (w.inner_size(), w.current_monitor().map(|m| m.size()));
+        if let Some(m) = monitor {
+            let s = first_scale((sz.width, sz.height), (m.width, m.height));
+            if s != self.view.scale {
+                (self.view.scale, self.dirty) = (s, true);
             }
         }
     }
@@ -723,6 +774,14 @@ mod tests {
         assert_eq!(game_root(&t.join("client")), Some(t.join("client/u8")), "its U8 folder");
         assert_eq!(game_root(&t.join("Games")), None, "not the game");
         std::fs::remove_dir_all(&t).ok();
+    }
+
+    #[test]
+    fn handhelds_start_with_a_bigger_interface() {
+        assert_eq!(first_scale((1280, 800), (1280, 800)), 3, "Steam Deck");
+        assert_eq!(first_scale((1920, 1080), (1920, 1080)), 4, "ROG Ally");
+        assert_eq!(first_scale((1280, 800), (2560, 1440)), 2, "a window on a big monitor");
+        assert_eq!(first_scale((2560, 1440), (2560, 1440)), 2, "a big monitor");
     }
 
     #[test]

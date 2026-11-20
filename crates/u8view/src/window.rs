@@ -53,6 +53,7 @@ impl ApplicationHandler for App {
                 self.mouse = (sz.width as f64 / 2.0, sz.height as f64 / 2.0);
                 self.window = Some(win);
                 self.gpu = Some(gpu);
+                self.fit_interface();
             }
             Err(e) => {
                 self.error = Some(e.context("window / GPU init failed"));
@@ -68,9 +69,12 @@ impl ApplicationHandler for App {
                 if let Some(g) = &mut self.gpu {
                     g.resize(sz.width, sz.height);
                 }
+                self.fit_interface();
                 self.dirty = true;
             }
+            WindowEvent::Focused(true) => self.focused = true,
             WindowEvent::Focused(false) => {
+                self.focused = false; // (the pad lets go of everything at its next look)
                 self.held.clear(); // don't keep walking after alt-tab
                 (self.press, self.pan, self.left, self.right, self.dragging) = (None, None, false, false, false);
             }
@@ -128,64 +132,26 @@ impl ApplicationHandler for App {
             }
             WindowEvent::ModifiersChanged(m) => self.mods = m.state().into(),
             WindowEvent::MouseInput { button, state, .. } => {
-                let down = state == ElementState::Pressed;
-                if self.slider.is_some() {
-                    let left =
-                        matches!((button, self.swapped), (MouseButton::Left, false) | (MouseButton::Right, true));
-                    let at = self.mouse_game();
-                    let (Some(s), Some(art)) = (&mut self.slider, &self.art) else { return };
-                    let answer = match (left, down) {
-                        (true, true) => s.press(art, at),
-                        (false, true) => Some(crate::slider::Answer::Cancel),
-                        _ => {
-                            s.release();
-                            None
-                        }
-                    };
-                    if let Some(a) = answer {
-                        self.answer_slider(a);
-                    }
-                    if !down {
-                        (self.left, self.right) = (false, false);
-                    }
-                    self.dirty = true;
+                // (The system's copy of a touch is the touch's own business.)
+                if self.touch.echo(Instant::now(), self.os_cursor) {
                     return;
                 }
-                if self.film.is_some() {
-                    if down {
-                        self.end_film(); // skipped
-                    }
-                    return;
+                if state == ElementState::Pressed {
+                    self.pad_aim = None; // (the mouse aims by the pointer)
                 }
-                if self.menu_open() {
-                    if !down {
-                        (self.left, self.right) = (false, false); // pressed before the menu opened
-                    }
-                    let (gx, gy) = self.mouse_game();
-                    let Some(m) = self.menu.as_mut() else { return };
-                    let action = match (button, self.swapped, down) {
-                        (MouseButton::Left, false, true) | (MouseButton::Right, true, true) => m.click(gx, gy),
-                        (MouseButton::Right, false, true) | (MouseButton::Left, true, true) => {
-                            m.back();
-                            None
-                        }
-                        _ => None,
-                    };
-                    if let Some(a) = action {
-                        self.menu_action(a, el);
-                    }
-                    self.dirty = true;
-                    return;
-                }
-                match (button, self.swapped) {
-                    (MouseButton::Left, false) | (MouseButton::Right, true) => self.left_button(down),
-                    (MouseButton::Right, false) | (MouseButton::Left, true) => self.right_button(down),
-                    (MouseButton::Middle, _) => self.pan = down.then_some(self.mouse),
-                    _ => {}
-                }
+                self.mouse_button(button, state == ElementState::Pressed, el);
             }
+            WindowEvent::Touch(t) => self.touched(t, el),
             WindowEvent::CursorMoved { position: p, .. } => {
-                self.pad.owns = false; // (the mouse has the pointer back)
+                self.os_cursor = (p.x, p.y);
+                if self.touch.echo(Instant::now(), self.os_cursor) {
+                    return;
+                }
+                self.owner = crate::Owner::Mouse; // (the mouse has it back)
+                if self.touch.buttons_shown() {
+                    self.touch.hide_buttons();
+                    self.dirty = true;
+                }
                 self.moved_to((p.x, p.y));
             }
             WindowEvent::MouseWheel { delta, .. } if !self.menu_open() => {
@@ -203,6 +169,8 @@ impl ApplicationHandler for App {
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         self.poll_pad(el);
+        let out = self.touch.tick(Instant::now());
+        self.apply_touch(out, el);
         // The game's arrow cursor while the player controls the Avatar, the system one otherwise.
         let combat = self.game.in_combat();
         let frame = self.pointer().map(|(sector, reach)| match combat {
@@ -215,11 +183,13 @@ impl ApplicationHandler for App {
         if let (Some(c), Some(w)) = (&mut self.cursors, &self.window) {
             c.show(el, w, frame, self.view.scale, self.view.mode == Mode::XbrzSprites);
             // The pad's pointer: drawn by us where the system's can't be put (and hidden).
-            let drawn = self.pad.owns.then(|| frame.unwrap_or(mouse::DOT));
+            // (Under a finger, no cursor at all.)
+            let drawn = (self.owner == crate::Owner::Pad).then(|| frame.unwrap_or(mouse::DOT));
             self.dirty |= std::mem::replace(&mut self.pad_cursor, drawn) != drawn;
-            if self.cursor_hidden != self.pad.owns {
-                self.cursor_hidden = self.pad.owns;
-                w.set_cursor_visible(!self.cursor_hidden);
+            let hide = self.owner != crate::Owner::Mouse;
+            if self.cursor_hidden != hide {
+                self.cursor_hidden = hide;
+                w.set_cursor_visible(!hide);
             }
         }
         // While anything moves, redraw every frame (vsync paces us); otherwise wake now and then
@@ -230,6 +200,7 @@ impl ApplicationHandler for App {
             || self.right
             || self.zooming
             || self.pad.active()
+            || self.touch.busy()
             || self.view.zoom != self.view.zoom_to;
         let now = Instant::now();
         let wake = now >= self.next_wake;

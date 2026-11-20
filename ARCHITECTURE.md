@@ -216,6 +216,11 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   only, to a `Command`, the mouse's own buttons (`left_button`, `right_button`, `both_buttons`)
   or menu moves; its sticks walk (the same (facing, run, careful) as the pointer's arrow:
   `App::steering`, `pad::steer`) and move the one pointer the mouse shares (`App::moved_to`).
+  One pad is followed at a time (`pad::Follow`; Steam can show the game two copies of one pad).
+  `touch.rs` is the touch screen, the same way: a small machine (`Touch`) turns fingers into the
+  mouse's moves and buttons (`App::mouse_button`, the one place a left or right press is
+  routed), walking, jumps, zoom, and the screen buttons; `App::owner` says who moved the pointer
+  last.
   `gumps.rs` is item windows (opened by scripts' `Item::openGump`: bags, chests, the paperdoll),
   `art.rs` the original's window art (U8GUMPS.FLX) and item areas (GUMPAGE.DAT), shared with the
   menus. `ui.rs` shows barks, conversation choices (numbered panel or the original's bulleted style),

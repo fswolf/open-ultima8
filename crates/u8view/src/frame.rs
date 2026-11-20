@@ -109,7 +109,10 @@ impl App {
         input.attack = std::mem::take(&mut self.attack) && free;
         input.kick = std::mem::take(&mut self.kick) && free;
         input.block = free && self.left && self.swung.is_some_and(|t| t.elapsed() > DOUBLE_CLICK);
-        if (input.attack || input.kick || input.block) && input.dir.is_none() {
+        // (From the pad with nothing leaning and the pointer not moved since it walked: the way
+        // the Avatar faces, not where the pointer was left.)
+        let facing = self.pad_aim == Some(pad::Aim::Facing);
+        if (input.attack || input.kick || input.block) && input.dir.is_none() && !facing {
             // Standing, strikes and blocks turn to the pointer first.
             let aim = self.pointer().filter(|p| p.1 != mouse::Reach::Short).map(|p| mouse::facing(p.0));
             if let (Some(d), Some(a)) = (aim, self.game.avatar.as_mut()) {
@@ -124,6 +127,9 @@ impl App {
             input.dir = aim.map(|p| mouse::facing(p.0));
             input.run = aim.is_some_and(|p| p.1 == mouse::Reach::Long);
             input.careful = false;
+            if facing {
+                (input.dir, input.run) = (self.game.avatar.as_ref().map(|a| a.dir), false);
+            }
         }
         if self.pending_look.is_some_and(|(_, t)| now >= t) {
             let (id, _) = self.pending_look.take().unwrap();
@@ -321,6 +327,7 @@ impl App {
             || self.ui.as_ref().is_some_and(|u| !u.is_empty())
             || self.roll.is_some()
             || self.pad_cursor.is_some()
+            || self.touch_buttons_up()
             || self.menu_open();
         if self.dirty {
             let t0 = Instant::now();
@@ -358,7 +365,7 @@ impl App {
                     m.options = lines;
                 }
             }
-            let mouse = self.mouse_game();
+            let (mouse, buttons_up) = (self.mouse_game(), self.touch_buttons_up());
             // Where things on the map are on the overlay (speech goes over the speaker).
             let ((ox, oy), _) = self.world_view();
             let k = zoom / s as f32;
@@ -442,6 +449,15 @@ impl App {
                 m.draw(&mut canvas, art, (vw, vh));
                 if let Some(ui) = &mut self.ui {
                     ui.draw_notices(&mut canvas, ui_ss, vw); // "Not now." etc. stay readable over the book
+                }
+            }
+            // The touch screen's buttons, down the right edge.
+            if let (true, Some(ui)) = (buttons_up, &self.ui) {
+                for (r, (_, name)) in touch::button_rects((vw, vh)).iter().zip(touch::BUTTONS) {
+                    text::shade(&mut canvas, ui_ss, *r);
+                    let img = ui.text(0, name, &self.game.data.palette);
+                    let (x, y) = (r[0] + (r[2] - img.w as i32) / 2, r[1] + (r[3] - img.h as i32) / 2);
+                    text::draw_plain(&mut canvas, ui_ss, &img, x, y);
                 }
             }
             // The pad's pointer, over everything (the system's cursor is hidden meanwhile).

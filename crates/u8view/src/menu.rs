@@ -83,6 +83,8 @@ pub enum Setting {
     PadSpeed,
     Deadzone,
     SwapSticks,
+    /// The buttons a touch screen shows on the right edge.
+    TouchButtons,
 }
 
 /// What the player chose.
@@ -569,7 +571,7 @@ mod tests {
         use Setting::*;
         let all = [Upscaler, Scale, TextStyle, Music, Effects, Volume, Ambience, Cutaway, SmoothCamera, Fullscreen]
             .into_iter()
-            .chain([Buttons, Cheats, Discord, Pad, PadSpeed, Deadzone, SwapSticks]);
+            .chain([Buttons, Cheats, Discord, TouchButtons, Pad, PadSpeed, Deadzone, SwapSticks]);
         m.options = all.enumerate().map(|(k, s)| (s, format!("Music volume: {k} of 10"))).collect();
         // (How far down the letters reach, descenders included.)
         let ink = |img: &TextImage| {
@@ -585,9 +587,9 @@ mod tests {
         let mut px = vec![0u8; 320 * 200 * 4];
         m.draw(&mut Canvas::new(&mut px, 320, 200), &mut art, (320, 200));
         let foot = (200 - 158) / 2 - BOOK_LIFT + RIGHT[1] + RIGHT[3];
-        assert_eq!(m.hits.len(), 17);
+        assert_eq!(m.hits.len(), 18);
         let left = m.hits.iter().filter(|h| h.0[0] < 160).count();
-        assert_eq!(left, 17 - OPTIONS_RIGHT, "the rest on the left page");
+        assert_eq!(left, 18 - OPTIONS_RIGHT, "the rest on the left page");
         for (r, _) in &m.hits {
             assert!(r[1] + OPTION_H <= foot, "a line ends at {}, the page at {foot}", r[1] + OPTION_H);
         }

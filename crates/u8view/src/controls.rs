@@ -25,7 +25,7 @@ impl App {
             self.step_until = None;
         }
         let aim = self.pointer().map(|(s, r)| (mouse::facing(s), r == mouse::Reach::Long, r == mouse::Reach::Short));
-        pad::steer(self.pad.walk(), aim, self.right || tap)
+        pad::steer(self.pad.walk(), aim, self.right || tap || self.touch.walking())
     }
 
     /// Single click: look at the item under the mouse; double click: use it (doors, talking…).
@@ -426,6 +426,71 @@ impl App {
         if let Some(m) = self.menu.as_mut().filter(|m| m.is_open()) {
             self.dirty |= m.hover(gx, gy);
         }
+    }
+
+    /// A mouse button (or a finger, or the pad, as one), wherever it goes: the slider, a film, the
+    /// book, or the game.
+    pub(super) fn mouse_button(&mut self, button: MouseButton, down: bool, el: &ActiveEventLoop) {
+        if self.slider.is_some() {
+            let left = matches!((button, self.swapped), (MouseButton::Left, false) | (MouseButton::Right, true));
+            let at = self.mouse_game();
+            let (Some(s), Some(art)) = (&mut self.slider, &self.art) else { return };
+            let answer = match (left, down) {
+                (true, true) => s.press(art, at),
+                (false, true) => Some(crate::slider::Answer::Cancel),
+                _ => {
+                    s.release();
+                    None
+                }
+            };
+            if let Some(a) = answer {
+                self.answer_slider(a);
+            }
+            if !down {
+                (self.left, self.right) = (false, false);
+            }
+            self.dirty = true;
+            return;
+        }
+        if self.film.is_some() {
+            if down {
+                self.end_film(); // skipped
+            }
+            return;
+        }
+        if self.menu_open() {
+            if !down {
+                (self.left, self.right) = (false, false); // pressed before the menu opened
+            }
+            let (gx, gy) = self.mouse_game();
+            let Some(m) = self.menu.as_mut() else { return };
+            let action = match (button, self.swapped, down) {
+                (MouseButton::Left, false, true) | (MouseButton::Right, true, true) => m.click(gx, gy),
+                (MouseButton::Right, false, true) | (MouseButton::Left, true, true) => {
+                    m.back();
+                    None
+                }
+                _ => None,
+            };
+            if let Some(a) = action {
+                self.menu_action(a, el);
+            }
+            self.dirty = true;
+            return;
+        }
+        match (button, self.swapped) {
+            (MouseButton::Left, false) | (MouseButton::Right, true) => self.left_button(down),
+            (MouseButton::Right, false) | (MouseButton::Left, true) => self.right_button(down),
+            (MouseButton::Middle, _) => self.pan = down.then_some(self.mouse),
+            _ => {}
+        }
+    }
+
+    /// Let go of the left button without a click or a drop (a touch taken back, a finger that
+    /// walks or pinches instead).
+    pub(super) fn cancel_press(&mut self) {
+        (self.press, self.press_item, self.item_drag, self.win_drag) = (None, None, None, None);
+        (self.left, self.left_jumped, self.dragging, self.swung) = (false, false, false, None);
     }
 
     /// Both buttons: jump towards the pointer (and a left press held isn't a click).
