@@ -1,6 +1,15 @@
 //! Movement and collision: what fits where, sweeping things through the air, stepping
-//! actors over floors and up ledges. Actors block but are never stood on.
+//! actors over floors and up ledges, and where things can be (canExistAt).
 use super::*;
+
+/// canExistAt's flags (MOTRAK.H): may stand on land, on water, needs nothing under it, may drop
+/// up to 9 onto a floor.
+pub mod exist {
+    pub const LAND: u8 = 0x01;
+    pub const SEA: u8 = 0x02;
+    pub const FLOATS: u8 = 0x04;
+    pub const DROPS: u8 = 0x08;
+}
 
 impl World {
     /// Would `id` fit with its base at (x, y, z): nothing solid in the way, something to rest on?
@@ -68,15 +77,46 @@ impl World {
         gd.typeflags.get(shape).flags & u8data::typeflag::flag::SOLID == 0 || !self.room(gd, shape, at, None).0
     }
 
-    /// Is there something to stand on right under something of `shape` with its base at `at`:
-    /// a top at that height under its footprint? (canExistAt's form 1: DOS refuses a place in
-    /// the air, or under a floor, that's merely empty.)
-    pub fn supported(&self, gd: &GameData, shape: u32, (x, y, z): (i32, i32, i32)) -> bool {
-        let (dx, dy, _) = gd.typeflags.get(shape).footpad(false);
+    /// The original's canExistAt (MOTRAK.C, its support test in MOTCHECK.ASM): room for something
+    /// of `shape` at `at`, `mover` left out; and unless `flags` has [`exist::FLOATS`], standing on
+    /// something. What's under the footprint with its top at the base (or up to 9 lower, with
+    /// [`exist::DROPS`]) bears it if it's solid with a surface the mover may stand on (land,
+    /// water, by the flags); a surface it may not stand on refuses the place outright.
+    pub fn can_exist_at(
+        &self,
+        gd: &GameData,
+        shape: u32,
+        at: (i32, i32, i32),
+        flags: u8,
+        mover: Option<ObjId>,
+    ) -> bool {
+        use u8data::typeflag::flag::{LAND, SEA, SOLID};
+        let skip = mover.and_then(|m| self.index(m));
+        let solid = gd.typeflags.get(shape).flags & SOLID != 0;
+        if solid && self.room(gd, shape, at, skip).0 {
+            return false;
+        }
+        if flags & exist::FLOATS != 0 {
+            return true;
+        }
+        // (Surfaces it may not stand on; its footprint turned as `room` turns it.)
+        let bad = (if flags & exist::LAND != 0 { 0 } else { LAND }) | (if flags & exist::SEA != 0 { 0 } else { SEA });
+        let me = skip.map(|j| &self.entries[j].it);
+        let flipped = me.is_some_and(|it| it.shape == shape && it.flags & item_flag::FLIPPED != 0);
+        let (x, y, z) = at;
+        let (dx, dy, _) = gd.typeflags.get(shape).footpad(flipped);
         let b = Bounds { x0: x - dx, y0: y - dy, z0: z, x1: x, y1: y, z1: z };
-        self.near(b.x0, b.y0, b.x1, b.y1)
-            .map(|j| &self.entries[j])
-            .any(|p| p.physical() && p.underfoot() && p.z1 == z && p.bounds().overlaps_xy(&b))
+        let gap = if flags & exist::DROPS != 0 { 9 } else { 0 };
+        let under = self.near(b.x0, b.y0, b.x1, b.y1).filter(|&j| Some(j) != skip).map(|j| &self.entries[j]);
+        let (mut held, mut refused) = (false, false);
+        for p in
+            under.filter(|p| p.present() && !p.marker() && (z - gap..=z).contains(&p.z1) && p.bounds().overlaps_xy(&b))
+        {
+            let f = gd.typeflags.get(p.it.shape).flags;
+            refused |= f & bad != 0;
+            held |= f & SOLID != 0 && f & (LAND | SEA) & !bad != 0;
+        }
+        held && !refused
     }
 
     /// The first solid thing in the way of something of `shape` moving to `at` from height
@@ -202,30 +242,19 @@ impl World {
             .max()
     }
 
-    /// Where the view is cut away over `id` (ScummVM's CameraProcess::findRoof): the base of the
-    /// lowest roof over any part of a 64×64 footprint at its feet, from 36 up (a camera box 20
-    /// up, 16 tall). Only roofs count — not trees, walls or what's at head height.
+    /// The roof over `id`, as the original's camera finds it (CAMERA.C, find_new_roof): its own
+    /// footprint swept straight up from where it stands to z 250, and the first roof piece met
+    /// (its base). Only roofs count: not trees, walls or floors below its feet.
     pub fn ceiling(&self, id: ObjId) -> Option<i32> {
-        self.get(id).and_then(|it| self.ceiling_over((it.x, it.y, it.z)))
-    }
-
-    /// [`ceiling`](Self::ceiling) over feet at (x, y, z).
-    pub fn ceiling_over(&self, (x, y, z): (i32, i32, i32)) -> Option<i32> {
-        let (x0, y0, z) = (x - 64, y - 64, z + 36);
-        self.near(x0, y0, x, y)
+        let me = self.entries.get(self.index(id)?)?.bounds();
+        let height = me.z1 - me.z0;
+        self.near(me.x0, me.y0, me.x1, me.y1)
             .map(|i| &self.entries[i])
             .filter(|p| {
-                p.present()
-                    && p.traits.roof
-                    && !p.traits.actor
-                    && p.it.z >= z
-                    && p.x0 < x
-                    && x0 < p.it.x
-                    && p.y0 < y
-                    && y0 < p.it.y
+                p.present() && p.traits.roof && p.bounds().overlaps_xy(&me) && p.z1 > me.z0 && p.it.z < 250 + height
             })
+            .min_by_key(|p| ((p.it.z - me.z1).max(0), p.it.z))
             .map(|p| p.it.z)
-            .min()
     }
 
     /// Are `a` and `b` (or what they're in) on the same floor — no roof between them (one of

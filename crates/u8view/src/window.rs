@@ -48,6 +48,9 @@ impl ApplicationHandler for App {
                 if self.fullscreen {
                     win.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
                 }
+                // (Mid-window until the mouse says otherwise: a pad starts from there.)
+                let sz = win.inner_size();
+                self.mouse = (sz.width as f64 / 2.0, sz.height as f64 / 2.0);
                 self.window = Some(win);
                 self.gpu = Some(gpu);
             }
@@ -181,58 +184,9 @@ impl ApplicationHandler for App {
                     _ => {}
                 }
             }
-            WindowEvent::CursorMoved { position: p, .. } if self.win_drag.is_some() => {
-                let (item, from) = self.win_drag.unwrap();
-                let s = self.view.scale as f64;
-                let (dx, dy) = (((p.x - from.0) / s) as i32, ((p.y - from.1) / s) as i32);
-                if (dx, dy) != (0, 0) {
-                    self.windows.move_by(item, dx, dy);
-                    self.win_drag = Some((item, (from.0 + dx as f64 * s, from.1 + dy as f64 * s)));
-                    self.dirty = true;
-                }
-                self.mouse = (p.x, p.y);
-            }
             WindowEvent::CursorMoved { position: p, .. } => {
-                if let Some(d) = self.press {
-                    // A drag is never a click; dragging an item picks it up.
-                    self.dragging |= (p.x - d.0).abs() + (p.y - d.1).abs() > 6.0;
-                    if self.dragging && self.item_drag.is_none() {
-                        // Pick it up only if the Avatar can (else say why, once).
-                        if let Some(id) = self.press_item.take() {
-                            match self.game.can_pick_up(id) {
-                                Ok(()) => self.item_drag = Some(id),
-                                Err(why) => self.notice(why),
-                            }
-                        }
-                    }
-                }
-                if self.item_drag.is_some() {
-                    self.dirty = true; // the carried item follows the pointer
-                }
-                // Middle drag pans; with a free camera, so does left drag.
-                let left_pan = self.press.filter(|_| self.dragging && !self.controlling() && self.item_drag.is_none());
-                if let Some(d) = self.pan.or(left_pan) {
-                    self.view.follow = false; // panning detaches the camera
-                    self.view.cam.0 -= ((p.x - d.0) / self.view.zoom as f64) as f32;
-                    self.view.cam.1 -= ((p.y - d.1) / self.view.zoom as f64) as f32;
-                    if self.pan.is_some() {
-                        self.pan = Some((p.x, p.y));
-                    } else {
-                        self.press = Some((p.x, p.y));
-                    }
-                    self.dirty = true;
-                }
-                self.mouse = (p.x, p.y);
-                let (gx, gy) = self.mouse_game();
-                if let Some(s) = &mut self.slider {
-                    self.dirty |= s.drag(gx);
-                }
-                if let Some(ui) = &mut self.ui {
-                    self.dirty |= ui.hover(gx, gy);
-                }
-                if let Some(m) = self.menu.as_mut().filter(|m| m.is_open()) {
-                    self.dirty |= m.hover(gx, gy);
-                }
+                self.pad.owns = false; // (the mouse has the pointer back)
+                self.moved_to((p.x, p.y));
             }
             WindowEvent::MouseWheel { delta, .. } if !self.menu_open() => {
                 // Zoom the world: a notch a step (touchpads: by how far they scrolled).
@@ -248,6 +202,7 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        self.poll_pad(el);
         // The game's arrow cursor while the player controls the Avatar, the system one otherwise.
         let combat = self.game.in_combat();
         let frame = self.pointer().map(|(sector, reach)| match combat {
@@ -259,6 +214,13 @@ impl ApplicationHandler for App {
         let frame = if crossed { Some(mouse::CROSS) } else { frame };
         if let (Some(c), Some(w)) = (&mut self.cursors, &self.window) {
             c.show(el, w, frame, self.view.scale, self.view.mode == Mode::XbrzSprites);
+            // The pad's pointer: drawn by us where the system's can't be put (and hidden).
+            let drawn = self.pad.owns.then(|| frame.unwrap_or(mouse::DOT));
+            self.dirty |= std::mem::replace(&mut self.pad_cursor, drawn) != drawn;
+            if self.cursor_hidden != self.pad.owns {
+                self.cursor_hidden = self.pad.owns;
+                w.set_cursor_visible(!self.cursor_hidden);
+            }
         }
         // While anything moves, redraw every frame (vsync paces us); otherwise wake now and then
         // for scenery animation. All time-based updates happen in `redraw`.
@@ -267,6 +229,7 @@ impl ApplicationHandler for App {
             || self.jump
             || self.right
             || self.zooming
+            || self.pad.active()
             || self.view.zoom != self.view.zoom_to;
         let now = Instant::now();
         let wake = now >= self.next_wake;
@@ -279,7 +242,9 @@ impl ApplicationHandler for App {
                 w.request_redraw();
             }
         }
-        el.set_control_flow(if active { ControlFlow::Wait } else { ControlFlow::WaitUntil(self.next_wake) });
+        // (A controller isn't heard from by the window: with one plugged in, look often.)
+        let until = if self.pad.connected() { self.next_wake.min(now + PAD_POLL) } else { self.next_wake };
+        el.set_control_flow(if active { ControlFlow::Wait } else { ControlFlow::WaitUntil(until) });
     }
 }
 

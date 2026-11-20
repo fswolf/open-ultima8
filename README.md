@@ -3,7 +3,8 @@
 </p>
 
 <p align="center">
-  <b>Ultima VIII: Pagan</b>, rebuilt to play on today's computers: Linux, Windows and macOS.<br>
+  <b>Ultima VIII: Pagan</b>, rebuilt to play on today's computers: Linux, Windows and macOS,<br>
+  and handhelds like the Steam Deck and ROG Ally.<br>
   A new engine written in Rust that runs the original game's own data and scripts,<br>
   with modern upscaling, smooth zoom and a lot of small quality-of-life fixes.
 </p>
@@ -39,6 +40,9 @@ it look and handle as if it were made this decade.
   smooth zoom from 1× to 8×. Windows, speech and menus keep their own size.
 - **Smooth movement.** The Avatar glides instead of hopping a pixel at a time; mouse and keyboard
   both work.
+- **Handhelds and controllers.** Play on the Steam Deck, the ROG Ally or with any Xbox-style pad:
+  the left stick walks (lean further to run), the right stick moves the pointer, and every
+  button the mouse and keyboard have is on the pad. Plug it in or out while you play.
 - **Readable.** Books and scrolls in a clean book typeface at your screen's full resolution;
   speech placed over whoever's speaking, and hidden when they're on another floor.
 - **Quieter.** Fireplaces, dripping water and other background sounds well below other effects, fading fast with distance, with their own "Ambience" level in the options.
@@ -80,6 +84,15 @@ Keep `U8.EXE` in the game folder: the weapon table is read out of it.
 **On Linux**, run `./install-desktop.sh` in the unpacked folder to add Open Ultima8 to your app
 menu (`--remove` takes it out again). **On macOS**, put the game folder (or `U8`) next to
 `Open Ultima8.app`; the first time, right-click the app and choose Open (it isn't notarized).
+
+**On a Steam Deck** (or any Linux handheld): in Desktop Mode, unpack the Linux package next to your
+game, then in Steam choose *Add a Non-Steam Game* and pick `u8view`. In Game Mode give it the
+*Gamepad* controller layout (Steam Input) so the built-in controls show up as an ordinary pad;
+the touchscreen works as the mouse. **On a ROG Ally** under Windows, use the Windows package; the
+built-in controller is already an Xbox pad. The back paddles (Deck L4/L5/R4/R5, Ally M1/M2) aren't
+used by the game, but Steam Input or Armoury Crate can map them to any key. Controller support is
+new in 0.5.0: tell us how it plays on your handheld, on [Discord](https://discord.gg/wEqrYjPxAU)
+or in [Issues](../../issues).
 
 **Music** plays through any General MIDI SoundFont (`.sf2`). It's found automatically in the usual
 system places, in the game folder, or from `$U8_SOUNDFONT`. On Fedora:
@@ -127,13 +140,32 @@ out, the faster you go.
 | **P / Shift-P** | music / sound effects on/off |
 | **N / Shift-N** | next / previous song |
 
+| Controller (Xbox names) | Does |
+|---|---|
+| **left stick** | walk the way it leans: a little for careful steps, halfway to walk, all the way to run |
+| **D-pad** | walk like the arrow keys; in menus, move the choice; in a conversation, point at the next reply; in a book, turn pages |
+| **right stick** | move the pointer (faster the further it leans) |
+| **A** | the left mouse button: tap to look, double tap to use, hold to drag; in combat, swing; in menus, choose |
+| **X** | use what's under the pointer |
+| **RT** | the right mouse button: walk towards the pointer |
+| **LT** | jump |
+| **B** | put away pages and speech (back, in menus) |
+| **Y / LB / RB** | backpack / paperdoll / weapon out or away |
+| **Start / Back** | the game menu / the diary |
+| **L3 / R3** | recentre the camera / put the pointer back on the Avatar |
+
+The mouse and the pad share one pointer: whichever moved it last has it. Saving with a pad names
+the save for you (where you are and the day); A takes it. The back paddles (Deck L4/L5/R4/R5, Ally
+M1/M2) aren't used: map them in Steam Input if you like.
+
 **In windows:** click looks, double-click uses (opens bags), drag things between windows, onto
 the paperdoll to wear or wield them, or out into the world. Drag a window by its frame;
 double-click the frame to close it. The button under the paperdoll's stats shows the health and
 mana gauge.
 
 **Options** (Esc → Options) has the look, the interface size, reply style, music and volume,
-see-inside, full screen, mouse hand, Discord status and the original's cheats. They're remembered
+see-inside, full screen, mouse hand, Discord status, the original's cheats, and the controller
+(on/off, pointer speed, dead zone, which stick walks). They're remembered
 in `~/.config/open-ultima8/settings.cfg`.
 
 ## Saves
@@ -170,6 +202,7 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 | Game clock (continues from your save; a game hour is 15 real minutes, as in the DOS game) + NPC schedules | ✅ |
 | Saved games: load and save (original format), the diary (J), quick save/load (F7/F8); new game with its opening scene | ✅ |
 | Original controls (mouse arrow: step/walk/run/jump), game menu (Esc) with options remembered between runs | ✅ |
+| Game controllers (Steam Deck, ROG Ally, Xbox-style pads): sticks walk and point, buttons as the mouse and keys, menus and replies with the D-pad, plug in or out while playing; pointer speed, dead zone and which stick walks in Options | ✅ |
 | Cutscene camera (scenes hold the view, glide it and centre it on whoever's talking) | ✅ |
 | Each map's own music (music objects in the world pick the song) | ✅ |
 | NPCs walk where scripts send them, step by step with their walk animation, routing round walls, furniture and people | ✅ |
@@ -238,8 +271,10 @@ off in Options → Discord status. It only talks to the Discord app on your own 
 
 ## Building from source
 
-You need [Rust](https://rustup.rs) (stable). On Linux, also the ALSA headers for sound
-(`sudo dnf install alsa-lib-devel` / `sudo apt install libasound2-dev`).
+You need [Rust](https://rustup.rs) (stable). On Linux, also the ALSA headers for sound and
+libudev's for controllers (`sudo dnf install alsa-lib-devel systemd-devel` /
+`sudo apt install libasound2-dev libudev-dev`). Without them, build with
+`--no-default-features` (and `--features audio` or `--features gamepad` for the one you have).
 
 ```sh
 git clone <this repo> && cd open-ultima8

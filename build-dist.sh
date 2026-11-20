@@ -3,7 +3,7 @@
 # archive each. (macOS: build-dist-osx.sh.)
 #   ./build-dist.sh           # linux and windows (each skipped with a note if its tools are missing)
 #   ./build-dist.sh windows   # just this one
-# Linux:   sudo dnf install alsa-lib-devel
+# Linux:   sudo dnf install alsa-lib-devel systemd-devel
 # Windows (cross-compiled): sudo dnf install mingw64-gcc mingw64-winpthreads-static, and the target's
 #   std: rustup target add x86_64-pc-windows-gnu (rustup's cargo) or
 #   sudo dnf install rust-std-static-x86_64-pc-windows-gnu (Fedora's cargo)
@@ -55,6 +55,9 @@ build_linux() {
     echo "== linux"
     if ! pkg-config --exists alsa 2>/dev/null; then
         skip linux "needs ALSA headers for audio (sudo dnf install alsa-lib-devel)"; return
+    fi
+    if ! pkg-config --exists libudev 2>/dev/null; then
+        skip linux "needs libudev headers for controllers (sudo dnf install systemd-devel)"; return
     fi
     cargo build --release $(bins_args)
     package linux target/release

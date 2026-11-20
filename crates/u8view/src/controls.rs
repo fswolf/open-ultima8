@@ -17,14 +17,15 @@ impl App {
         Some(mouse::aim(mx - fx, my - fy, (w as u32, h as u32)))
     }
 
-    /// Movement from the mouse: (facing, run, careful) while the right button walks.
-    pub(super) fn mouse_walk(&mut self) -> Option<(usize, bool, bool)> {
+    /// Movement: (facing, run, careful) from the pad's sticks or D-pad, else from the pointer's
+    /// arrow while the right button (or the pad's RT) walks.
+    pub(super) fn steering(&mut self) -> Option<pad::Walk> {
         let tap = self.step_until.is_some_and(|t| Instant::now() < t);
         if !tap {
             self.step_until = None;
         }
-        let (sector, reach) = self.pointer().filter(|_| self.right || tap)?;
-        Some((mouse::facing(sector), reach == mouse::Reach::Long, reach == mouse::Reach::Short))
+        let aim = self.pointer().map(|(s, r)| (mouse::facing(s), r == mouse::Reach::Long, r == mouse::Reach::Short));
+        pad::steer(self.pad.walk(), aim, self.right || tap)
     }
 
     /// Single click: look at the item under the mouse; double click: use it (doors, talking…).
@@ -63,16 +64,23 @@ impl App {
             return;
         }
         if double {
-            self.pending_look = None;
-            if self.game.can_use(id) {
-                self.game.use_item(id); // (a dead body opens for searching)
-            } else {
-                self.cross_until = Some(now + CROSS_FLASH); // out of reach: the red cross, a moment
-            }
+            self.use_thing(id);
         } else {
             self.pending_look = Some((id, now + DOUBLE_CLICK));
         }
         self.last_click = if double { None } else { Some((id, now)) };
+        self.dirty = true;
+    }
+
+    /// Use `id` (a double click, the pad's X): open, talk, search a body; out of reach, the red
+    /// cross for a moment.
+    pub(super) fn use_thing(&mut self, id: ObjId) {
+        self.pending_look = None;
+        if self.game.can_use(id) {
+            self.game.use_item(id);
+        } else {
+            self.cross_until = Some(Instant::now() + CROSS_FLASH);
+        }
         self.dirty = true;
     }
 
@@ -364,11 +372,67 @@ impl App {
         }
     }
 
-    /// Both buttons: jump towards the pointer (and the left press isn't a click).
+    /// The pointer moved to `p` (window pixels), by the mouse or the pad's stick: a window being
+    /// dragged follows, a press becomes a drag, highlights follow.
+    pub(super) fn moved_to(&mut self, p: (f64, f64)) {
+        if let Some((item, from)) = self.win_drag {
+            let s = self.view.scale as f64;
+            let (dx, dy) = (((p.0 - from.0) / s) as i32, ((p.1 - from.1) / s) as i32);
+            if (dx, dy) != (0, 0) {
+                self.windows.move_by(item, dx, dy);
+                self.win_drag = Some((item, (from.0 + dx as f64 * s, from.1 + dy as f64 * s)));
+                self.dirty = true;
+            }
+            self.mouse = p;
+            return;
+        }
+        if let Some(d) = self.press {
+            // A drag is never a click; dragging an item picks it up.
+            self.dragging |= (p.0 - d.0).abs() + (p.1 - d.1).abs() > 6.0;
+            if self.dragging && self.item_drag.is_none() {
+                // Pick it up only if the Avatar can (else say why, once).
+                if let Some(id) = self.press_item.take() {
+                    match self.game.can_pick_up(id) {
+                        Ok(()) => self.item_drag = Some(id),
+                        Err(why) => self.notice(why),
+                    }
+                }
+            }
+        }
+        if self.item_drag.is_some() {
+            self.dirty = true; // the carried item follows the pointer
+        }
+        // Middle drag pans; with a free camera, so does left drag.
+        let left_pan = self.press.filter(|_| self.dragging && !self.controlling() && self.item_drag.is_none());
+        if let Some(d) = self.pan.or(left_pan) {
+            self.view.follow = false; // panning detaches the camera
+            self.view.cam.0 -= ((p.0 - d.0) / self.view.zoom as f64) as f32;
+            self.view.cam.1 -= ((p.1 - d.1) / self.view.zoom as f64) as f32;
+            if self.pan.is_some() {
+                self.pan = Some(p);
+            } else {
+                self.press = Some(p);
+            }
+            self.dirty = true;
+        }
+        self.mouse = p;
+        let (gx, gy) = self.mouse_game();
+        if let Some(s) = &mut self.slider {
+            self.dirty |= s.drag(gx);
+        }
+        if let Some(ui) = &mut self.ui {
+            self.dirty |= ui.hover(gx, gy);
+        }
+        if let Some(m) = self.menu.as_mut().filter(|m| m.is_open()) {
+            self.dirty |= m.hover(gx, gy);
+        }
+    }
+
+    /// Both buttons: jump towards the pointer (and a left press held isn't a click).
     pub(super) fn both_buttons(&mut self) {
         self.jump = true;
         self.mouse_jump = true;
-        self.left_jumped = true;
+        self.left_jumped = self.left;
         self.press = None;
     }
 }

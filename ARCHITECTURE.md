@@ -33,7 +33,7 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   TYPEFLAG), addressed by `ObjId` (NPC number, or 256+), including eggs, editor markers and
   invisible items, which scripts need; `Entry::shown()` says what a player would see. A
   world-space grid answers `area()` and collision (`try_move`, `try_move_air`, `floor_under`,
-  `ceiling`, `clear_at`, `supported`). Every change marks the entry dirty; views pick changes up
+  `ceiling`, `clear_at`, `can_exist_at`). Every change marks the entry dirty; views pick changes up
   with `take_dirty()`. Actors block movement and are floors only when TYPEFLAG makes them land
   (rats, spiders: `Entry::underfoot`); eggs are never physical. Items can be inside
   others (`Entry::parent`; `contents`, `container`): container contents come from NONFIXED,
@@ -70,8 +70,9 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   cutscene centres on: `Camera::setCenterOn` 0xBE) or held and gliding to a point
   (`Camera::scrollTo` 0xB5, a process that ends on arrival). `Game::camera()` is the point hosts
   centre on; it resets to the Avatar on a new map or when no script is running. `Game::roof()`
-  is the cutaway height, from the roof over that point (not over the Avatar, which Flash parks
-  at 0,0,0).
+  is the cutaway height, kept as the original's camera keeps it: the roof over the Avatar, looked
+  up again when he moves while the camera is centred on him (a scene holding the camera, as
+  Flash does, leaves it be).
 - **`film::Film`**: an SKF film (`u8data::skf`) played on a 320×200 palette screen: pictures
   one per frame (`speed`/70 s each), events for music, effects, recorded lines and subtitles,
   waits (1/15 s) and fades; hands the host `Cue`s. The viewer's `films.rs` shows it (the intro
@@ -189,7 +190,8 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
 - `painter::Painter`: screen-space index over a `World`, kept in sync incrementally
   (`sync` also reports whether anything visible changed), the per-frame depth sort (port of
   ScummVM's `SortItem::below`, except that two things flat in y on the same plane go nearer-last
-  as in DOS), `draw` into a `Canvas`, and `pick` items under a point.
+  as in DOS), `draw` into a `Canvas` (the Avatar flagged unseen as a recolouring of what's
+  behind him, `Canvas::recolour` with XFORMPAL's first table), and `pick` items under a point.
 - `text`: outlined text and shaded panels.
 
 ## Apps
@@ -210,6 +212,10 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   for part of a pile).
   `input.rs` is the only place keys are bound (`Command`). `mouse.rs` is the original's pointer:
   aim and reach from the Avatar (→ `Input`), and the game's arrow cursors as OS cursors.
+  `pad.rs` is the game controller (gilrs, feature `gamepad`): its buttons are bound in `BINDS`
+  only, to a `Command`, the mouse's own buttons (`left_button`, `right_button`, `both_buttons`)
+  or menu moves; its sticks walk (the same (facing, run, careful) as the pointer's arrow:
+  `App::steering`, `pad::steer`) and move the one pointer the mouse shares (`App::moved_to`).
   `gumps.rs` is item windows (opened by scripts' `Item::openGump`: bags, chests, the paperdoll),
   `art.rs` the original's window art (U8GUMPS.FLX) and item areas (GUMPAGE.DAT), shared with the
   menus. `ui.rs` shows barks, conversation choices (numbered panel or the original's bulleted style),
@@ -241,6 +247,7 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
 | a new kind of thing in the world (containers, NPC AI) | `u8engine` module, driven from `Game::update` |
 | something the player sees from scripts | a `UiEvent` variant, handled in `u8view/src/ui.rs` |
 | a key | `Command` + `bind` in `u8view/src/input.rs`, action in `App::command` |
+| a controller button | its row in `BINDS` in `u8view/src/pad.rs` (a `Command` if a key does it too) |
 | a CLI command | a function in the matching `u8tool` module (and the usage text) |
 | a harness command | a module in `u8cmp` with its function, its `main` arm and usage line |
 

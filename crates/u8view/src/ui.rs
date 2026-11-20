@@ -582,6 +582,19 @@ impl ScriptUi {
         false
     }
 
+    /// Where the answer `d` on from the highlighted one is (from the first or last, if none is):
+    /// the pad's D-pad points at it.
+    pub fn answer_step(&self, d: i32) -> Option<[i32; 4]> {
+        self.panels.iter().find_map(|p| match p {
+            Panel::Ask { rects, hover, .. } if !rects.is_empty() => {
+                let n = rects.len() as i32;
+                let i = hover.map_or(if d > 0 { 0 } else { n - 1 }, |h| (h as i32 + d).rem_euclid(n));
+                Some(rects[i as usize])
+            }
+            _ => None,
+        })
+    }
+
     /// Mouse moved (game-pixel coords). Returns true if a highlight changed.
     pub fn hover(&mut self, x: i32, y: i32) -> bool {
         let mut changed = false;

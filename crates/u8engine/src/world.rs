@@ -13,6 +13,7 @@ use u8data::{
 mod actors;
 mod collision;
 mod contents;
+pub use collision::exist;
 pub use contents::POP_AREA;
 mod scenery;
 mod search;

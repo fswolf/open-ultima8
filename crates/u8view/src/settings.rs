@@ -31,6 +31,12 @@ pub struct Settings {
     pub data: String,
     /// The game's been played to the end (the main menu then offers the quotes and the ending).
     pub finished: bool,
+    /// A game controller: in use; its pointer's speed (0.1–1); its sticks' dead zone; the right
+    /// stick walks and the left moves the pointer.
+    pub pad: bool,
+    pub pad_speed: f32,
+    pub pad_deadzone: f32,
+    pub swap_sticks: bool,
 }
 
 impl Default for Settings {
@@ -54,6 +60,10 @@ impl Default for Settings {
             discord: true,
             data: String::new(),
             finished: false,
+            pad: true,
+            pad_speed: 0.5,
+            pad_deadzone: 0.2,
+            swap_sticks: false,
         }
     }
 }
@@ -95,6 +105,10 @@ impl Settings {
                 "discord" => s.discord = on,
                 "data" => s.data = v.to_string(),
                 "finished" => s.finished = on,
+                "pad" => s.pad = on,
+                "pad_speed" => s.pad_speed = v.parse::<f32>().map_or(s.pad_speed, |x| x.clamp(0.1, 1.0)),
+                "pad_deadzone" => s.pad_deadzone = v.parse::<f32>().map_or(s.pad_deadzone, |x| x.clamp(0.05, 0.5)),
+                "swap_sticks" => s.swap_sticks = on,
                 _ => {}
             }
         }
@@ -108,7 +122,7 @@ impl Settings {
             "# Open Ultima8 settings (written by the game; edit while it isn't running)\n\
              upscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nvolume = {:.1}\nambience = {:.1}\n\
              cutaway = {}\nsmooth_camera = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\n\
-             discord = {}\ndata = {}\nfinished = {}\n",
+             discord = {}\ndata = {}\nfinished = {}\npad = {}\npad_speed = {:.1}\npad_deadzone = {:.2}\nswap_sticks = {}\n",
             self.upscaler,
             self.scale,
             self.zoom,
@@ -126,7 +140,11 @@ impl Settings {
             self.cheats,
             self.discord,
             self.data,
-            self.finished
+            self.finished,
+            self.pad,
+            self.pad_speed,
+            self.pad_deadzone,
+            self.swap_sticks
         )
     }
 
@@ -159,6 +177,10 @@ mod tests {
             smooth_camera: false,
             data: "/home/me/Games/Ultima 8".into(),
             finished: true,
+            pad: false,
+            pad_speed: 0.8,
+            pad_deadzone: 0.3,
+            swap_sticks: true,
             ..Default::default()
         };
         assert_eq!(Settings::parse(&s.to_text()), s);
@@ -166,5 +188,11 @@ mod tests {
         assert_eq!((odd.scale, odd.volume, odd.zoom), (2, 1.0, 2.0));
         assert_eq!(Settings::parse("scale = 4\n").zoom, 4.0, "an older file's scale was the zoom too");
         assert_eq!(Settings::parse("volume = 0.6\n").ambience, 0.5, "background sounds default to half");
+        let pad = Settings::parse("pad_speed = 7\npad_deadzone = -1\n");
+        assert_eq!(
+            (pad.pad, pad.pad_speed, pad.pad_deadzone),
+            (true, 1.0, 0.05),
+            "the pad's on, odd values kept in range"
+        );
     }
 }

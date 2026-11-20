@@ -21,11 +21,15 @@ png = "0.18"
 # The folder picker when the game data isn't found (xdg portal on Linux, native elsewhere).
 rfd = "0.18"
 cpal = { version = "0.18", optional = true }
+gilrs = { version = "0.11", optional = true }
 
 [features]
-default = ["audio"]
+default = ["audio", "gamepad"]
 # Music output. On Linux this needs ALSA headers: `sudo dnf install alsa-lib-devel` (Fedora).
 audio = ["dep:cpal"]
+# Game controllers (Steam Deck, ROG Ally, any Xbox-style pad). On Linux this needs libudev
+# headers: `sudo dnf install systemd-devel` (Fedora).
+gamepad = ["dep:gilrs"]
 
 [dev-dependencies]
 # (Checks the shader compiles, to SPIR-V for Vulkan too, without a GPU.)

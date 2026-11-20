@@ -143,18 +143,24 @@ impl Held {
             ax(self.any(KeyCode::ArrowUp, KeyCode::KeyW), self.any(KeyCode::ArrowDown, KeyCode::KeyS)),
         )
     }
-    /// U8 facing for the held keys: screen up = 7 (NW), right = 1 (NE), down = 3 (SE), left = 5 (SW).
+    /// U8 facing for the held keys.
     pub fn dir(&self) -> Option<usize> {
-        Some(match self.axes() {
-            (0, -1) => 7,
-            (1, -1) => 0,
-            (1, 0) => 1,
-            (1, 1) => 2,
-            (0, 1) => 3,
-            (-1, 1) => 4,
-            (-1, 0) => 5,
-            (-1, -1) => 6,
-            _ => return None,
-        })
+        facing_of(self.axes())
     }
+}
+
+/// U8 facing for screen axes (-1, 0 or 1 each): up = 7 (NW), right = 1 (NE), down = 3 (SE),
+/// left = 5 (SW). The pad's stick and D-pad turn the same way.
+pub fn facing_of(axes: (i32, i32)) -> Option<usize> {
+    Some(match axes {
+        (0, -1) => 7,
+        (1, -1) => 0,
+        (1, 0) => 1,
+        (1, 1) => 2,
+        (0, 1) => 3,
+        (-1, 1) => 4,
+        (-1, 0) => 5,
+        (-1, -1) => 6,
+        _ => return None,
+    })
 }

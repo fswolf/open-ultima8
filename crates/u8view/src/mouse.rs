@@ -59,6 +59,8 @@ pub fn arrow(sector: usize, reach: Reach) -> usize {
 pub const TARGET: usize = 34;
 /// The red cross: out of reach.
 pub const CROSS: usize = 40;
+/// The blue dot: the pad's pointer where there's no arrow (menus, a free camera).
+pub const DOT: usize = 24;
 
 pub fn combat_arrow(sector: usize) -> usize {
     25 + sector
@@ -78,6 +80,15 @@ impl Cursors {
         let d = std::fs::read(u8data::find_file(data, "STATIC/U8MOUSE.SHP").ok()?).ok()?;
         let shape = u8data::shape::parse_shape(&d).map_err(|e| eprintln!("no game cursors: {e}")).ok()?;
         Some(Self { made: vec![None; shape.len()], shape, pal: pal.clone(), style: (0, false), shown: None })
+    }
+
+    /// Cursor `frame` as a sprite `ss` times the size, for the overlay (the pad's pointer, which
+    /// the system cursor can't follow everywhere).
+    pub fn sprite(&self, frame: usize, ss: u32) -> Option<u8render::Sprite> {
+        let f = self.shape.get(frame).filter(|f| f.width > 0 && f.height > 0)?;
+        let rgba = upscale::nearest(&f.to_rgba(&self.pal, None), f.width, f.height, ss);
+        let (x, y) = (f.xoff.max(0) * ss as i32, f.yoff.max(0) * ss as i32);
+        Some(u8render::Sprite::new(f.width * ss, f.height * ss, x, y, rgba))
     }
 
     /// Show cursor `frame` (None: the system arrow) at `scale`, smoothed with xBRZ or not.

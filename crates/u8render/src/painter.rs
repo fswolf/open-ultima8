@@ -28,6 +28,13 @@ impl Default for DrawOpts {
     }
 }
 
+/// The Avatar flagged unseen (Fade from Sight, Flash): the original still draws him, as a
+/// recolouring of what's behind him (CAMERA.C, DLITEM.C); anyone else so flagged isn't drawn.
+fn unseen(world: &World, i: usize) -> bool {
+    let e = world.entry(i);
+    world.id(i) == u8engine::world::AVATAR && e.present() && e.it.flags & u8engine::world::item_flag::INVISIBLE != 0
+}
+
 fn cells(r: [i32; 4], c: i32) -> impl Iterator<Item = (i32, i32)> {
     let (x0, y0, x1, y1) =
         (r[0].div_euclid(c), r[1].div_euclid(c), (r[0] + r[2]).div_euclid(c), (r[1] + r[3]).div_euclid(c));
@@ -387,7 +394,7 @@ impl Painter {
             .filter(|&i| {
                 let e = world.entry(i);
                 // Editor view also shows eggs, markers and invisible items.
-                (if o.editor { e.present() } else { e.shown() })
+                (if o.editor { e.present() } else { e.shown() || unseen(world, i) })
                     && overlap(&self.rects[i], &view)
                     && !(e.traits.roof && !o.roofs)
                     && !(o.max_z.is_some_and(|z| e.it.z > z) && !e.traits.draw)
@@ -471,10 +478,15 @@ impl Painter {
                 (x * s, y * s)
             };
             let (px, py) = (px - cam.0 * s, py - cam.1 * s);
-            canvas.blit(&sp, px - sp.xoff, py - sp.yoff);
+            let ghost = unseen(world, i) && !opts.editor;
+            let draw = |canvas: &mut Canvas, sp: &crate::Sprite, x, y| match ghost {
+                true => canvas.recolour(sp, x, y, |c| gd.xform.unseen(&gd.palette, c)),
+                false => canvas.blit(sp, x, y),
+            };
+            draw(canvas, &sp, px - sp.xoff, py - sp.yoff);
             if let Some(o) = world.overlay(world.id(i)) {
                 if let Some(wp) = cache.get(gd, o.shape, o.frame, o.flip) {
-                    canvas.blit(&wp, px + o.dx * s - wp.xoff, py + o.dy * s - wp.yoff);
+                    draw(canvas, &wp, px + o.dx * s - wp.xoff, py + o.dy * s - wp.yoff);
                 }
             }
         }

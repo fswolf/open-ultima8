@@ -22,6 +22,8 @@ impl App {
         self.cheats = s.cheats;
         self.apply_cheats();
         self.discord = s.discord;
+        (self.pad.on, self.pad.speed, self.pad.deadzone, self.pad.swap) =
+            (s.pad, s.pad_speed, s.pad_deadzone, s.swap_sticks);
         if let Some(m) = &mut self.menu {
             m.finished = s.finished;
         }
@@ -54,6 +56,10 @@ impl App {
             left_handed: self.swapped,
             cheats: self.cheats,
             discord: self.discord,
+            pad: self.pad.on,
+            pad_speed: self.pad.speed,
+            pad_deadzone: self.pad.deadzone,
+            swap_sticks: self.pad.swap,
             gamma: v.gamma,
             // U8_COLOUR_FIX only applies to this run.
             colour_fix: if std::env::var_os("U8_COLOUR_FIX").is_some() {
@@ -134,6 +140,7 @@ impl App {
         }
         // Nothing carries on underneath: no held keys or buttons, no walking.
         self.held.clear();
+        self.pad.stop();
         (self.press, self.pan, self.left, self.right, self.dragging, self.step_until) =
             (None, None, false, false, false, None);
         self.dirty = true;
@@ -151,7 +158,8 @@ impl App {
             audio = (a.music_on(), a.sfx_on, a.volume, a.ambience);
         }
         let classic = self.ui.as_ref().is_some_and(|u| u.style == ui::Style::Classic);
-        vec![
+        #[allow(unused_mut)]
+        let mut lines = vec![
             (Upscaler, format!("Look: {}", v.mode.name())),
             (Scale, format!("Interface: x{}", v.scale)),
             (TextStyle, format!("Replies: {}", if classic { "classic" } else { "numbered" })),
@@ -165,7 +173,15 @@ impl App {
             (Buttons, format!("Mouse: {}", if self.swapped { "left-handed" } else { "right-handed" })),
             (Cheats, format!("Cheats: {}", on(self.cheats))),
             (Discord, format!("Discord status: {}", on(self.discord))),
-        ]
+        ];
+        #[cfg(feature = "gamepad")]
+        lines.extend([
+            (Pad, format!("Controller: {}", on(self.pad.on))),
+            (PadSpeed, format!("Pointer speed: {} of 10", (self.pad.speed * 10.0).round())),
+            (Deadzone, format!("Dead zone: {} of 10", (self.pad.deadzone * 10.0).round())),
+            (SwapSticks, format!("Walk with: {} stick", if self.pad.swap { "right" } else { "left" })),
+        ]);
+        lines
     }
 
     pub(super) fn menu_action(&mut self, a: menu::Action, el: &ActiveEventLoop) {
@@ -232,6 +248,23 @@ impl App {
                     }
                     Setting::Discord => {
                         self.discord = !self.discord;
+                        Command::Recentre
+                    }
+                    Setting::Pad | Setting::PadSpeed | Setting::Deadzone | Setting::SwapSticks => {
+                        let p = &mut self.pad;
+                        let next = |v: f32, lo: f32, hi: f32| {
+                            if v > hi - 0.05 {
+                                lo
+                            } else {
+                                ((v * 10.0).round() + 1.0) / 10.0
+                            }
+                        };
+                        match s {
+                            Setting::Pad => (p.on, p.owns) = (!p.on, false),
+                            Setting::PadSpeed => p.speed = next(p.speed, 0.1, 1.0),
+                            Setting::Deadzone => p.deadzone = next(p.deadzone, 0.1, 0.4),
+                            _ => p.swap = !p.swap,
+                        }
                         Command::Recentre
                     }
                 };

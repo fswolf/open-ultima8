@@ -98,7 +98,7 @@ impl App {
             self.dirty = true;
         }
         let free = controlling && !self.ui_blocking();
-        let walk = self.mouse_walk().filter(|_| free);
+        let walk = self.steering().filter(|_| free);
         let mut input = match (self.held.dir(), walk) {
             (Some(d), _) => Input { dir: Some(d), run: self.held.shift(), ..Default::default() },
             (None, Some((d, run, careful))) => Input { dir: Some(d), run, careful, ..Default::default() },
@@ -180,7 +180,7 @@ impl App {
         if let (Some(ui), Some(vm)) = (&mut self.ui, self.game.scripts.as_mut().map(|s| &mut s.vm)) {
             self.dirty |= ui.expire(vm, dt);
         }
-        // Cutaway: hide the roof over where the view looks.
+        // Cutaway: hide the roof over the Avatar, as the game keeps it (see `Game::roof`).
         let max_z = match self.view.cutaway {
             true => self.game.roof(),
             false => None,
@@ -320,6 +320,7 @@ impl App {
             || self.item_drag.is_some()
             || self.ui.as_ref().is_some_and(|u| !u.is_empty())
             || self.roll.is_some()
+            || self.pad_cursor.is_some()
             || self.menu_open();
         if self.dirty {
             let t0 = Instant::now();
@@ -442,6 +443,10 @@ impl App {
                 if let Some(ui) = &mut self.ui {
                     ui.draw_notices(&mut canvas, ui_ss, vw); // "Not now." etc. stay readable over the book
                 }
+            }
+            // The pad's pointer, over everything (the system's cursor is hidden meanwhile).
+            if let Some(sp) = self.pad_cursor.and_then(|f| self.cursors.as_ref()?.sprite(f, ui_ss)) {
+                canvas.blit(&sp, mouse.0 * ui_ss as i32 - sp.xoff, mouse.1 * ui_ss as i32 - sp.yoff);
             }
             let gpu = self.gpu.as_mut().unwrap();
             gpu.upload(gpu::Layer::World, &self.buf, bw, bh);

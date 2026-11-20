@@ -78,6 +78,8 @@ pub struct Game {
     /// Where people last were and what they touched there (see [`touch`](crate::touch)).
     pub(crate) footing: HashMap<ObjId, crate::touch::Footing>,
     camera: Camera,
+    /// The roof the view is cut under, and where the Avatar was when it was looked up.
+    roof: (Option<i32>, Option<(i32, i32, i32)>),
     /// Ticks played since the game began (the game clock; continues from the save).
     clock: u32,
     /// Map items just loaded get `cachedIn` on the next tick (map music). Actors don't: they
@@ -153,6 +155,7 @@ impl Game {
             sprites: vec![],
             flights: vec![],
             camera: Camera::default(),
+            roof: (None, None),
             clock: ticks,
             scheduled: None,
             map_scheduled: HashMap::new(),
@@ -314,6 +317,9 @@ impl Game {
                 self.camera.reset();
             }
         }
+        if let (Some(r), Some(a)) = (self.fresh_roof(), self.world.get(AVATAR)) {
+            self.roof = (r, Some((a.x, a.y, a.z)));
+        }
         Status {
             avatar_moved: avatar_moved || self.map_changed,
             moving: self.avatar.as_ref().is_some_and(Avatar::busy),
@@ -428,12 +434,18 @@ impl Game {
         self.camera.focus(&self.world)
     }
 
-    /// Where the view is cut away (what's at or above it isn't drawn): under the roof over where
-    /// the camera looks, as ScummVM's CameraProcess::findRoof (DOS keeps the room in view while
-    /// Flash parks the Avatar at the map's corner). None: nothing over it.
+    /// Where the view is cut away (what's at or above it isn't drawn), as the original's camera
+    /// keeps it (CAMERA.C): the roof over the Avatar, looked up again whenever it has moved, but
+    /// only while the camera is centred on it. A scene that takes the camera off it (Flash, before
+    /// parking it at 0,0,0) leaves the cut where it was. None: no roof.
     pub fn roof(&self) -> Option<i32> {
-        let (x, y, z) = self.camera()?;
-        self.world.ceiling_over((x, y, z - crate::camera::EYE)).map(|z| z - 1)
+        self.fresh_roof().unwrap_or(self.roof.0).map(|z| z - 1)
+    }
+
+    /// The roof looked up again, if it would be now (camera on the Avatar, moved since).
+    fn fresh_roof(&self) -> Option<Option<i32>> {
+        let a = self.world.get(AVATAR).filter(|_| self.camera_on_avatar())?;
+        (self.roof.1 != Some((a.x, a.y, a.z))).then(|| self.world.ceiling(AVATAR))
     }
 
     /// Is the camera following the Avatar (rather than a scene's glide, or something else)?

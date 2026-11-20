@@ -72,6 +72,23 @@ impl<'a> Canvas<'a> {
         }
     }
 
+    /// Recolour what's under the opaque part of `sp` at (x, y) by `f` (the unseen Avatar: a
+    /// shape seen only by what it does to what's behind it). `f` is asked once per colour.
+    pub fn recolour(&mut self, sp: &Sprite, x: i32, y: i32, f: impl Fn([u8; 3]) -> [u8; 3]) {
+        let mut seen: std::collections::HashMap<[u8; 3], [u8; 3]> = Default::default();
+        let px = sp.runs.iter().flat_map(|&(r, a, b)| (a..b).map(move |c| (r, c))).chain(sp.blends.iter().copied());
+        for (r, c) in px {
+            let (dx, dy) = (x + c as i32, y + r as i32);
+            if dx < 0 || dy < 0 || dx >= self.w as i32 || dy >= self.h as i32 {
+                continue;
+            }
+            let d = ((dy as u32 * self.w + dx as u32) * 4) as usize;
+            let rgb = [self.px[d], self.px[d + 1], self.px[d + 2]];
+            let to = *seen.entry(rgb).or_insert_with(|| f(rgb));
+            self.px[d..d + 3].copy_from_slice(&to);
+        }
+    }
+
     /// Set one pixel (ignored outside the canvas).
     pub fn put(&mut self, x: i32, y: i32, c: [u8; 4]) {
         if x >= 0 && y >= 0 && (x as u32) < self.w && (y as u32) < self.h {

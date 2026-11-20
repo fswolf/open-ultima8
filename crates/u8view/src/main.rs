@@ -9,6 +9,11 @@
 //!   F1 text style · F2 upscaler · F3 cutaway · F4 roofs · F5 editor view · F6 follow/free camera
 //!   F7 / F8 quick save / load · F9 stop all scripts · F10 colour fix · F11 fullscreen · F12 frame time · [ ] gamma
 //!   P music on/off (Shift+P effects) · N next song (Shift = previous) · 9/0 volume
+//! Controller (Xbox names; Steam Deck, ROG Ally): left stick walk (tilt: careful, walk, run) ·
+//!   D-pad walk, or move the choice in menus and replies · right stick pointer · A left button
+//!   (tap look, double use, hold drag; accept in menus) · X use · RT right button · LT jump
+//!   B close (back in menus) · Y backpack · LB paperdoll · RB combat · Start menu · Back diary
+//!   L3 recentre · R3 pointer to the Avatar
 // A game, not a console program: no terminal window behind it on Windows (debug builds keep it,
 // for their messages).
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
@@ -27,6 +32,7 @@ mod gumps;
 mod input;
 mod menu;
 mod mouse;
+mod pad;
 mod pagefont;
 mod presence;
 mod settings;
@@ -72,6 +78,8 @@ const SCROLL_SPEED: f32 = 500.0;
 /// While idle, wake this often to animate scenery.
 const IDLE_WAKE: Duration = Duration::from_millis(100);
 const SCRIPT_WAKE: Duration = Duration::from_millis(33);
+/// With a controller plugged in, look for its input this often while idle.
+const PAD_POLL: Duration = Duration::from_millis(16);
 /// Effects fade out this far (game pixels) from the centre of the view.
 #[cfg(feature = "audio")]
 const HEARING: f32 = 480.0;
@@ -236,6 +244,10 @@ struct App {
     mods: input::Mods,
     step_until: Option<Instant>,
     cursors: Option<mouse::Cursors>,
+    /// The game controller, and the cursor drawn for its pointer (the system one hidden).
+    pad: pad::Pad,
+    pad_cursor: Option<usize>,
+    cursor_hidden: bool,
     /// Item windows (bags, chests, the paperdoll) and the art they're drawn with.
     windows: gumps::Windows,
     art: Option<art::GumpArt>,
@@ -351,6 +363,9 @@ impl App {
             mods: input::Mods::default(),
             step_until: None,
             cursors,
+            pad: pad::Pad::default(),
+            pad_cursor: None,
+            cursor_hidden: false,
             menu: None,
             windows: gumps::Windows::default(),
             art: None,
@@ -389,6 +404,7 @@ impl App {
         };
         app.menu = menu::Menu::load(data, &app.game.data.palette);
         app.art = art::GumpArt::load(data, &app.game.data.palette);
+        app.pad.start();
         app.apply_settings(settings::Settings::load());
         if app.game.needs_name() && !app.start_film(films::Which::Intro, films::After::Name) {
             app.open_menu(menu::Page::Name); // the game waits until the Avatar has a name

@@ -178,8 +178,8 @@ fn casting_closes_every_item_window() {
 /// Fire Shield's ring of flames (Sorcery's focus at spell 6) where the original puts them: the
 /// DOS game's flames (x, y, z, read from its saves after the same cast; Claude outputs/
 /// magic-overlap). Its script tries each spot at the height of the last, down by 8 to 24 under
-/// the feet, then up to 24 over, and canExistAt(…, 1, 0, 0) wants something to stand on as well
-/// as room: none under a floor or hanging in the air.
+/// the feet, then up to 24 over, and canExistAt(…, 1, 0, 0) wants something solid with land to
+/// stand on as well as room: none under a floor, hanging in the air or on the plaza's pool.
 #[test]
 #[ignore]
 fn fire_shield_flames_land_where_the_originals_do() {
@@ -191,9 +191,6 @@ fn fire_shield_flames_land_where_the_originals_do() {
         ("plaza", (20396, 14716, 48, 41), "20172,14652,48 20172,14684,48 20172,14716,48 20172,14748,48 20204,14588,48 20204,14620,48 20204,14780,48 20204,14812,48 20236,14556,48 20268,14524,48 20300,14524,48 20332,14492,48 20364,14492,48 20396,14492,48 20428,14492,48 20460,14524,48 20492,14524,48 20524,14556,48 20556,14588,48 20556,14620,48 20556,14780,48 20556,14812,48 20588,14652,48 20588,14684,48 20588,14716,48 20588,14748,48 20236,14844,64 20268,14876,64 20300,14876,64 20460,14876,64"),
         ("rug", (13044, 8820, 48, 40), "12820,8756,48 12820,8788,48 12820,8820,48 12820,8852,48 12852,8692,48 12852,8724,48 12852,8884,48 12852,8916,48 12884,8660,48 12884,8948,48 12916,8628,48 12916,8980,48 12948,8628,48 12948,8980,48 12980,8596,48 12980,9012,48 13012,8596,48 13012,9012,48 13044,8596,48 13044,9012,48 13076,8596,48 13076,9012,48 13108,8628,48 13108,8980,48 13140,8628,48 13140,8980,48 13172,8660,48 13172,8948,48 13204,8692,48 13204,8724,48 13204,8884,48 13204,8916,48 13236,8756,48 13236,8788,48 13236,8820,48 13236,8852,48"),
     ];
-    // Not yet as DOS: on the plaza ours also puts four flames on the pool's water (shape 347:
-    // solid, sea, not land), which the original refuses.
-    let water = [(20332, 14908, 48), (20364, 14908, 48), (20396, 14908, 48), (20428, 14908, 48)];
     for (place, (x, y, z, map), dos) in DOS {
         let Some(mut g) = saved(2) else { return };
         g.put_avatar(map, (x, y, z));
@@ -209,18 +206,76 @@ fn fire_shield_flames_land_where_the_originals_do() {
             .map(|p| p.split(',').map(|v| v.parse().unwrap()).collect::<Vec<i32>>())
             .map(|v| (v[0], v[1], v[2]))
             .collect();
-        if place == "plaza" {
-            want.extend(water);
-        }
         ours.sort();
         want.sort();
         assert_eq!(ours, want, "{place}");
     }
 }
 
+/// canExistAt's flags and mover (MOTRAK.C): water bears only what may stand on water, a land
+/// surface refuses what may not, flags 4 needs nothing underneath, and the mover doesn't count
+/// as in its own way.
+#[test]
+#[ignore]
+fn can_exist_at_follows_its_flags() {
+    use u8engine::world::exist::{FLOATS, LAND, SEA};
+    let Some(mut g) = saved(2) else { return };
+    g.put_avatar(41, (20396, 14716, 48));
+    let (w, gd) = (&g.world, &g.data);
+    let pool = (20364, 14908, 48);
+    assert!(!w.can_exist_at(gd, 398, pool, LAND, None), "the pool's water bears nothing walking");
+    assert!(w.can_exist_at(gd, 398, pool, SEA, None), "but bears what may stand on water");
+    assert!(w.can_exist_at(gd, 398, (20300, 14524, 48), LAND, None), "the plaza's paving");
+    assert!(!w.can_exist_at(gd, 398, (20300, 14524, 48), SEA, None), "land refuses a swimmer");
+    assert!(!w.can_exist_at(gd, 398, (20300, 14524, 80), LAND, None), "in the air");
+    assert!(w.can_exist_at(gd, 398, (20300, 14524, 80), FLOATS, None), "unless it floats");
+    let a = w.get(AVATAR).unwrap();
+    assert!(!w.can_exist_at(gd, a.shape, (a.x, a.y, a.z), LAND, None), "the Avatar is in its own way");
+    assert!(w.can_exist_at(gd, a.shape, (a.x, a.y, a.z), LAND, Some(AVATAR)), "unless it's the mover");
+}
+
+/// A scene that takes the camera off the Avatar and scrolls it over another building leaves the
+/// roof cut as it was over the Avatar (CAMERA.C); centred on him again, it follows him as before.
+#[test]
+#[ignore]
+fn the_roof_stays_while_a_scene_has_the_camera() {
+    let Some(mut g) = saved(2) else { return };
+    let roof = g.roof();
+    assert!(roof.is_some(), "indoors");
+    // Someone under another roof than the Avatar's: the camera goes over them.
+    let other = (2..256).find_map(|n| {
+        let r = g.world.ceiling(n)?;
+        (Some(r - 1) != roof).then(|| g.world.get(n)).flatten()
+    });
+    let other = other.expect("someone under another roof");
+    // (A scroll being read keeps a script running, so the camera isn't handed back meanwhile.)
+    let bag = g.give_test_kit().expect("a bag");
+    let scroll = g.world.contents(bag).into_iter().find(|&o| g.world.get(o).is_some_and(|i| i.shape == 827));
+    g.trigger(scroll.expect("a scroll"), event::USE);
+    let tick = |g: &mut Game| {
+        g.update(1.0 / 30.0, &Input::default());
+        g.take_events();
+    };
+    (0..10).for_each(|_| tick(&mut g));
+    g.call_intrinsic(0xBE, &[0, 0]); // setCenterOn(0)
+    let [x0, x1] = (other.x as u16).to_le_bytes();
+    let [y0, y1] = (other.y as u16).to_le_bytes();
+    g.call_intrinsic(0xBF, &[x0, x1, y0, y1, other.z as u8 + 20, 0, 40, 0]); // moveTo
+    for _ in 0..30 {
+        tick(&mut g);
+        assert_eq!(g.camera(), Some((other.x, other.y, other.z + 20)), "the scene has the camera");
+        assert_eq!(g.roof(), roof, "the cut stays over the Avatar");
+    }
+    g.call_intrinsic(0xBE, &[1, 0]); // back on the Avatar
+    g.put_avatar(40, (other.x, other.y + 64, other.z));
+    tick(&mut g);
+    assert_eq!(g.roof(), g.world.ceiling(AVATAR).map(|z| z - 1), "and follows him again");
+}
+
 /// Flash parks the Avatar at the map's corner (0, 0, 0) for a moment before it lands. The view
-/// stays on the room, and so does the roof cut (DOS keeps the room in view throughout): it's
-/// taken from where the camera looks, not from the Avatar.
+/// stays on the room, and so does the roof cut (DOS keeps the room in view throughout): its
+/// script takes the camera off the Avatar first, and the original only looks the roof up again
+/// while the camera is centred on him.
 #[test]
 #[ignore]
 fn flash_keeps_the_roof_cut_while_the_avatar_is_away() {

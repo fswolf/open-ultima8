@@ -31,6 +31,8 @@ const SLOTS: [u32; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, QUICK_SLOT];
 const SLOT_H: i32 = 19;
 /// An options line's text is about this tall (the last line has to fit above the page's foot).
 const OPTION_H: i32 = 10;
+/// Options on the right-hand page; any more go on the left, under the heading.
+const OPTIONS_RIGHT: usize = 13;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Diary {
@@ -59,6 +61,7 @@ const QUIT_BUTTONS: (i32, i32) = (18, 41);
 
 /// The options page's lines; the viewer supplies their current values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(feature = "gamepad"), allow(dead_code))]
 pub enum Setting {
     Upscaler,
     Scale,
@@ -75,6 +78,11 @@ pub enum Setting {
     Buttons,
     Cheats,
     Discord,
+    /// A game controller: in use, its pointer's speed, its sticks' dead zone, which stick walks.
+    Pad,
+    PadSpeed,
+    Deadzone,
+    SwapSticks,
 }
 
 /// What the player chose.
@@ -95,7 +103,7 @@ pub enum Action {
     Film(crate::films::Which),
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Hit {
     Entry(u32),
     Tab(Diary),
@@ -221,8 +229,52 @@ impl Menu {
     }
 
     pub fn click(&mut self, x: i32, y: i32) -> Option<Action> {
+        let h = self.hit(x, y)?;
+        self.act(h)
+    }
+
+    /// The pad: the choice highlighted on (`d` > 0) or back, round the page's lines, tabs and
+    /// buttons.
+    pub fn step(&mut self, d: i32) {
+        let n = self.hits.len() as i32;
+        if self.edit.is_some() || n == 0 {
+            return;
+        }
+        let at = self.hover.and_then(|h| self.hits.iter().position(|x| x.1 == h));
+        let i = at.map_or(if d > 0 { 0 } else { n - 1 }, |i| (i as i32 + d).rem_euclid(n));
+        self.hover = Some(self.hits[i as usize].1);
+    }
+
+    /// The pad: take the highlighted choice.
+    pub fn accept(&mut self) -> Option<Action> {
+        let h = self.hover?;
+        self.act(h)
+    }
+
+    /// The pad can't type: give what's being named a name, if it has none ("Avatar"; a save:
+    /// `save`, or "Save N" when that won't fit). False if it has one already.
+    pub fn suggest(&mut self, save: &str) -> bool {
+        let (naming, (font, room)) = (self.page == Some(Page::Name), self.edit_room());
+        let fonts = &self.fonts;
+        let Some((slot, desc)) = self.edit.as_mut().filter(|e| e.1.is_empty()) else { return false };
+        let name = if naming { "Avatar".to_string() } else { save.to_string() };
+        let fits = |s: &String| fonts.width(font, &format!("{s}-")) < room as u32;
+        *desc = [name, format!("Save {slot}")].into_iter().find(fits).unwrap_or_default();
+        true
+    }
+
+    /// The font and room for what's being typed.
+    fn edit_room(&self) -> (usize, i32) {
+        if self.page == Some(Page::Name) {
+            (LIT_FONT, RIGHT[2] - 8)
+        } else {
+            (TEXT_FONT, LEFT[2] - 14)
+        }
+    }
+
+    fn act(&mut self, h: Hit) -> Option<Action> {
         let page = self.page?;
-        match (self.hit(x, y)?, page) {
+        match (h, page) {
             (Hit::Entry(k), _) => self.entry(k),
             (Hit::Tab(d), _) => {
                 self.open(Page::Diary(d));
@@ -275,8 +327,7 @@ impl Menu {
 
     /// A key while the menu is open (`text`: what it types).
     pub fn key(&mut self, k: KeyCode, text: Option<&str>) -> Option<Action> {
-        let naming = self.page == Some(Page::Name);
-        let (font, room) = if naming { (LIT_FONT, RIGHT[2] - 8) } else { (TEXT_FONT, LEFT[2] - 14) };
+        let (naming, (font, room)) = (self.page == Some(Page::Name), self.edit_room());
         if let Some((slot, desc)) = &mut self.edit {
             match k {
                 KeyCode::Enter | KeyCode::NumpadEnter if naming => {
@@ -417,15 +468,24 @@ impl Menu {
             }
             Page::Options => {
                 art.draw(canvas, ENTRIES, 7, l[0] + 4, l[1]);
-                art.draw(canvas, LOGO, 0, l[0] + (LEFT[2] - 99) / 2, l[1] + 24);
-                // Lines 14 apart, closer if that's what it takes to stay on the page.
-                let step = ((RIGHT[3] - OPTION_H) / self.options.len().max(1) as i32).min(14);
-                for (i, (s, v)) in self.options.clone().iter().enumerate() {
-                    let h = Hit::Option(*s);
-                    let img = self.label(if lit(h) { LIT_FONT } else { TEXT_FONT }, v);
-                    let (x, y) = (r[0] + 4, r[1] + 4 + i as i32 * step);
-                    text::draw_plain(canvas, ss, &img, x, y);
-                    hits.push(([x, y, RIGHT[2] - 4, step], h));
+                // The right-hand page first; what doesn't fit there goes under the heading on the
+                // left (in place of the logo).
+                let options = self.options.clone();
+                let (right, left) = options.split_at(options.len().min(OPTIONS_RIGHT));
+                if left.is_empty() {
+                    art.draw(canvas, LOGO, 0, l[0] + (LEFT[2] - 99) / 2, l[1] + 24);
+                }
+                let top = [(r, 4, RIGHT[3] - 4), (l, 20, LEFT[3] - 20)];
+                for ((page, lines), (at, from, room)) in [right, left].into_iter().enumerate().zip(top) {
+                    // Lines 14 apart, closer if that's what it takes to stay on the page.
+                    let step = ((room - OPTION_H) / lines.len().max(1) as i32).min(14);
+                    for (i, (s, v)) in lines.iter().enumerate() {
+                        let h = Hit::Option(*s);
+                        let img = self.label(if lit(h) { LIT_FONT } else { TEXT_FONT }, v);
+                        let (x, y) = (at[0] + 4, at[1] + from + i as i32 * step);
+                        text::draw_plain(canvas, ss, &img, x, y);
+                        hits.push(([x, y, [RIGHT[2], LEFT[2]][page] - 4, step], h));
+                    }
                 }
             }
             Page::Quit => {} // drawn on its own (above)
@@ -495,8 +555,8 @@ mod tests {
         assert!(book.iter().any(|&c| c > 100), "the book is still there behind it: {book:?}");
     }
 
-    /// Every option stays on the page, however many there are. With `U8_SHOTS` set, the page is
-    /// written there as PPM.
+    /// Every option stays on the page, however many there are (past the right-hand page's share,
+    /// on the left). With `U8_SHOTS` set, the page is written there as PPM.
     #[test]
     #[ignore]
     fn options_stay_on_the_page() {
@@ -506,7 +566,11 @@ mod tests {
             Palette::parse(&std::fs::read(u8data::find_file(&root, "STATIC/U8PAL.PAL").unwrap()).unwrap()).unwrap();
         let (mut m, mut art) = (Menu::load(&root, &pal).unwrap(), GumpArt::load(&root, &pal).unwrap());
         m.open(Page::Options);
-        m.options = (0..12).map(|k| (Setting::Music, format!("Music volume: {k} of 10"))).collect();
+        use Setting::*;
+        let all = [Upscaler, Scale, TextStyle, Music, Effects, Volume, Ambience, Cutaway, SmoothCamera, Fullscreen]
+            .into_iter()
+            .chain([Buttons, Cheats, Discord, Pad, PadSpeed, Deadzone, SwapSticks]);
+        m.options = all.enumerate().map(|(k, s)| (s, format!("Music volume: {k} of 10"))).collect();
         // (How far down the letters reach, descenders included.)
         let ink = |img: &TextImage| {
             (0..img.h).rev().find(|&y| (0..img.w).any(|x| img.rgba[((y * img.w + x) * 4 + 3) as usize] > 0))
@@ -521,13 +585,46 @@ mod tests {
         let mut px = vec![0u8; 320 * 200 * 4];
         m.draw(&mut Canvas::new(&mut px, 320, 200), &mut art, (320, 200));
         let foot = (200 - 158) / 2 - BOOK_LIFT + RIGHT[1] + RIGHT[3];
-        let last = m.hits.last().unwrap().0;
-        assert!(last[1] + OPTION_H <= foot, "the last line ends at {}, the page at {foot}", last[1] + OPTION_H);
+        assert_eq!(m.hits.len(), 17);
+        let left = m.hits.iter().filter(|h| h.0[0] < 160).count();
+        assert_eq!(left, 17 - OPTIONS_RIGHT, "the rest on the left page");
+        for (r, _) in &m.hits {
+            assert!(r[1] + OPTION_H <= foot, "a line ends at {}, the page at {foot}", r[1] + OPTION_H);
+        }
+        // The pad steps through them all and round.
+        m.step(1);
+        assert_eq!(m.accept(), Some(Action::Change(Upscaler)));
+        m.step(-1);
+        assert_eq!(m.accept(), Some(Action::Change(SwapSticks)), "back round to the last");
         if let Ok(out) = std::env::var("U8_SHOTS") {
             let mut ppm = b"P6 320 200 255\n".to_vec();
             px.chunks(4).for_each(|p| ppm.extend(&p[..3]));
             std::fs::write(format!("{out}/options.ppm"), ppm).unwrap();
         }
+    }
+
+    /// A pad can't type: the name and a save's description come ready made, and A takes them.
+    #[test]
+    #[ignore]
+    fn the_pad_names_without_typing() {
+        let Ok(dir) = std::env::var("U8_DATA") else { return };
+        let root = PathBuf::from(dir);
+        let pal =
+            Palette::parse(&std::fs::read(u8data::find_file(&root, "STATIC/U8PAL.PAL").unwrap()).unwrap()).unwrap();
+        let mut m = Menu::load(&root, &pal).unwrap();
+        m.open(Page::Name);
+        assert!(m.suggest("Docks, day 1"));
+        assert!(!m.suggest("Docks, day 1"), "once");
+        assert_eq!(m.key(KeyCode::Enter, None), Some(Action::Name("Avatar".into())));
+        m.open(Page::Diary(Diary::Write));
+        m.edit = Some((7, String::new()));
+        assert!(m.suggest("Docks, day 3"));
+        assert_eq!(m.key(KeyCode::Enter, None), Some(Action::Save { slot: 7, desc: "Docks, day 3".into() }));
+        m.edit = Some((7, String::new()));
+        m.suggest("The Hall of the Mountain King, day 12");
+        assert_eq!(m.edit.as_ref().unwrap().1, "Save 7", "too long for the line");
+        m.edit = Some((7, "Before the Titans".into()));
+        assert!(!m.suggest("Docks, day 3"), "a name already there stays");
     }
 
     /// The quit question draws from the game's art; Yes quits, No backs out. With `U8_SHOTS`
