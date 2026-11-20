@@ -13,6 +13,7 @@
   <a href="../../releases/latest"><b>Download</b></a> ·
   <a href="#getting-started">Getting started</a> ·
   <a href="#controls">Controls</a> ·
+  <a href="#steam-deck-and-rog-ally">Steam Deck</a> ·
   <a href="#building-from-source">Build it yourself</a> ·
   <a href="https://discord.gg/wEqrYjPxAU">Discord</a>
 </p>
@@ -85,18 +86,28 @@ Keep `U8.EXE` in the game folder: the weapon table is read out of it.
 menu (`--remove` takes it out again). **On macOS**, put the game folder (or `U8`) next to
 `Open Ultima8.app`; the first time, right-click the app and choose Open (it isn't notarized).
 
-**On a Steam Deck** (or any Linux handheld): in Desktop Mode, unpack the Linux package next to your
-game, then in Steam choose *Add a Non-Steam Game* and pick `u8view`. In Game Mode give it the
-*Gamepad* controller layout (Steam Input) so the built-in controls show up as an ordinary pad;
-the touchscreen works as the mouse. **On a ROG Ally** under Windows, use the Windows package; the
-built-in controller is already an Xbox pad. The back paddles (Deck L4/L5/R4/R5, Ally M1/M2) aren't
-used by the game, but Steam Input or Armoury Crate can map them to any key. Controller support is
-new in 0.5.0: tell us how it plays on your handheld, on [Discord](https://discord.gg/wEqrYjPxAU)
-or in [Issues](../../issues).
-
 **Music** plays through any General MIDI SoundFont (`.sf2`). It's found automatically in the usual
 system places, in the game folder, or from `$U8_SOUNDFONT`. On Fedora:
 `sudo dnf install fluid-soundfont-gm`. Sound effects and voices need nothing extra.
+
+### Steam Deck and ROG Ally
+
+> [!TIP]
+> **New in 0.5.0: controller support.** Play Pagan on a handheld, or with any Xbox-style pad.
+> Tell us how it plays on yours, on [Discord](https://discord.gg/wEqrYjPxAU) or in [Issues](../../issues).
+
+**Steam Deck** (or any Linux handheld):
+
+1. In Desktop Mode, unpack the **Linux** package next to your game.
+2. In Steam, choose *Add a Non-Steam Game* and pick `u8view`.
+3. In Game Mode, give it the **Gamepad** controller layout (Steam Input), so the built-in controls
+   show up as an ordinary pad. The touchscreen works as the mouse.
+
+**ROG Ally** (Windows): use the **Windows** package. The built-in controller is already an Xbox
+pad, so there's nothing to set up.
+
+**Back paddles** (Deck L4/L5/R4/R5, Ally M1/M2) aren't used by the game, but Steam Input or
+Armoury Crate can map them to any key. The full button layout is under [Controls](#controls).
 
 ## Controls
 
