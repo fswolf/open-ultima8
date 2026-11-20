@@ -110,3 +110,30 @@ jobs:
         with:
           files: packages/*
           generate_release_notes: true
+
+  # The same packages to itch.io (fswolf.itch.io/open-ultima8), one channel each, with butler.
+  # Needs the repo secret BUTLER_API_KEY (itch.io → Settings → API keys); without it, skipped.
+  itch:
+    needs: [linux, windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    env:
+      BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+      ITCH_GAME: fswolf/open-ultima8
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: packages, merge-multiple: true }
+      - name: Push to itch.io
+        run: |
+          [ -n "$BUTLER_API_KEY" ] || { echo "no BUTLER_API_KEY: skipped"; exit 0; }
+          curl -sSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d butler && chmod +x butler/butler
+          v=${GITHUB_REF_NAME#v}
+          for p in linux windows macos; do
+            mkdir -p up/$p
+            for f in packages/*-$p.*; do
+              case $f in *.zip) unzip -q "$f" -d up/$p ;; *) tar -xzf "$f" -C up/$p ;; esac
+            done
+            ch=$p; [ $p = macos ] && ch=osx
+            ./butler/butler push "up/$p" "$ITCH_GAME:$ch" --userversion "$v"
+          done
