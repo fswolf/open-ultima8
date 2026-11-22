@@ -6,7 +6,7 @@
 //!   middle drag: pan (frees the camera) · wheel: zoom · Alt-H swaps the buttons
 //! Keys: arrows/WASD walk too (Shift run) or scroll the free camera · Space jump · 1–9 pick a reply
 //!   Esc game menu (or close pages and speech) · J diary · Backspace close pages and speech · Alt-X quit · +/- zoom · PgUp/PgDn other maps · Home recentre
-//!   F1 text style · F2 upscaler · F3 cutaway · F4 roofs · F5 editor view · F6 follow/free camera
+//!   F1 settings · F2 upscaler · F3 cutaway · F4 roofs · F5 editor view · F6 follow/free camera
 //!   F7 / F8 quick save / load · F9 stop all scripts · F10 colour fix · F11 fullscreen · F12 frame time · [ ] gamma
 //!   P music on/off (Shift+P effects) · N next song (Shift = previous) · 9/0 volume
 //! Controller (Xbox names; Steam Deck, ROG Ally): left stick walk (tilt: careful, walk, run) ·
@@ -27,8 +27,10 @@ mod commands;
 mod controls;
 mod cover;
 mod credits;
+mod draw;
 mod films;
 mod frame;
+mod gamedir;
 mod gpu;
 mod gumps;
 mod input;
@@ -42,9 +44,11 @@ mod settings;
 mod slider;
 mod touch;
 mod ui;
+mod view;
 mod window;
 
 use anyhow::{anyhow, Result};
+use gamedir::find_data;
 use input::{Command, Held};
 use std::{
     path::{Path, PathBuf},
@@ -58,6 +62,7 @@ use u8engine::{
     Game, ObjId,
 };
 use u8render::{project, text, upscale, Canvas, DrawOpts, Painter, SpriteCache};
+use view::*;
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, WindowEvent},
@@ -66,15 +71,6 @@ use winit::{
     window::{Window, WindowId},
 };
 
-/// The interface's size: overlay pixels per game pixel.
-const MAX_SCALE: u32 = 6;
-/// The world's zoom (screen pixels per game pixel): a wheel notch (or +/-) moves a rung, and the
-/// whole sizes, where every game pixel is the same size, are all on the way.
-const ZOOMS: [f32; 13] = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 7.0, 8.0];
-/// Zoomed out, the world shows at most this much (game pixels; the original showed 320×200).
-const MOST_SEEN: (f32, f32) = (1920.0, 1200.0);
-/// How quickly the zoom eases to where it's going (per second).
-const ZOOM_EASE: f32 = 14.0;
 /// xBRZ makes sprites at most this many times bigger (beyond it the GPU scales on).
 const MAX_XBRZ: u32 = 6;
 /// Free camera speed, game pixels per second.
@@ -90,9 +86,6 @@ const HEARING: f32 = 480.0;
 const DOUBLE_CLICK: Duration = Duration::from_millis(450);
 /// How long the red cross shows when something's out of reach.
 const CROSS_FLASH: Duration = Duration::from_millis(500);
-/// The original shows the world 2 pixels lower than centring on the camera's point would (the
-/// Avatar's tunic at rows 82–95 of 200 in DOS, 80–93 centred).
-const VIEW_DROP: f32 = 2.0;
 
 /// The tombstone comes this long after the Avatar's death animation has played (the DOS game at
 /// its proper speed, timed: 9.8 s; ScummVM waits 5).
@@ -123,101 +116,6 @@ enum Owner {
     Mouse,
     Pad,
     Touch,
-}
-
-/// The interface size to start at when none is saved: on a small screen the game fills (a
-/// handheld's: the Deck 1280×800, the Ally 1920×1080), a size that reads and taps well there;
-/// elsewhere 2 to a point (`dpi` pixels each: a Mac's Retina screen 2, Windows at 150% 1.5).
-fn first_scale(window: (u32, u32), monitor: (u32, u32), dpi: f64) -> u32 {
-    let full = window.0 >= monitor.0 && window.1 >= monitor.1;
-    let base = ((2.0 * dpi).round() as u32).clamp(2, MAX_SCALE);
-    if full && monitor.1 <= 1200 {
-        (monitor.1 / 266).max(base)
-    } else {
-        base
-    }
-}
-
-/// The world's zoom to start at when none is saved: 2 to a point, on the zoom's rungs.
-fn first_zoom(dpi: f64) -> f32 {
-    let want = (2.0 * dpi) as f32;
-    ZOOMS.into_iter().min_by(|a, b| (a - want).abs().total_cmp(&(b - want).abs())).unwrap_or(2.0)
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum Mode {
-    Nearest,
-    Smooth,
-    XbrzSprites,
-    /// xBR and the CRT look are the GPU's, per screen pixel.
-    Xbr,
-    Crt,
-}
-
-impl Mode {
-    const ALL: [Mode; 5] = [Mode::Nearest, Mode::Smooth, Mode::XbrzSprites, Mode::Xbr, Mode::Crt];
-
-    fn next(self) -> Self {
-        self.step(1)
-    }
-    /// `d` looks on (or back), round the list.
-    fn step(self, d: i32) -> Self {
-        let i = Self::ALL.iter().position(|&m| m == self).unwrap_or(0) as i32;
-        Self::ALL[(i + d).rem_euclid(Self::ALL.len() as i32) as usize]
-    }
-    fn name(self) -> &'static str {
-        match self {
-            Self::Nearest => "nearest",
-            Self::Smooth => "smooth",
-            Self::XbrzSprites => "xBRZ sprites",
-            Self::Xbr => "xBR",
-            Self::Crt => "CRT",
-        }
-    }
-}
-
-/// How the world is shown: camera, zoom, upscaler and what to hide.
-/// The smooth camera: how fast its height eases (seconds to about two thirds of the way); a
-/// change too big to ease (a teleport); how far over its footing the Avatar can be and still be
-/// taken for on it (a jump's arc; higher, it's climbing, hanging or falling, and followed); and
-/// close enough to be there (so the view stops redrawing).
-const EYE_EASE: f32 = 0.08;
-const EYE_SNAP: f32 = 160.0;
-const EYE_LIFT: i32 = 32;
-const EYE_THERE: f32 = 0.01;
-
-/// The height the view looks at: the camera's own (`z`), or with the smooth camera (`smooth`),
-/// eased over `dt` seconds from where it was (`at`) towards the Avatar's footing (the camera's
-/// own height when it's well above it), straight there when it's new or too far.
-fn eye_height(z: i32, footing: Option<i32>, at: Option<f32>, dt: f32, smooth: bool) -> f32 {
-    let to = footing.filter(|&f| smooth && z - f <= EYE_LIFT).unwrap_or(z) as f32;
-    match at {
-        Some(at) if smooth && (to - at).abs() < EYE_SNAP && (to - at).abs() > EYE_THERE => {
-            at + (to - at) * (1.0 - (-dt / EYE_EASE).exp())
-        }
-        _ => to,
-    }
-}
-
-struct View {
-    /// Centre of the view, unscaled screen coordinates.
-    cam: (f32, f32),
-    /// The interface's size (windows, menus, speech): screen pixels per game pixel.
-    scale: u32,
-    /// The world's zoom, and the zoom it's easing to.
-    zoom: f32,
-    zoom_to: f32,
-    mode: Mode,
-    opts: DrawOpts,
-    cutaway: bool,
-    /// Ease up and down with the Avatar's footing (Options: smooth camera); the height the view
-    /// looks at now (world units).
-    smooth: bool,
-    eye: Option<f32>,
-    follow: bool,
-    gamma: f32,
-    colour_fix: bool,
-    stats: bool,
 }
 
 struct App {
@@ -266,9 +164,9 @@ struct App {
     /// Alt-H: left-handed mouse.
     swapped: bool,
     fullscreen: bool,
-    /// The original's cheats (Options): the Avatar's developers' menu.
+    /// The original's cheats (Settings): the Avatar's developers' menu.
     cheats: bool,
-    /// Discord Rich Presence (Options), and the link to Discord.
+    /// Discord Rich Presence (Settings), and the link to Discord.
     discord: bool,
     presence: presence::Presence,
     mods: input::Mods,
@@ -495,56 +393,6 @@ impl App {
         }
     }
 
-    /// Centre on the game's camera (the Avatar, or where a cutscene looks), else the whole map.
-    fn recentre(&mut self) {
-        let c = self.game.camera().map_or_else(|| self.painter.centre(), |(x, y, z)| project(x, y, z));
-        self.view.cam = (c.0 as f32, c.1 as f32);
-        self.dirty = true;
-    }
-
-    /// Follow the game's camera if it moved.
-    /// Keep what the camera follows in the middle, to the world frame's fineness (people are
-    /// drawn as finely: the one followed stays put while the world glides by).
-    /// Centre the view on the camera, `dt` seconds on. With the smooth camera, following the
-    /// Avatar, the height eases to its footing rather than its feet: a jump doesn't bounce the
-    /// world, a step glides (the original follows the feet, which zoomed in jolts the screen).
-    fn follow_camera(&mut self, dt: f32) {
-        if let Some((x, y, z)) = self.game.camera() {
-            let s = self.world_ss() as i32;
-            // (Only while the view is on the Avatar itself: not where it was left when the
-            // Avatar's gone to the map's corner, drowned.)
-            let on = self.game.world.get(AVATAR).is_some_and(|a| (a.x, a.y) == (x, y));
-            let smooth = self.view.smooth && self.game.camera_on_avatar() && on;
-            let footing = self.game.world.floor_under(AVATAR).map(|f| f + u8engine::camera::EYE);
-            let eye = eye_height(z, footing, self.view.eye, dt, smooth);
-            self.view.eye = Some(eye);
-            let (sx, sy) = u8render::project_fine(x, y, 0, s);
-            let cam = (sx as f32 / s as f32, sy as f32 / s as f32 - eye);
-            if cam != self.view.cam {
-                self.view.cam = cam;
-                self.dirty = true;
-            }
-        }
-    }
-
-    /// With no interface size saved, pick it for the screen (see [`first_scale`]).
-    fn fit_interface(&mut self) {
-        let Some(w) = self.window.as_ref() else { return };
-        let (sz, monitor, dpi) = (w.inner_size(), w.current_monitor().map(|m| m.size()), w.scale_factor());
-        if let (Some(m), true) = (monitor, self.auto_scale) {
-            let s = first_scale((sz.width, sz.height), (m.width, m.height), dpi);
-            if s != self.view.scale {
-                (self.view.scale, self.dirty) = (s, true);
-            }
-        }
-        if self.auto_zoom {
-            let z = first_zoom(dpi).max(self.min_zoom());
-            if z != self.view.zoom_to {
-                (self.view.zoom, self.view.zoom_to, self.dirty) = (z, z, true);
-            }
-        }
-    }
-
     fn controlling(&self) -> bool {
         self.view.follow && self.game.avatar.is_some()
     }
@@ -552,175 +400,6 @@ impl App {
     /// A question or a page is open: the player must deal with it first.
     fn ui_blocking(&self) -> bool {
         self.ui.as_ref().is_some_and(|u| u.blocking())
-    }
-
-    fn window_size(&self) -> (f32, f32) {
-        let sz = self.window.as_ref().map_or(winit::dpi::PhysicalSize::new(1, 1), |w| w.inner_size());
-        (sz.width.max(1) as f32, sz.height.max(1) as f32)
-    }
-
-    /// The overlay's size in game pixels at the interface's scale (rounded up to cover the window).
-    fn view_size(&self) -> (u32, u32) {
-        let (w, h) = self.window_size();
-        let s = self.view.scale as f32;
-        ((w / s).ceil() as u32, (h / s).ceil() as u32)
-    }
-
-    /// The world seen at this zoom: its top-left in screen coordinates (game pixels, fractional:
-    /// the GPU places the frame to a fraction of a pixel) and how much shows.
-    fn world_view(&self) -> ((f32, f32), (f32, f32)) {
-        let (w, h) = self.window_size();
-        let (w, h) = (w / self.view.zoom, h / self.view.zoom);
-        let (qx, qy) = self.shake;
-        ((self.view.cam.0 - w / 2.0 + qx as f32, self.view.cam.1 - h / 2.0 - VIEW_DROP + qy as f32), (w, h))
-    }
-
-    /// The world's frame: top-left (whole game pixels) and size, a little bigger than what shows
-    /// (and in steps, so easing the zoom doesn't make a new texture every frame).
-    fn view_origin(&self) -> (i32, i32) {
-        let ((x, y), _) = self.world_view();
-        (x.floor() as i32, y.floor() as i32)
-    }
-    fn world_size(&self) -> (u32, u32) {
-        let (_, (w, h)) = self.world_view();
-        let up = |v: f32| (v.ceil() as u32 + 2).next_multiple_of(32);
-        (up(w), up(h))
-    }
-
-    fn view_rect(&self) -> [i32; 4] {
-        let ((x, y), (w, h)) = (self.view_origin(), self.world_size());
-        [x, y, w as i32, h as i32]
-    }
-
-    /// Mouse position on the overlay (game pixels at the interface's scale).
-    fn mouse_game(&self) -> (i32, i32) {
-        let s = self.view.scale as f64;
-        ((self.mouse.0 / s) as i32, (self.mouse.1 / s) as i32)
-    }
-
-    /// Mouse position in the world (screen coordinates, game pixels).
-    fn mouse_world(&self) -> (i32, i32) {
-        let ((x, y), _) = self.world_view();
-        let z = self.view.zoom as f64;
-        ((x as f64 + self.mouse.0 / z).floor() as i32, (y as f64 + self.mouse.1 / z).floor() as i32)
-    }
-
-    /// The least zoom for this window (a big screen doesn't show the whole map at once).
-    fn min_zoom(&self) -> f32 {
-        let (w, h) = self.window_size();
-        (w / MOST_SEEN.0).max(h / MOST_SEEN.1).max(ZOOMS[0])
-    }
-
-    /// Zoom by `steps` notches (negative: out; a touchpad's part-notches add up), about the
-    /// pointer when the camera is free (the spot under it stays put), else about the centre.
-    fn zoom_by(&mut self, steps: f32) {
-        self.wheel += steps;
-        let (notches, min) = (self.wheel.trunc(), self.min_zoom());
-        self.wheel -= notches;
-        let to = rung(self.view.zoom_to, notches as i32).clamp(min, ZOOMS[ZOOMS.len() - 1]);
-        if to != self.view.zoom_to {
-            self.view.zoom_to = to;
-            self.auto_zoom = false; // (chosen now: kept)
-            self.dirty = true;
-        }
-    }
-
-    /// Ease the zoom along by `dt` seconds (true while it moves).
-    fn ease_zoom(&mut self, dt: f32) -> bool {
-        // (A window made bigger can need a closer zoom.)
-        self.view.zoom_to = self.view.zoom_to.max(self.min_zoom());
-        let (from, to) = (self.view.zoom, self.view.zoom_to);
-        if from == to {
-            return false;
-        }
-        let z = if (to - from).abs() < 0.002 { to } else { from + (to - from) * (1.0 - (-dt * ZOOM_EASE).exp()) };
-        if z == to {
-            self.keep_settings(); // (remembered once it settles)
-        }
-        if !self.view.follow {
-            // The spot under the pointer stays where it is.
-            let (w, h) = self.window_size();
-            let (mx, my) = (self.mouse.0 as f32, self.mouse.1 as f32);
-            let ((ox, oy), _) = self.world_view();
-            let (px, py) = (ox + mx / from, oy + my / from);
-            self.view.cam = (px - mx / z + w / z / 2.0, py - my / z + h / z / 2.0 + VIEW_DROP);
-        }
-        self.view.zoom = z;
-        self.dirty = true;
-        true
-    }
-}
-
-/// `n` rungs of [`ZOOMS`] from `z` (towards the next rung first, if `z` is between two).
-fn rung(z: f32, n: i32) -> f32 {
-    let mut z = z;
-    for _ in 0..n.abs() {
-        z = match n > 0 {
-            true => ZOOMS.iter().copied().find(|&r| r > z + 1e-3),
-            false => ZOOMS.iter().rev().copied().find(|&r| r < z - 1e-3),
-        }
-        .unwrap_or(z);
-    }
-    z
-}
-
-/// `arg`, else ./U8, else U8 next to the executable (or up from target/<profile>/).
-/// `dir` if the game's files are in it, else its U8 folder (any case) if they're in that.
-fn game_root(dir: &Path) -> Option<PathBuf> {
-    let has_game = |p: &Path| u8data::find_file(p, "STATIC/U8SHAPES.FLX").is_ok();
-    [Some(dir.to_path_buf()), u8data::find_file(dir, "U8").ok()].into_iter().flatten().find(|p| has_game(p))
-}
-
-/// Where the game's files are: the folder given on the command line; the one picked last time;
-/// the game folder itself (the client copied into it) or a U8 folder in it — where it's started
-/// from, the program's own folder and up to three above; or, failing those, the player picks the
-/// folder (remembered for next time).
-fn find_data(arg: Option<&String>) -> Result<PathBuf> {
-    if let Some(a) = arg {
-        return Ok(PathBuf::from(a));
-    }
-    let mut s = settings::Settings::load();
-    if let Some(p) = Some(&s.data).filter(|d| !d.is_empty()).and_then(|d| game_root(Path::new(d))) {
-        return Ok(p);
-    }
-    let mut dirs = vec![PathBuf::from(".")];
-    if let Ok(exe) = std::env::current_exe() {
-        dirs.extend(exe.ancestors().skip(1).take(4).map(PathBuf::from));
-    }
-    if let Some(p) = dirs.iter().find_map(|d| game_root(d)) {
-        return Ok(p);
-    }
-    let found = pick_data().ok_or_else(|| {
-        anyhow!("couldn't find Ultima 8's files (STATIC/U8SHAPES.FLX); pass the game folder, e.g. u8view ~/Games/U8")
-    })?;
-    s.data = found.display().to_string();
-    s.save();
-    Ok(found)
-}
-
-/// Ask for the game's folder until one has its files (None: the player gave up).
-fn pick_data() -> Option<PathBuf> {
-    use rfd::{FileDialog, MessageButtons, MessageDialog, MessageLevel};
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
-    loop {
-        let mut dialog =
-            FileDialog::new().set_title("Where is Ultima 8? Pick the game's folder (the one with STATIC in it)");
-        if let Some(h) = &home {
-            dialog = dialog.set_directory(h);
-        }
-        let dir = dialog.pick_folder()?;
-        if let Some(root) = game_root(&dir) {
-            return Some(root);
-        }
-        MessageDialog::new()
-            .set_level(MessageLevel::Warning)
-            .set_title("Not Ultima 8")
-            .set_description(format!(
-                "{} doesn't have Ultima 8's files in it (STATIC, USECODE, SOUND…). Pick the folder the game is installed in.",
-                dir.display()
-            ))
-            .set_buttons(MessageButtons::Ok)
-            .show();
     }
 }
 
@@ -760,78 +439,4 @@ fn start() -> Result<()> {
     let mut app = App::new(game, &data);
     el.run_app(&mut app)?;
     app.error.map_or(Ok(()), Err)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The smooth camera eases a step up over a fraction of a second, ignores a jump's arc (the
-    /// footing doesn't change), snaps to a teleport, and off it follows the camera's own height.
-    #[test]
-    fn the_smooth_camera_eases_up_and_down() {
-        let frame = 1.0 / 60.0;
-        assert_eq!(eye_height(92, Some(68), Some(48.0), frame, false), 92.0, "off: the camera's height");
-        assert_eq!(eye_height(92, Some(68), Some(68.0), frame, true), 68.0, "mid-jump: still the footing");
-        let mut at = 68.0;
-        for _ in 0..3 {
-            at = eye_height(76, Some(76), Some(at), frame, true);
-        }
-        assert!(at > 68.5 && at < 75.0, "a step up eases: {at}");
-        for _ in 0..60 {
-            at = eye_height(76, Some(76), Some(at), frame, true);
-        }
-        assert_eq!(at, 76.0, "and gets there (the view stops changing) within a second");
-        assert_eq!(eye_height(500, Some(500), Some(68.0), frame, true), 500.0, "a teleport snaps");
-        // Falling (or climbing, hanging): well above its footing, the Avatar itself is followed.
-        let falling = eye_height(160, Some(68), Some(150.0), frame, true);
-        assert!(falling > 150.0 && falling < 160.0, "{falling}");
-    }
-
-    /// The game folder is found whether it's picked itself or the folder with a U8 (any case)
-    /// in it; anything else isn't the game.
-    #[test]
-    fn the_game_folder_is_recognised() {
-        let t = std::env::temp_dir().join(format!("u8-root-{}", std::process::id()));
-        let game = t.join("Games/ultima8");
-        std::fs::create_dir_all(game.join("static")).unwrap();
-        std::fs::write(game.join("static/u8shapes.flx"), b"").unwrap();
-        std::fs::create_dir_all(t.join("client/u8/STATIC")).unwrap();
-        std::fs::write(t.join("client/u8/STATIC/U8SHAPES.FLX"), b"").unwrap();
-        assert_eq!(game_root(&game), Some(game.clone()), "the game folder itself");
-        assert_eq!(game_root(&t.join("client")), Some(t.join("client/u8")), "its U8 folder");
-        assert_eq!(game_root(&t.join("Games")), None, "not the game");
-        std::fs::remove_dir_all(&t).ok();
-    }
-
-    #[test]
-    fn handhelds_start_with_a_bigger_interface() {
-        assert_eq!(first_scale((1280, 800), (1280, 800), 1.0), 3, "Steam Deck");
-        assert_eq!(first_scale((1920, 1080), (1920, 1080), 1.0), 4, "ROG Ally");
-        assert_eq!(first_scale((1280, 800), (2560, 1440), 1.0), 2, "a window on a big monitor");
-        assert_eq!(first_scale((2560, 1440), (2560, 1440), 1.0), 2, "a big monitor");
-        // Screens with more pixels to a point: as big to the eye as on an ordinary one.
-        assert_eq!(first_scale((2560, 1600), (2880, 1800), 2.0), 4, "a Mac's Retina screen");
-        assert_eq!(first_scale((1920, 1200), (2880, 1800), 1.5), 3, "Windows at 150%");
-        assert_eq!((first_zoom(1.0), first_zoom(2.0), first_zoom(1.5), first_zoom(1.25)), (2.0, 4.0, 3.0, 2.5));
-    }
-
-    #[test]
-    fn f2_goes_through_every_look() {
-        for (i, m) in Mode::ALL.iter().enumerate() {
-            assert!(Mode::ALL[(i + 1) % Mode::ALL.len()] == m.next(), "{}", m.name());
-            assert_eq!(Mode::ALL.iter().filter(|o| o.name() == m.name()).count(), 1, "names tell them apart");
-        }
-    }
-
-    #[test]
-    fn zoom_steps_by_rungs() {
-        assert_eq!(rung(2.0, 1), 2.5);
-        assert_eq!(rung(2.0, -4), 1.0);
-        assert_eq!(rung(2.0, -9), 1.0, "no further");
-        assert_eq!(rung(7.0, 3), 8.0);
-        assert_eq!(rung(2.2, 1), 2.5, "from between two");
-        assert_eq!(rung(2.2, -1), 2.0);
-        assert_eq!(rung(3.0, 0), 3.0);
-    }
 }

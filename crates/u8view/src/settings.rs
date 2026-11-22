@@ -97,13 +97,14 @@ impl Settings {
 
     pub fn parse(text: &str) -> Self {
         let mut s = Self::default();
-        let mut zoom = None;
+        let (mut zoom, mut v2) = (None, false);
         for (k, v) in text.lines().filter_map(|l| l.split_once('=')).map(|(k, v)| (k.trim(), v.trim())) {
             let on = v == "true";
             match k {
                 "upscaler" => s.upscaler = v.to_string(),
                 "scale" => s.scale = v.parse().unwrap_or(s.scale),
                 "zoom" => zoom = v.parse::<f32>().ok().filter(|z| z.is_finite()),
+                "version" => v2 = v.parse::<u32>().is_ok_and(|n| n >= 2),
                 "classic_text" => s.classic_text = on,
                 "music" => s.music = on,
                 "effects" => s.effects = on,
@@ -127,15 +128,20 @@ impl Settings {
                 _ => {}
             }
         }
-        // (Before the zoom, the scale was both; with neither chosen, both are picked.)
+        // (Before the zoom, the scale was both; with neither chosen, both are picked. Files from
+        // before the zoom was picked for the screen (no `version` line) wrote its old default, 2,
+        // even when nobody chose it: with no interface size chosen either, that's not chosen.)
         s.zoom = zoom.unwrap_or(if s.scale == 0 { 0.0 } else { s.scale.max(2) as f32 }).max(0.0);
+        if !v2 && s.scale == 0 && s.zoom == 2.0 {
+            s.zoom = 0.0;
+        }
         s
     }
 
     pub fn to_text(&self) -> String {
         format!(
             "# Open Ultima8 settings (written by the game; edit while it isn't running)\n\
-             upscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nvolume = {:.1}\nambience = {:.1}\n\
+             version = 2\nupscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nvolume = {:.1}\nambience = {:.1}\n\
              cutaway = {}\nsmooth_camera = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\n\
              discord = {}\ndata = {}\nfinished = {}\npad = {}\npad_speed = {:.1}\npad_deadzone = {:.2}\nswap_sticks = {}\ntouch_buttons = {}\n",
             self.upscaler,
@@ -221,6 +227,10 @@ mod tests {
         let odd = Settings::parse("scale = lots\nvolume = 9\nnonsense\nwho = me\n");
         assert_eq!((odd.scale, odd.volume, odd.zoom), (0, 1.0, 0.0), "no sizes yet: picked for the screen");
         assert_eq!(Settings::parse("scale = 4\n").zoom, 4.0, "an older file's scale was the zoom too");
+        assert_eq!(Settings::parse("scale = 0\nzoom = 2.00\n").zoom, 0.0, "0.5.3's untouched default: picked");
+        assert_eq!(Settings::parse("scale = 0\nzoom = 3.00\n").zoom, 3.0, "a zoom chosen: kept");
+        let two = Settings { zoom: 2.0, ..Default::default() };
+        assert_eq!(Settings::parse(&two.to_text()).zoom, 2.0, "now 2 chosen stays chosen");
         assert_eq!(Settings::parse("volume = 0.6\n").ambience, 0.5, "background sounds default to half");
         let pad = Settings::parse("pad_speed = 7\npad_deadzone = -1\n");
         assert_eq!(

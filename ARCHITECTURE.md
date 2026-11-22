@@ -45,7 +45,8 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   Files: `world.rs` (entries, the grid, adding and removing), and in `world/`: `contents.rs` (containers and
   the void), `collision.rs`, `actors.rs` (combat state, targets, actions run for scripts,
   weapon overlays), `scenery.rs` (TYPEFLAG animation).
-- **`avatar::Avatar`**: walking, running, jumping, climbing (the lowest ANIM.DAT climb that
+- **`avatar::Avatar`** (`avatar/acts.rs` has the ANIM.DAT actions: jumps, climbs, hanging,
+  knockdowns): walking, running, jumping, climbing (the lowest ANIM.DAT climb that
   `World::anim_fits`), hanging (on a jump's way down, wherever ANIM.DAT's `climbUp` would fit:
   shown with `hang`; pull up or let go), being knocked flat (`knock_down`: `fallBackwards`, then
   `standUp` and two `shakeHead`s, stunned till up), and the combat stance (ready/unready, advance, retreat, turn, swing, kick,
@@ -207,12 +208,16 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   `scale`). Mouse: `mouse_world` for the map, `mouse_game` for the overlay. The view follows the
   game's camera (`App::follow_camera`); the smooth camera (an option) eases only its height, to
   the Avatar's footing (`eye_height`). `App`'s work is split by concern: `window.rs` (winit
-  events), `frame.rs` (update and draw), `controls.rs` (the mouse), `commands.rs` (keys,
-  save/load), `book.rs` (the game menu and settings), `slider.rs` (the original's "how many?"
-  for part of a pile).
+  events), `frame.rs` (advancing the game, script events, sounds, dying), `draw.rs` (drawing a
+  frame: `redraw` → `draw_frame` → the world, then `draw_overlay` with `draw_windows` and
+  `draw_speech`; `present`), `view.rs` (the camera, interface size, zoom and looks, picked for the
+  screen until the player picks: `first_scale`, `first_zoom`), `gamedir.rs` (finding the game's
+  files), `controls.rs` (the mouse), `commands.rs` (keys, save/load), `book.rs` (the game menu
+  and the settings' values), `slider.rs` (the original's "how many?" for part of a pile).
   `input.rs` is the only place keys are bound (`Command`). `mouse.rs` is the original's pointer:
   aim and reach from the Avatar (→ `Input`), and the game's arrow cursors as OS cursors.
-  `pad.rs` is the game controller (gilrs, feature `gamepad`): its buttons are bound in `BINDS`
+  `pad.rs` is the game controller (gilrs, feature `gamepad`; how it drives the game is in
+  `pad/app.rs`): its buttons are bound in `BINDS`
   only, to a `Command`, the mouse's own buttons (`left_button`, `right_button`, `both_buttons`)
   or menu moves; its sticks walk (the same (facing, run, careful) as the pointer's arrow:
   `App::steering`, `pad::steer`) and move the one pointer the mouse shares (`App::moved_to`).
@@ -223,8 +228,8 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   last.
   `gumps.rs` is item windows (opened by scripts' `Item::openGump`: bags, chests, the paperdoll),
   `art.rs` the original's window art (U8GUMPS.FLX) and item areas (GUMPAGE.DAT), shared with the
-  menus. `ui.rs` shows barks, conversation choices (numbered panel or the original's bulleted style),
-  pages and notices; book and scroll text is in `pagefont.rs`, and `cover.rs` adds a book's
+  menus. `ui.rs` shows barks, conversation choices (numbered panel or the original's bulleted style)
+  and notices, and `ui/readable.rs` books, scrolls, graves and plaques; book and scroll text is in `pagefont.rs`, and `cover.rs` adds a book's
   leather cover and turned-up page corners to the original's art. `menu.rs` is the original's book menus drawn with its own art (U8GUMPS.FLX
   35 book, 32 logo, 37 menu entries): main menu, diary (save/load), the quit question
   (17 window, 18 question, 47/50 Yes/No); it returns `menu::Action`s for `App::menu_action`; the
@@ -233,7 +238,7 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   through `App::change_setting`, plus a Keys list, drawn at screen resolution in the books'
   typeface; keys, mouse, pad and touch reach it before the book. `credits.rs` rolls the credits and quotes (decoded by
   `u8data::credits`) over a black screen, the game paused. `settings.rs` keeps the player's
-  options between runs.
+  settings between runs (`~/.config/open-ultima8`, `%APPDATA%\open-ultima8` on Windows).
   `audio.rs` mixes music, effects and speech into one stream; effects tied to an item are
   re-placed (volume, pan) every frame from where the item is relative to the camera.
 - **u8tool**: `main.rs` dispatches to one module per command group (`export`, `map`, which also
