@@ -126,14 +126,22 @@ enum Owner {
 }
 
 /// The interface size to start at when none is saved: on a small screen the game fills (a
-/// handheld's: the Deck 1280×800, the Ally 1920×1080), a size that reads and taps well there.
-fn first_scale(window: (u32, u32), monitor: (u32, u32)) -> u32 {
+/// handheld's: the Deck 1280×800, the Ally 1920×1080), a size that reads and taps well there;
+/// elsewhere 2 to a point (`dpi` pixels each: a Mac's Retina screen 2, Windows at 150% 1.5).
+fn first_scale(window: (u32, u32), monitor: (u32, u32), dpi: f64) -> u32 {
     let full = window.0 >= monitor.0 && window.1 >= monitor.1;
+    let base = ((2.0 * dpi).round() as u32).clamp(2, MAX_SCALE);
     if full && monitor.1 <= 1200 {
-        (monitor.1 / 266).max(2)
+        (monitor.1 / 266).max(base)
     } else {
-        2
+        base
     }
+}
+
+/// The world's zoom to start at when none is saved: 2 to a point, on the zoom's rungs.
+fn first_zoom(dpi: f64) -> f32 {
+    let want = (2.0 * dpi) as f32;
+    ZOOMS.into_iter().min_by(|a, b| (a - want).abs().total_cmp(&(b - want).abs())).unwrap_or(2.0)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -281,6 +289,8 @@ struct App {
     focused: bool,
     /// No interface size saved yet: it's chosen for the screen (see `first_scale`).
     auto_scale: bool,
+    /// No zoom saved yet: it's chosen for the screen (see `first_zoom`).
+    auto_zoom: bool,
     /// Item windows (bags, chests, the paperdoll) and the art they're drawn with.
     windows: gumps::Windows,
     art: Option<art::GumpArt>,
@@ -409,6 +419,7 @@ impl App {
             os_cursor: (-1.0, -1.0),
             focused: true,
             auto_scale: false,
+            auto_zoom: false,
             menu: None,
             panel: None,
             panel_tab: 0,
@@ -451,6 +462,10 @@ impl App {
         app.art = art::GumpArt::load(data, &app.game.data.palette);
         app.pad.start();
         app.apply_settings(settings::Settings::load());
+        #[cfg(feature = "audio")]
+        if app.audio.as_ref().is_some_and(|a| !a.music_ready) {
+            app.notice("No SoundFont found, so no music: see the README's Music part.");
+        }
         if app.game.needs_name() && !app.start_film(films::Which::Intro, films::After::Name) {
             app.open_menu(menu::Page::Name); // the game waits until the Avatar has a name
         }
@@ -514,12 +529,18 @@ impl App {
 
     /// With no interface size saved, pick it for the screen (see [`first_scale`]).
     fn fit_interface(&mut self) {
-        let Some(w) = self.window.as_ref().filter(|_| self.auto_scale) else { return };
-        let (sz, monitor) = (w.inner_size(), w.current_monitor().map(|m| m.size()));
-        if let Some(m) = monitor {
-            let s = first_scale((sz.width, sz.height), (m.width, m.height));
+        let Some(w) = self.window.as_ref() else { return };
+        let (sz, monitor, dpi) = (w.inner_size(), w.current_monitor().map(|m| m.size()), w.scale_factor());
+        if let (Some(m), true) = (monitor, self.auto_scale) {
+            let s = first_scale((sz.width, sz.height), (m.width, m.height), dpi);
             if s != self.view.scale {
                 (self.view.scale, self.dirty) = (s, true);
+            }
+        }
+        if self.auto_zoom {
+            let z = first_zoom(dpi).max(self.min_zoom());
+            if z != self.view.zoom_to {
+                (self.view.zoom, self.view.zoom_to, self.dirty) = (z, z, true);
             }
         }
     }
@@ -599,6 +620,7 @@ impl App {
         let to = rung(self.view.zoom_to, notches as i32).clamp(min, ZOOMS[ZOOMS.len() - 1]);
         if to != self.view.zoom_to {
             self.view.zoom_to = to;
+            self.auto_zoom = false; // (chosen now: kept)
             self.dirty = true;
         }
     }
@@ -784,10 +806,14 @@ mod tests {
 
     #[test]
     fn handhelds_start_with_a_bigger_interface() {
-        assert_eq!(first_scale((1280, 800), (1280, 800)), 3, "Steam Deck");
-        assert_eq!(first_scale((1920, 1080), (1920, 1080)), 4, "ROG Ally");
-        assert_eq!(first_scale((1280, 800), (2560, 1440)), 2, "a window on a big monitor");
-        assert_eq!(first_scale((2560, 1440), (2560, 1440)), 2, "a big monitor");
+        assert_eq!(first_scale((1280, 800), (1280, 800), 1.0), 3, "Steam Deck");
+        assert_eq!(first_scale((1920, 1080), (1920, 1080), 1.0), 4, "ROG Ally");
+        assert_eq!(first_scale((1280, 800), (2560, 1440), 1.0), 2, "a window on a big monitor");
+        assert_eq!(first_scale((2560, 1440), (2560, 1440), 1.0), 2, "a big monitor");
+        // Screens with more pixels to a point: as big to the eye as on an ordinary one.
+        assert_eq!(first_scale((2560, 1600), (2880, 1800), 2.0), 4, "a Mac's Retina screen");
+        assert_eq!(first_scale((1920, 1200), (2880, 1800), 1.5), 3, "Windows at 150%");
+        assert_eq!((first_zoom(1.0), first_zoom(2.0), first_zoom(1.5), first_zoom(1.25)), (2.0, 4.0, 3.0, 2.5));
     }
 
     #[test]

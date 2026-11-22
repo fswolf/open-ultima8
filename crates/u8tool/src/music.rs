@@ -82,7 +82,7 @@ fn music(a: &Args) -> Result<()> {
     let song = songs.iter().find(|s| s.name == want).ok_or_else(|| anyhow!("no song {want:?}; try `music list`"))?;
     let events =
         music::parse_xmidi(flex.get(song.index).unwrap_or(&[]), 0).ok_or_else(|| anyhow!("couldn't decode {want}"))?;
-    let sf = music::find_soundfont(a.data())
+    let sf = music::find_soundfont(a.data(), &[])
         .ok_or_else(|| anyhow!("no SoundFont found; set U8_SOUNDFONT=/path/to/GM.sf2"))?;
     let rate = 44100u32;
     let mut seq = music::Sequencer::new(&sf, rate)?;

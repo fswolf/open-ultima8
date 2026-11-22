@@ -213,8 +213,10 @@ impl Sequencer {
     }
 }
 
-/// Find a General MIDI SoundFont: `$U8_SOUNDFONT`, any .sf2 in the data dir, then common system paths.
-pub fn find_soundfont(data_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+/// Find a General MIDI SoundFont: `$U8_SOUNDFONT`, any .sf2 in the data dir (or its SOUND),
+/// then in `extra` (the program's own folders, the settings folder…), then common system paths:
+/// Linux's, Homebrew's, and macOS's own place for sound banks.
+pub fn find_soundfont(data_dir: &std::path::Path, extra: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
     if let Ok(p) = std::env::var("U8_SOUNDFONT") {
         return Some(PathBuf::from(p));
@@ -226,15 +228,17 @@ pub fn find_soundfont(data_dir: &std::path::Path) -> Option<std::path::PathBuf> 
             .map(|e| e.path())
             .find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sf2")))
     };
-    [
-        data_dir.to_path_buf(),
-        data_dir.join("SOUND"),
-        PathBuf::from("/usr/share/soundfonts"),
-        PathBuf::from("/usr/share/sounds/sf2"),
-        PathBuf::from("/usr/share/sounds/sf3"),
-        PathBuf::from("/usr/local/share/soundfonts"),
-        PathBuf::from("/opt/homebrew/share/soundfonts"),
-    ]
-    .iter()
-    .find_map(|d| sf2_in(d))
+    let banks = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Audio/Sounds/Banks"));
+    [data_dir.to_path_buf(), data_dir.join("SOUND")]
+        .into_iter()
+        .chain(extra.iter().cloned())
+        .chain(banks)
+        .chain([
+            PathBuf::from("/usr/share/soundfonts"),
+            PathBuf::from("/usr/share/sounds/sf2"),
+            PathBuf::from("/usr/share/sounds/sf3"),
+            PathBuf::from("/usr/local/share/soundfonts"),
+            PathBuf::from("/opt/homebrew/share/soundfonts"),
+        ])
+        .find_map(|d| sf2_in(&d))
 }

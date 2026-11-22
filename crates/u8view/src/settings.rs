@@ -6,8 +6,8 @@ use std::path::PathBuf;
 pub struct Settings {
     /// Upscaler by name (see `Mode::name`).
     pub upscaler: String,
-    /// The interface's size (whole steps; 0: none chosen yet, it's picked for the screen) and the
-    /// world's zoom.
+    /// The interface's size (whole steps) and the world's zoom; 0: none chosen yet, they're
+    /// picked for the screen (its size and how many pixels it has to a point).
     pub scale: u32,
     pub zoom: f32,
     pub classic_text: bool,
@@ -47,7 +47,7 @@ impl Default for Settings {
         Self {
             upscaler: "nearest".into(),
             scale: 0,
-            zoom: 2.0,
+            zoom: 0.0,
             classic_text: false,
             music: true,
             effects: true,
@@ -73,10 +73,20 @@ impl Default for Settings {
 }
 
 fn path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("open-ultima8").join("settings.cfg"))
+    Some(dir()?.join("settings.cfg"))
+}
+
+/// Our own folder for settings (a SoundFont can go there too).
+pub fn dir() -> Option<PathBuf> {
+    Some(config_dir(|k| std::env::var_os(k), cfg!(windows))?.join("open-ultima8"))
+}
+
+/// Where settings go: `XDG_CONFIG_HOME`, else on Windows `%APPDATA%` (Windows has no `HOME` as
+/// a rule), else `~/.config`.
+fn config_dir(var: impl Fn(&str) -> Option<std::ffi::OsString>, windows: bool) -> Option<PathBuf> {
+    let home = || var("HOME").map(|h| PathBuf::from(h).join(".config"));
+    let appdata = || var("APPDATA").filter(|_| windows).map(PathBuf::from);
+    var("XDG_CONFIG_HOME").map(PathBuf::from).or_else(appdata).or_else(home)
 }
 
 impl Settings {
@@ -117,8 +127,8 @@ impl Settings {
                 _ => {}
             }
         }
-        // (Before the zoom, the scale was both.)
-        s.zoom = zoom.unwrap_or(s.scale.max(2) as f32);
+        // (Before the zoom, the scale was both; with neither chosen, both are picked.)
+        s.zoom = zoom.unwrap_or(if s.scale == 0 { 0.0 } else { s.scale.max(2) as f32 }).max(0.0);
         s
     }
 
@@ -170,6 +180,23 @@ impl Settings {
 mod tests {
     use super::*;
 
+    /// Windows keeps them in %APPDATA% (it has no HOME); elsewhere ~/.config, or XDG_CONFIG_HOME.
+    #[test]
+    fn settings_have_a_home_on_every_system() {
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |k: &str| vars.iter().find(|v| v.0 == k).map(|v| v.1.into())
+        };
+        let win = env(&[("APPDATA", r"C:\Users\r\AppData\Roaming")]);
+        assert_eq!(config_dir(win, true), Some(PathBuf::from(r"C:\Users\r\AppData\Roaming")));
+        assert_eq!(config_dir(win, false), None, "(APPDATA only counts on Windows)");
+        let unix = env(&[("HOME", "/home/r"), ("APPDATA", "x")]);
+        assert_eq!(config_dir(unix, false), Some(PathBuf::from("/home/r/.config")));
+        let xdg = env(&[("HOME", "/home/r"), ("XDG_CONFIG_HOME", "/cfg"), ("APPDATA", "x")]);
+        assert_eq!(config_dir(xdg, true), Some(PathBuf::from("/cfg")));
+        let git_bash = env(&[("HOME", "/c/Users/r"), ("APPDATA", "C:/A")]);
+        assert_eq!(config_dir(git_bash, true), Some(PathBuf::from("C:/A")), "APPDATA before a HOME");
+    }
+
     #[test]
     fn settings_round_trip_and_tolerate_junk() {
         let s = Settings {
@@ -192,7 +219,7 @@ mod tests {
         };
         assert_eq!(Settings::parse(&s.to_text()), s);
         let odd = Settings::parse("scale = lots\nvolume = 9\nnonsense\nwho = me\n");
-        assert_eq!((odd.scale, odd.volume, odd.zoom), (0, 1.0, 2.0), "no size yet: picked for the screen");
+        assert_eq!((odd.scale, odd.volume, odd.zoom), (0, 1.0, 0.0), "no sizes yet: picked for the screen");
         assert_eq!(Settings::parse("scale = 4\n").zoom, 4.0, "an older file's scale was the zoom too");
         assert_eq!(Settings::parse("volume = 0.6\n").ambience, 0.5, "background sounds default to half");
         let pad = Settings::parse("pad_speed = 7\npad_deadzone = -1\n");

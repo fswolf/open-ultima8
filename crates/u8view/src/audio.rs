@@ -148,6 +148,8 @@ pub struct Audio {
     wanted: Option<usize>,
     effects: Option<Bank>,
     pub sfx_on: bool,
+    /// A SoundFont was found (music can play).
+    pub music_ready: bool,
     /// Fighting (or dead): the combat music holds, the game's songs wait.
     combat: bool,
     /// Script-set volume per effect.
@@ -167,7 +169,12 @@ impl Audio {
         let music =
             u8data::find_file(data, "SOUND/MUSIC.FLX").ok().and_then(|p| Flex::parse(std::fs::read(p).ok()?).ok());
         let songs = music.as_ref().map(music::songs).unwrap_or_default();
-        match music::find_soundfont(data) {
+        // (Also beside the program, a few folders up as the game is looked for, and with the settings.)
+        let mut near: Vec<PathBuf> = std::env::current_exe()
+            .map(|e| e.ancestors().skip(1).take(4).map(PathBuf::from).collect())
+            .unwrap_or_default();
+        near.extend(crate::settings::dir());
+        match music::find_soundfont(data, &near) {
             Some(sf) => match music::Sequencer::new(&sf, rate) {
                 Ok(seq) => {
                     eprintln!("music: {} songs, SoundFont {}, {rate} Hz", songs.len(), sf.display());
@@ -176,7 +183,8 @@ impl Audio {
                 Err(e) => eprintln!("music disabled: {e}"),
             },
             None => eprintln!(
-                "music disabled: no SoundFont — install one (Fedora: `sudo dnf install fluid-soundfont-gm`) or set U8_SOUNDFONT=/path/to/GM.sf2"
+                "music disabled: no SoundFont: put a General MIDI .sf2 in the game folder, next to the program or in {} (Fedora: `sudo dnf install fluid-soundfont-gm`), or set U8_SOUNDFONT=/path/to/GM.sf2",
+                crate::settings::dir().map_or("the settings folder".into(), |d| d.display().to_string())
             ),
         }
         let effects = Bank::open(u8data::find_file(data, "SOUND/SOUND.FLX").ok());
@@ -191,7 +199,9 @@ impl Audio {
             f => return Err(anyhow!("unsupported audio sample format {f}")),
         };
         stream.play()?;
+        let music_ready = mix.lock().unwrap().seq.is_some();
         Ok(Self {
+            music_ready,
             _stream: stream,
             mix,
             rate,

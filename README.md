@@ -83,9 +83,13 @@ Keep `U8.EXE` in the game folder: the weapon table is read out of it.
 menu (`--remove` takes it out again). **On macOS**, put the game folder (or `U8`) next to
 `Open Ultima8.app`; the first time, right-click the app and choose Open (it isn't notarized).
 
-**Music** plays through any General MIDI SoundFont (`.sf2`). It's found automatically in the usual
-system places, in the game folder, or from `$U8_SOUNDFONT`. On Fedora:
-`sudo dnf install fluid-soundfont-gm`. Sound effects and voices need nothing extra.
+**Music** plays through any General MIDI SoundFont (`.sf2`, for example GeneralUser GS or
+FluidR3_GM). Windows and macOS don't come with one: put the `.sf2` in the game folder, next to
+the program (or the `.app`), or in the settings folder (`%APPDATA%\open-ultima8` on Windows,
+`~/.config/open-ultima8` elsewhere); macOS's `~/Library/Audio/Sounds/Banks` works too. On Linux
+the usual system places are searched (Fedora: `sudo dnf install fluid-soundfont-gm`), and
+`$U8_SOUNDFONT` points at one anywhere. Without one the game says so and plays without music;
+sound effects and voices need nothing extra.
 
 ### Steam Deck and ROG Ally
 
@@ -190,7 +194,8 @@ song, effects, background sounds), Controls (mouse hand, the controller's pointe
 zone and walking stick, touch screen buttons), Game (reply style, see inside, roofs, camera,
 cheats, Discord status) and Keys (every control on keyboard, mouse, pad and touch). Up and down
 choose, left and right change, Tab or Q and E switch tabs; the mouse, a pad (D-pad, A, LB/RB,
-B) and touch work it too. Settings are remembered in `~/.config/open-ultima8/settings.cfg`.
+B) and touch work it too. Settings are remembered in `open-ultima8/settings.cfg` under
+`~/.config` on Linux and macOS, and under `%APPDATA%` on Windows.
 
 <p align="center">
   <img src="docs/screenshots/settings.jpg" width="720" alt="The settings panel over the castle: Video, Sound, Controls, Game and Keys tabs">

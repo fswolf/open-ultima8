@@ -468,6 +468,7 @@ fn people_keep_their_last_action_over_a_save() {
 /// people and the things on the shore. GitHub issue #1: an empty map and no Avatar.
 #[test]
 #[ignore]
+#[cfg(unix)] // (links the data in)
 fn a_fresh_install_starts_a_new_game_from_the_first_save() {
     let Some(dir) = std::env::var_os("U8_DATA").map(PathBuf::from) else { return };
     let Ok(first) = u8data::find_file(&dir, "SAVEGAME/U8SAVE.000") else { return };

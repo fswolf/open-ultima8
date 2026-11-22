@@ -14,7 +14,8 @@ impl App {
         // (None saved yet: 2 until the window shows how big the screen is.)
         self.auto_scale = s.scale == 0;
         v.scale = if self.auto_scale { 2 } else { s.scale.clamp(1, MAX_SCALE) };
-        v.zoom = s.zoom.clamp(ZOOMS[0], ZOOMS[ZOOMS.len() - 1]);
+        self.auto_zoom = s.zoom == 0.0;
+        v.zoom = if self.auto_zoom { 2.0 } else { s.zoom.clamp(ZOOMS[0], ZOOMS[ZOOMS.len() - 1]) };
         v.zoom_to = v.zoom;
         v.cutaway = s.cutaway;
         v.smooth = s.smooth_camera;
@@ -52,7 +53,7 @@ impl App {
             upscaler: v.mode.name().to_string(),
             scale: if self.auto_scale { 0 } else { v.scale },
             touch_buttons: self.touch.buttons,
-            zoom: (v.zoom_to * 100.0).round() / 100.0,
+            zoom: if self.auto_zoom { 0.0 } else { (v.zoom_to * 100.0).round() / 100.0 },
             classic_text: self.ui.as_ref().is_some_and(|u| u.style == ui::Style::Classic),
             cutaway: v.cutaway,
             smooth_camera: v.smooth,
@@ -217,14 +218,20 @@ impl App {
         Some(match s {
             Upscaler => ("Look", v.mode.name().into()),
             Scale => ("Interface size", format!("x{}{}", v.scale, if self.auto_scale { " (auto)" } else { "" })),
-            Zoom => ("Zoom", format!("x{}", (v.zoom_to * 100.0).round() / 100.0)),
+            Zoom => (
+                "Zoom",
+                format!("x{}{}", (v.zoom_to * 100.0).round() / 100.0, if self.auto_zoom { " (auto)" } else { "" }),
+            ),
             Fullscreen => ("Full screen", on(self.fullscreen)),
             Brightness => ("Brightness", format!("{:.1}", v.gamma)),
             ColourFix => ("Colour fix", on(v.colour_fix)),
             SmoothCamera => ("Smooth camera", on(v.smooth)),
             FrameTime => ("Frame time in the title", on(v.stats)),
             #[cfg(feature = "audio")]
-            Music => ("Music", on(audio?.music_on())),
+            Music => {
+                let a = audio?;
+                ("Music", if a.music_ready { on(a.music_on()) } else { "no SoundFont".into() })
+            }
             #[cfg(feature = "audio")]
             Volume => ("Music volume", tenths(audio?.volume)),
             #[cfg(feature = "audio")]
