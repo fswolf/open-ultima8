@@ -68,6 +68,14 @@ it look and handle as if it were made this decade.
     <td align="center"><sub>Books you can actually read</sub></td>
     <td align="center"><sub>The original's scenes, run by its own scripts</sub></td>
   </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/kith-book.jpg" alt="A book open in Ioria's kith pen"></td>
+    <td width="50%"><img src="docs/screenshots/paperdoll.jpg" alt="The Avatar's stats, a backpack and two open chests"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Every book's text crisp at full screen resolution</sub></td>
+    <td align="center"><sub>Upscaled sprites, with stats and containers open at once</sub></td>
+  </tr>
 </table>
 
 ## Getting started
