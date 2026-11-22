@@ -15,7 +15,7 @@
   <a href="#controls">Controls</a> ·
   <a href="#steam-deck-and-rog-ally">Steam Deck</a> ·
   <a href="#building-from-source">Build it yourself</a> ·
-  <a href="https://discord.gg/wEqrYjPxAU">Discord</a>
+  <a href="https://discord.gg/zCP5wZm5VZ">Discord</a>
 </p>
 
 <p align="center">
@@ -94,7 +94,7 @@ system places, in the game folder, or from `$U8_SOUNDFONT`. On Fedora:
 
 > [!TIP]
 > **New in 0.5: controller and touch screen support.** Play Pagan on a handheld, or with any Xbox-style pad.
-> Tell us how it plays on yours, on [Discord](https://discord.gg/wEqrYjPxAU) or in [Issues](../../issues).
+> Tell us how it plays on yours, on [Discord](https://discord.gg/zCP5wZm5VZ) or in [Issues](../../issues).
 
 **Steam Deck** (or any Linux handheld):
 
@@ -287,7 +287,7 @@ Catacombs, the Hall of the Mountain King, Argentrock Isle, Carthax Lake or Daemo
 ## Discord
 
 Come talk about the project, report bugs or share screenshots on the
-[Open Ultima8 Discord](https://discord.gg/wEqrYjPxAU).
+[Open Ultima8 Discord](https://discord.gg/zCP5wZm5VZ).
 
 While Discord is running, your profile shows where you are ("In Tenebrae"), what you're doing
 (exploring, in combat, talking, reading...), health and mana, and how long you've played. Turn it
