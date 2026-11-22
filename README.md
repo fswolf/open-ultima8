@@ -52,29 +52,15 @@ it look and handle as if it were made this decade.
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/zoom.png" alt="Zoomed out and zoomed in"></td>
+    <td colspan="2" align="center"><img src="docs/screenshots/zoom.png" alt="Zoomed out and zoomed in"><br><sub>Zoom from the whole neighbourhood down to the cobblestones</sub></td>
   </tr>
   <tr>
-    <td align="center"><sub>Zoom from the whole neighbourhood down to the cobblestones</sub></td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/book.png" alt="A book"></td>
-    <td width="50%"><img src="docs/screenshots/pentagram.png" alt="The pentagram"></td>
+    <td width="50%" align="center"><img src="docs/screenshots/menu.jpg" alt="The main menu book over the paused game"><br><sub>The original's menu, sharp at any size</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/pentagram.jpg" alt="The pentagram"><br><sub>The original's scenes, run by its own scripts</sub></td>
   </tr>
   <tr>
-    <td align="center"><sub>Books you can actually read</sub></td>
-    <td align="center"><sub>The original's scenes, run by its own scripts</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/kith-book.jpg" alt="A book open in Ioria's kith pen"></td>
-    <td width="50%"><img src="docs/screenshots/paperdoll.jpg" alt="The Avatar's stats, a backpack and two open chests"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Every book's text crisp at full screen resolution</sub></td>
-    <td align="center"><sub>Upscaled sprites, with stats and containers open at once</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/kith-book.jpg" alt="A book open in Ioria's kith pen"><br><sub>Books you can actually read</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/paperdoll.jpg" alt="The Avatar's stats, a backpack and two open chests"><br><sub>Upscaled sprites, with stats and containers open at once</sub></td>
   </tr>
 </table>
 
