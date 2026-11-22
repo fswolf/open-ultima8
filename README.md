@@ -23,13 +23,6 @@
   <img src="docs/screenshots/tenebrae.png" width="800" alt="The castle in Tenebrae">
 </p>
 
-<p align="center">
-  <a href="https://youtu.be/ZoKZ4VHBxGg">
-    <img src="https://img.youtube.com/vi/ZoKZ4VHBxGg/maxresdefault.jpg" width="640" alt="Open Ultima8 gameplay video on YouTube">
-  </a><br>
-  <sub>▶ Gameplay video (YouTube)</sub>
-</p>
-
 > **No game data is included.** You need your own copy of Ultima VIII (GOG or the original CD).
 > Open Ultima8 replaces the game's program, not its world: everything you see and every line
 > anyone speaks comes from your copy.
