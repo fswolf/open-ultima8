@@ -226,9 +226,12 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   menus. `ui.rs` shows barks, conversation choices (numbered panel or the original's bulleted style),
   pages and notices; book and scroll text is in `pagefont.rs`, and `cover.rs` adds a book's
   leather cover and turned-up page corners to the original's art. `menu.rs` is the original's book menus drawn with its own art (U8GUMPS.FLX
-  35 book, 32 logo, 37 menu entries): main menu, diary (save/load), options, the quit question
+  35 book, 32 logo, 37 menu entries): main menu, diary (save/load), the quit question
   (17 window, 18 question, 47/50 Yes/No); it returns `menu::Action`s for `App::menu_action`; the
-  game is paused while it's open. `credits.rs` rolls the credits and quotes (decoded by
+  game is paused while it's open; its Options entry opens `panel.rs`, the settings panel (F1):
+  tabs of `panel::Setting` rows whose labels and values come from `App::setting_row` and change
+  through `App::change_setting`, plus a Keys list, drawn at screen resolution in the books'
+  typeface; keys, mouse, pad and touch reach it before the book. `credits.rs` rolls the credits and quotes (decoded by
   `u8data::credits`) over a black screen, the game paused. `settings.rs` keeps the player's
   options between runs.
   `audio.rs` mixes music, effects and speech into one stream; effects tied to an item are

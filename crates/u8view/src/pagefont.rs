@@ -63,10 +63,15 @@ impl PageFont {
 
     /// A page's lines drawn at `ss` screen pixels per game pixel: ink colour, coverage as alpha.
     pub fn render(&self, lines: &[String], ss: u32) -> TextImage {
-        let px = SIZE * ss as f32;
+        self.render_ink(lines, SIZE, ss, INK)
+    }
+
+    /// Lines at `size` game pixels per em, in `ink` (the settings panel's light type).
+    pub fn render_ink(&self, lines: &[String], size: f32, ss: u32, ink: [u8; 3]) -> TextImage {
+        let px = size * ss as f32;
         let f = self.0.as_scaled(PxScale::from(px));
         let (_, skip) = self.lines();
-        let skip = skip * ss as f32;
+        let skip = skip * size / SIZE * ss as f32;
         let w = lines.iter().map(|l| self.width(l, px).ceil() as u32).max().unwrap_or(0).max(1) + 2;
         let h = (skip * lines.len().max(1) as f32 - skip + f.ascent() - f.descent()).ceil() as u32 + 2;
         let mut rgba = vec![0u8; (w * h * 4) as usize];
@@ -84,7 +89,7 @@ impl PageFont {
                             let d = ((y as u32 * w + x as u32) * 4) as usize;
                             let a = (c.clamp(0.0, 1.0) * 255.0) as u8;
                             let a = rgba[d + 3].max(a);
-                            rgba[d..d + 4].copy_from_slice(&[INK[0], INK[1], INK[2], a]);
+                            rgba[d..d + 4].copy_from_slice(&[ink[0], ink[1], ink[2], a]);
                         }
                     });
                 }

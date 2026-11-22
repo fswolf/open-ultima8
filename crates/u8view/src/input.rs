@@ -29,7 +29,8 @@ pub enum Command {
     ToggleEditor,
     ToggleCutaway,
     ToggleFollow,
-    ToggleTextStyle,
+    /// F1: the settings panel.
+    Settings,
     ZoomIn,
     ZoomOut,
     PrevMap,
@@ -77,7 +78,7 @@ pub fn bind(k: KeyCode, m: Mods) -> Option<Command> {
         KeyCode::KeyZ => Paperdoll,
         KeyCode::KeyC => Combat,
         KeyCode::Space => Jump,
-        KeyCode::F1 => ToggleTextStyle,
+        KeyCode::F1 => Settings,
         KeyCode::F2 => CycleUpscaler,
         KeyCode::F3 => ToggleCutaway,
         KeyCode::F4 => ToggleRoofs,

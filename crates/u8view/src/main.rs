@@ -36,6 +36,7 @@ mod menu;
 mod mouse;
 mod pad;
 mod pagefont;
+mod panel;
 mod presence;
 mod settings;
 mod slider;
@@ -149,13 +150,12 @@ impl Mode {
     const ALL: [Mode; 5] = [Mode::Nearest, Mode::Smooth, Mode::XbrzSprites, Mode::Xbr, Mode::Crt];
 
     fn next(self) -> Self {
-        match self {
-            Self::Nearest => Self::Smooth,
-            Self::Smooth => Self::XbrzSprites,
-            Self::XbrzSprites => Self::Xbr,
-            Self::Xbr => Self::Crt,
-            Self::Crt => Self::Nearest,
-        }
+        self.step(1)
+    }
+    /// `d` looks on (or back), round the list.
+    fn step(self, d: i32) -> Self {
+        let i = Self::ALL.iter().position(|&m| m == self).unwrap_or(0) as i32;
+        Self::ALL[(i + d).rem_euclid(Self::ALL.len() as i32) as usize]
     }
     fn name(self) -> &'static str {
         match self {
@@ -297,6 +297,10 @@ struct App {
     item_drag: Option<ObjId>,
     /// The book menus (Esc, J); while one is open the game waits.
     menu: Option<menu::Menu>,
+    /// The settings panel (F1, or the book's Options).
+    panel: Option<panel::Panel>,
+    /// The tab the settings were left on.
+    panel_tab: usize,
     /// Settings as last saved (written again whenever they change).
     settings: settings::Settings,
     mouse: (f64, f64),
@@ -406,6 +410,8 @@ impl App {
             focused: true,
             auto_scale: false,
             menu: None,
+            panel: None,
+            panel_tab: 0,
             windows: gumps::Windows::default(),
             art: None,
             win_drag: None,

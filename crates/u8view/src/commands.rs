@@ -112,11 +112,7 @@ impl App {
                     w.set_fullscreen(self.fullscreen.then_some(winit::window::Fullscreen::Borderless(None)));
                 }
             }
-            Command::ToggleTextStyle => {
-                if let Some(ui) = &mut self.ui {
-                    ui.toggle_style();
-                }
-            }
+            Command::Settings => self.open_settings(false),
             Command::CycleUpscaler => v.mode = v.mode.next(),
             Command::ToggleRoofs => v.opts.roofs = !v.opts.roofs,
             Command::ToggleEditor => {

@@ -15,11 +15,19 @@
   <a href="#controls">Controls</a> ·
   <a href="#steam-deck-and-rog-ally">Steam Deck</a> ·
   <a href="#building-from-source">Build it yourself</a> ·
+  <a href="https://youtu.be/ZoKZ4VHBxGg">Watch it play</a> ·
   <a href="https://discord.gg/zCP5wZm5VZ">Discord</a>
 </p>
 
 <p align="center">
   <img src="docs/screenshots/tenebrae.png" width="800" alt="The castle in Tenebrae">
+</p>
+
+<p align="center">
+  <a href="https://youtu.be/ZoKZ4VHBxGg">
+    <img src="https://img.youtube.com/vi/ZoKZ4VHBxGg/maxresdefault.jpg" width="640" alt="Open Ultima8 gameplay video on YouTube">
+  </a><br>
+  <sub>▶ Gameplay video (YouTube)</sub>
 </p>
 
 > **No game data is included.** You need your own copy of Ultima VIII (GOG or the original CD).
@@ -46,7 +54,9 @@ it look and handle as if it were made this decade.
   button the mouse and keyboard have is on the pad. Plug it in or out while you play.
 - **Readable.** Books and scrolls in a clean book typeface at your screen's full resolution;
   speech placed over whoever's speaking, and hidden when they're on another floor.
-- **Quieter.** Fireplaces, dripping water and other background sounds well below other effects, fading fast with distance, with their own "Ambience" level in the options.
+- **Quieter.** Fireplaces, dripping water and other background sounds well below other effects, fading fast with distance, with their own "Background sounds" level in the settings.
+- **Every setting in one place.** F1 opens a settings panel with tabs for video, sound,
+  controls and the game, plus a list of every control; keys, mouse, pad or touch work it.
 - **Little extras.** Discord status (where you are, what you're doing), quick save/load,
   remembered settings, a health and mana gauge, and a picker that asks where your game is.
 
@@ -72,7 +82,7 @@ it look and handle as if it were made this decade.
    - or put your game files in a folder called `U8` next to the program;
    - or just run it. If it can't find the game it asks you to pick the folder, and remembers it.
 3. **Play.** It loads your current game; **Esc** opens the game's menu (new game, the
-   diary to load and save, options).
+   diary to load and save, options); **F1** opens the settings.
 
 Keep `U8.EXE` in the game folder: the weapon table is read out of it.
 
@@ -135,7 +145,7 @@ out, the faster you go.
 | **Alt-X** or **Ctrl-Q** | quit |
 | **Alt-H** | swap mouse buttons (left-handed) |
 | **+ / -** | zoom |
-| **F1** | reply style: numbered list, or the original's red choices over the speaker |
+| **F1** | settings: every option, and a list of the controls |
 | **F2** | look (upscaler) |
 | **F3 / F4** | see inside buildings / roofs |
 | **F6** | follow the Avatar / free camera |
@@ -167,7 +177,7 @@ out, the faster you go.
 | **second finger tap** while walking | jump, the way you walk |
 | **pinch** | zoom |
 | **two finger tap** | the right button's tap (one careful step; on the Avatar, twice: weapon out or away) |
-| **buttons on the right edge** | menu, backpack, paperdoll, combat (shown once you touch the screen; Options → Touch buttons) |
+| **buttons on the right edge** | menu, backpack, paperdoll, combat (shown once you touch the screen; F1 → Controls → Touch screen buttons) |
 
 In Game Mode Steam may pass touches on as mouse clicks instead: taps still look and use there,
 but holding to walk and the two finger gestures need the touches themselves.
@@ -181,10 +191,17 @@ the paperdoll to wear or wield them, or out into the world. Drag a window by its
 double-click the frame to close it. The button under the paperdoll's stats shows the health and
 mana gauge.
 
-**Options** (Esc → Options) has the look, the interface size, reply style, music and volume,
-see-inside, full screen, mouse hand, Discord status, the original's cheats, and the controller
-(on/off, pointer speed, dead zone, which stick walks). They're remembered
-in `~/.config/open-ultima8/settings.cfg`.
+The **settings panel** (F1, or Esc → Options) sits over the game with tabs: Video (look,
+interface size, zoom, full screen, brightness, colour fix, smooth camera), Sound (music, volume,
+song, effects, background sounds), Controls (mouse hand, the controller's pointer speed, dead
+zone and walking stick, touch screen buttons), Game (reply style, see inside, roofs, camera,
+cheats, Discord status) and Keys (every control on keyboard, mouse, pad and touch). Up and down
+choose, left and right change, Tab or Q and E switch tabs; the mouse, a pad (D-pad, A, LB/RB,
+B) and touch work it too. Settings are remembered in `~/.config/open-ultima8/settings.cfg`.
+
+<p align="center">
+  <img src="docs/screenshots/settings.jpg" width="720" alt="The settings panel over the castle: Video, Sound, Controls, Game and Keys tabs">
+</p>
 
 ## Saves
 
@@ -207,8 +224,8 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 |---|---|
 | Flex archives, palette, shapes, typeflags | ✅ |
 | Map loading (FIXED.DAT + GLOB.FLX), isometric depth sort | ✅ |
-| Upscaling (F2 or Options → Look): nearest (crisp at any zoom) / smooth / xBRZ per sprite (seamless, made on the CPU) / xBR and CRT scanlines on the GPU (worked out per screen pixel, any zoom, no CPU cost). In nearest and xBRZ the world is drawn at the zoom, so walking glides by fractions of a game pixel when zoomed in | ✅ |
-| Zoom: mouse wheel or +/-, 1× to 8× in steps that pass every whole size (eases smoothly; about the pointer with a free camera; big screens don't zoom out past 1920×1200 of world); crisp pixels at in-between sizes (sharp bilinear on the GPU); windows, speech and menus keep their own size (Options → Interface) | ✅ |
+| Upscaling (F2 or Settings → Look): nearest (crisp at any zoom) / smooth / xBRZ per sprite (seamless, made on the CPU) / xBR and CRT scanlines on the GPU (worked out per screen pixel, any zoom, no CPU cost). In nearest and xBRZ the world is drawn at the zoom, so walking glides by fractions of a game pixel when zoomed in | ✅ |
+| Zoom: mouse wheel or +/-, 1× to 8× in steps that pass every whole size (eases smoothly; about the pointer with a free camera; big screens don't zoom out past 1920×1200 of world); crisp pixels at in-between sizes (sharp bilinear on the GPU); windows, speech and menus keep their own size (Settings → Interface size) | ✅ |
 | Translucent effect pixels (xform palette), editor-only markers hidden | ✅ |
 | wgpu viewer (scroll the world) | ✅ |
 | NONFIXED items + NPCs from your save (GAMEDAT) | ✅ |
@@ -219,8 +236,8 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 | Eggs: teleporters between maps, usecode triggers, NPC/egg "fast area" events; maps keep their state | ✅ |
 | Game clock (continues from your save; a game hour is 15 real minutes, as in the DOS game) + NPC schedules | ✅ |
 | Saved games: load and save (original format), the diary (J), quick save/load (F7/F8); new game with its opening scene | ✅ |
-| Original controls (mouse arrow: step/walk/run/jump), game menu (Esc) with options remembered between runs | ✅ |
-| Game controllers (Steam Deck, ROG Ally, Xbox-style pads): sticks walk and point, buttons as the mouse and keys, menus and replies with the D-pad, plug in or out while playing; pointer speed, dead zone and which stick walks in Options | ✅ |
+| Original controls (mouse arrow: step/walk/run/jump), game menu (Esc), a settings panel (F1) remembered between runs | ✅ |
+| Game controllers (Steam Deck, ROG Ally, Xbox-style pads): sticks walk and point, buttons as the mouse and keys, menus and replies with the D-pad, plug in or out while playing; pointer speed, dead zone and which stick walks in Settings | ✅ |
 | Cutscene camera (scenes hold the view, glide it and centre it on whoever's talking) | ✅ |
 | Each map's own music (music objects in the world pick the song) | ✅ |
 | NPCs walk where scripts send them, step by step with their walk animation, routing round walls, furniture and people | ✅ |
@@ -249,8 +266,9 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 <details>
 <summary><b>Where it deliberately differs from the original</b></summary>
 
-- Upscaling, zoom, smooth movement and the modern interface options.
-- The smooth camera (Options): the view eases up and down with the Avatar's footing instead of
+- Upscaling, zoom, smooth movement and the modern interface options; the settings are our own
+  panel (F1) rather than the book's options page.
+- The smooth camera (Settings): the view eases up and down with the Avatar's footing instead of
   following every jump and step, which zoomed in jolts the whole screen. Turn it off for the
   original's camera.
 - Books and scrolls in a modern typeface (the page art and paging are the original's). Books
@@ -269,7 +287,7 @@ please [report it](../../issues).
 <details>
 <summary><b>Testing and cheats</b></summary>
 
-**Options → Cheats** turns on the original developers' own cheat menu: click the Avatar to create
+**Settings → Game → Cheats** turns on the original developers' own cheat menu: click the Avatar to create
 items, cast any spell, set the time, jump ahead in the story.
 
 `u8tool U8 kit 9 from=1` writes a tester's save in slot 9 from save 1: the Avatar at its best,
@@ -285,7 +303,7 @@ Come talk about the project, report bugs or share screenshots on the
 
 While Discord is running, your profile shows where you are ("In Tenebrae"), what you're doing
 (exploring, in combat, talking, reading...), health and mana, and how long you've played. Turn it
-off in Options → Discord status. It only talks to the Discord app on your own computer.
+off in Settings → Game → Discord status. It only talks to the Discord app on your own computer.
 
 ## Building from source
 

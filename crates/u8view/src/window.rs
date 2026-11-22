@@ -103,6 +103,20 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
+                if let Some(p) = &mut self.panel {
+                    // The settings have the keyboard (and full screen and quit still work).
+                    // (Held keys repeat only to move about: a held F1 or Esc doesn't close it.)
+                    use winit::keyboard::KeyCode as K;
+                    let moves = matches!(k, K::ArrowUp | K::ArrowDown | K::ArrowLeft | K::ArrowRight);
+                    let out = if event.repeat && !moves { None } else { p.key(k, self.mods.shift) };
+                    if out.is_none() && !event.repeat {
+                        if let Some(c @ (Command::Quit | Command::Fullscreen)) = input::bind(k, self.mods) {
+                            self.command(c);
+                        }
+                    }
+                    self.panel_out(out);
+                    return;
+                }
                 if let Some(m) = self.menu.as_mut().filter(|m| m.is_open()) {
                     // The menu has the keyboard (typing a diary entry; Esc goes back; 1–8 pick).
                     let typing = m.typing();
@@ -153,6 +167,16 @@ impl ApplicationHandler for App {
                     self.dirty = true;
                 }
                 self.moved_to((p.x, p.y));
+            }
+            WindowEvent::MouseWheel { delta, .. } if self.panel.is_some() => {
+                let y = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => y,
+                    winit::event::MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
+                };
+                if let (Some(p), true) = (&mut self.panel, y != 0.0) {
+                    p.wheel(if y > 0.0 { -1 } else { 1 }); // (up the list as the wheel goes up)
+                    self.dirty = true;
+                }
             }
             WindowEvent::MouseWheel { delta, .. } if !self.menu_open() => {
                 // Zoom the world: a notch a step (touchpads: by how far they scrolled).

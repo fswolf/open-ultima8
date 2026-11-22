@@ -1,5 +1,5 @@
 //! The game menu (the original's book) as the app drives it: opening pages, acting on choices,
-//! the options and the settings file they're kept in, and the credits and quotes.
+//! the settings panel and the settings file it's kept in, and the credits and quotes.
 use super::*;
 
 impl App {
@@ -98,6 +98,7 @@ impl App {
 
     pub(super) fn menu_open(&self) -> bool {
         self.menu.as_ref().is_some_and(|m| m.is_open())
+            || self.panel.is_some()
             || self.roll.is_some()
             || self.film.is_some()
             || self.slider.is_some()
@@ -142,7 +143,11 @@ impl App {
             (Some(m), Some(_)) => m.open(page),
             _ => self.notice("The menu art (STATIC/U8GUMPS.FLX) is missing."),
         }
-        // Nothing carries on underneath: no held keys or buttons, no walking.
+        self.let_go_of_everything();
+    }
+
+    /// Nothing carries on under a menu: no held keys or buttons, no walking.
+    fn let_go_of_everything(&mut self) {
         self.held.clear();
         self.pad.stop();
         (self.press, self.pan, self.left, self.right, self.dragging, self.step_until) =
@@ -150,47 +155,184 @@ impl App {
         self.dirty = true;
     }
 
-    /// The options page's lines, with current values.
-    pub(super) fn option_lines(&self) -> Vec<(menu::Setting, String)> {
-        use menu::Setting::*;
-        let v = &self.view;
-        let on = |b: bool| if b { "on" } else { "off" };
-        #[allow(unused_mut)]
-        let mut audio = (false, false, 0.0f32, 0.0f32);
-        #[cfg(feature = "audio")]
-        if let Some(a) = &self.audio {
-            audio = (a.music_on(), a.sfx_on, a.volume, a.ambience);
+    /// Open the settings panel (`from_menu`: the book's Options, which it goes back to); F1
+    /// again puts it away.
+    pub(super) fn open_settings(&mut self, from_menu: bool) {
+        if self.panel.is_some() {
+            return self.close_settings();
         }
-        let classic = self.ui.as_ref().is_some_and(|u| u.style == ui::Style::Classic);
-        #[allow(unused_mut)]
-        let mut lines = vec![
-            (Upscaler, format!("Look: {}", v.mode.name())),
-            (Scale, format!("Interface: x{}", v.scale)),
-            (TextStyle, format!("Replies: {}", if classic { "classic" } else { "numbered" })),
-            (Music, format!("Music: {}", on(audio.0))),
-            (Effects, format!("Sound effects: {}", on(audio.1))),
-            (Volume, format!("Music volume: {} of 10", (audio.2 * 10.0).round())), // the fonts have no % or /
-            (Ambience, format!("Ambience: {} of 10", (audio.3 * 10.0).round())),   // fires, drips, fountains
-            (Cutaway, format!("See inside: {}", on(v.cutaway))),
-            (SmoothCamera, format!("Smooth camera: {}", on(v.smooth))),
-            (Fullscreen, format!("Full screen: {}", on(self.fullscreen))),
-            (Buttons, format!("Mouse: {}", if self.swapped { "left-handed" } else { "right-handed" })),
-            (Cheats, format!("Cheats: {}", on(self.cheats))),
-            (Discord, format!("Discord status: {}", on(self.discord))),
-            (TouchButtons, format!("Touch buttons: {}", on(self.touch.buttons))),
-        ];
-        #[cfg(feature = "gamepad")]
-        lines.extend([
-            (Pad, format!("Controller: {}", on(self.pad.on))),
-            (PadSpeed, format!("Pointer speed: {} of 10", (self.pad.speed * 10.0).round())),
-            (Deadzone, format!("Dead zone: {} of 10", (self.pad.deadzone * 10.0).round())),
-            (SwapSticks, format!("Walk with: {} stick", if self.pad.swap { "right" } else { "left" })),
-        ]);
-        lines
+        if let Some(m) = &mut self.menu {
+            m.close();
+        }
+        self.let_go_of_everything();
+        let mut p = panel::Panel::new(from_menu);
+        p.set_tab(self.panel_tab); // (where it was last time)
+        self.panel = Some(p);
+        self.refresh_panel();
+    }
+
+    pub(super) fn close_settings(&mut self) {
+        let Some(p) = self.panel.take() else { return };
+        self.panel_tab = p.tab;
+        if p.from_menu {
+            self.open_menu(menu::Page::Main);
+        }
+        self.dirty = true;
+    }
+
+    /// What the panel did.
+    pub(super) fn panel_out(&mut self, out: Option<panel::Out>) {
+        match out {
+            Some(panel::Out::Close) => self.close_settings(),
+            Some(panel::Out::Change(s, d, wrap)) => self.change_setting(s, d, wrap),
+            None => {}
+        }
+        self.refresh_panel();
+        self.dirty = true;
+    }
+
+    /// The panel's rows for its tab, with their values now.
+    pub(super) fn refresh_panel(&mut self) {
+        let Some(tab) = self.panel.as_ref().map(|p| p.tab) else { return };
+        let rows = panel::ON_TAB
+            .get(tab)
+            .map(|t| t.iter().filter_map(|&s| self.setting_row(s).map(|(l, v)| (s, l.to_string(), v))).collect())
+            .unwrap_or_default();
+        if let Some(p) = &mut self.panel {
+            p.rows = rows;
+        }
+    }
+
+    /// A setting's label and value (None: not in this build).
+    fn setting_row(&self, s: panel::Setting) -> Option<(&'static str, String)> {
+        use panel::Setting::*;
+        let v = &self.view;
+        let on = |b: bool| if b { "on" } else { "off" }.to_string();
+        let tenths = |f: f32| format!("{}%", (f * 10.0).round() * 10.0);
+        #[cfg(feature = "audio")]
+        let audio = self.audio.as_ref();
+        #[cfg(not(feature = "audio"))]
+        let audio: Option<&()> = None;
+        let pad = cfg!(feature = "gamepad").then_some(&self.pad);
+        Some(match s {
+            Upscaler => ("Look", v.mode.name().into()),
+            Scale => ("Interface size", format!("x{}{}", v.scale, if self.auto_scale { " (auto)" } else { "" })),
+            Zoom => ("Zoom", format!("x{}", (v.zoom_to * 100.0).round() / 100.0)),
+            Fullscreen => ("Full screen", on(self.fullscreen)),
+            Brightness => ("Brightness", format!("{:.1}", v.gamma)),
+            ColourFix => ("Colour fix", on(v.colour_fix)),
+            SmoothCamera => ("Smooth camera", on(v.smooth)),
+            FrameTime => ("Frame time in the title", on(v.stats)),
+            #[cfg(feature = "audio")]
+            Music => ("Music", on(audio?.music_on())),
+            #[cfg(feature = "audio")]
+            Volume => ("Music volume", tenths(audio?.volume)),
+            #[cfg(feature = "audio")]
+            Song => {
+                let a = audio?;
+                ("Song", a.current.and_then(|i| a.songs.get(i)).map_or("none".into(), |s| s.name.clone()))
+            }
+            #[cfg(feature = "audio")]
+            Effects => ("Sound effects", on(audio?.sfx_on)),
+            #[cfg(feature = "audio")]
+            Ambience => ("Background sounds", tenths(audio?.ambience)),
+            #[cfg(not(feature = "audio"))]
+            Music | Volume | Song | Effects | Ambience => {
+                audio?;
+                return None;
+            }
+            Buttons => ("Mouse buttons", if self.swapped { "left-handed" } else { "right-handed" }.into()),
+            Pad => ("Controller", on(pad?.on)),
+            PadSpeed => ("Pointer speed", tenths(pad?.speed)),
+            Deadzone => ("Stick dead zone", tenths(pad?.deadzone)),
+            SwapSticks => ("Walk with", if pad?.swap { "right stick" } else { "left stick" }.into()),
+            TouchButtons => ("Touch screen buttons", on(self.touch.buttons)),
+            TextStyle => {
+                let classic = self.ui.as_ref().is_some_and(|u| u.style == ui::Style::Classic);
+                ("Replies", if classic { "classic" } else { "numbered" }.into())
+            }
+            Cutaway => ("See inside buildings", on(v.cutaway)),
+            Roofs => ("Roofs", if v.opts.roofs { "shown" } else { "hidden" }.into()),
+            Follow => ("Camera", if v.follow { "on the Avatar" } else { "free" }.into()),
+            Cheats => ("Cheats", on(self.cheats)),
+            Discord => ("Discord status", on(self.discord)),
+            Editor => ("Editor view", on(v.opts.editor)),
+        })
+    }
+
+    /// Change a setting by `d` steps; `wrap`: past either end goes round (else it stops there).
+    pub(super) fn change_setting(&mut self, s: panel::Setting, d: i32, wrap: bool) {
+        use panel::Setting::*;
+        // A value stepped by `d`, kept to lo..=hi or taken round.
+        let by = |v: f32, step: f32, lo: f32, hi: f32| {
+            let n = ((hi - lo) / step).round() as i32 + 1;
+            let i = ((v - lo) / step).round() as i32 + d;
+            let i = if wrap { i.rem_euclid(n) } else { i.clamp(0, n - 1) };
+            lo + i as f32 * step
+        };
+        let flip = |b: &mut bool| *b = !*b;
+        let v = &mut self.view;
+        match s {
+            Upscaler => v.mode = v.mode.step(d),
+            Scale => {
+                v.scale = by(v.scale as f32, 1.0, 1.0, MAX_SCALE as f32) as u32;
+                self.auto_scale = false; // (chosen now: kept)
+            }
+            Zoom => self.zoom_by(d as f32),
+            Fullscreen => self.command(Command::Fullscreen),
+            Brightness => v.gamma = (by(v.gamma, 0.1, 0.3, 3.0) * 10.0).round() / 10.0,
+            ColourFix => flip(&mut v.colour_fix),
+            SmoothCamera => flip(&mut v.smooth),
+            FrameTime => flip(&mut v.stats),
+            Music => self.command(Command::MusicToggle),
+            Effects => self.command(Command::SfxToggle),
+            Song => self.command(if d < 0 { Command::MusicPrev } else { Command::MusicNext }),
+            Volume | Ambience =>
+            {
+                #[cfg(feature = "audio")]
+                if let Some(a) = &mut self.audio {
+                    match s {
+                        Volume => a.change_volume(by(a.volume, 0.1, 0.0, 1.0) - a.volume),
+                        _ => a.set_ambience(by(a.ambience, 0.1, 0.0, 1.0)),
+                    }
+                }
+            }
+            Buttons => flip(&mut self.swapped),
+            Pad | PadSpeed | Deadzone | SwapSticks => {
+                let p = &mut self.pad;
+                match s {
+                    Pad => flip(&mut p.on),
+                    PadSpeed => p.speed = by(p.speed, 0.1, 0.1, 1.0),
+                    Deadzone => p.deadzone = by(p.deadzone, 0.1, 0.1, 0.4),
+                    _ => flip(&mut p.swap),
+                }
+                if self.owner == crate::Owner::Pad {
+                    self.owner = crate::Owner::Mouse;
+                }
+            }
+            TouchButtons => flip(&mut self.touch.buttons),
+            TextStyle => {
+                if let Some(ui) = &mut self.ui {
+                    ui.toggle_style();
+                }
+            }
+            Cutaway => flip(&mut v.cutaway),
+            Roofs => flip(&mut v.opts.roofs),
+            Follow => self.command(Command::ToggleFollow),
+            Editor => self.command(Command::ToggleEditor),
+            Cheats => {
+                self.cheats = !self.cheats;
+                self.apply_cheats();
+                self.notice(if self.cheats { "Cheats on: click the Avatar." } else { "Cheats off." });
+            }
+            Discord => flip(&mut self.discord),
+        }
+        self.keep_settings();
+        self.dirty = true;
     }
 
     pub(super) fn menu_action(&mut self, a: menu::Action, el: &ActiveEventLoop) {
-        use menu::{Action, Setting};
+        use menu::Action;
         let close = |app: &mut Self| {
             if let Some(m) = &mut app.menu {
                 m.close();
@@ -213,76 +355,7 @@ impl App {
                 close(self);
                 self.load(slot);
             }
-            Action::Change(s) => {
-                let c = match s {
-                    Setting::Upscaler => Command::CycleUpscaler,
-                    Setting::Scale => {
-                        self.view.scale = self.view.scale % MAX_SCALE + 1;
-                        self.auto_scale = false; // (chosen now: kept)
-                        Command::Recentre
-                    }
-                    Setting::TextStyle => Command::ToggleTextStyle,
-                    Setting::Music => Command::MusicToggle,
-                    Setting::Effects => Command::SfxToggle,
-                    Setting::Volume => {
-                        #[cfg(feature = "audio")]
-                        if let Some(a) = &mut self.audio {
-                            let v = if a.volume > 0.95 { 0.0 } else { a.volume + 0.1 };
-                            a.change_volume(v - a.volume);
-                        }
-                        Command::Recentre
-                    }
-                    Setting::Ambience => {
-                        #[cfg(feature = "audio")]
-                        if let Some(a) = &mut self.audio {
-                            a.set_ambience(if a.ambience > 0.95 { 0.0 } else { a.ambience + 0.1 });
-                        }
-                        Command::Recentre
-                    }
-                    Setting::Cutaway => Command::ToggleCutaway,
-                    Setting::SmoothCamera => {
-                        self.view.smooth = !self.view.smooth;
-                        Command::Recentre
-                    }
-                    Setting::Fullscreen => Command::Fullscreen,
-                    Setting::Buttons => Command::SwapButtons,
-                    Setting::Cheats => {
-                        self.cheats = !self.cheats;
-                        self.apply_cheats();
-                        self.notice(if self.cheats { "Cheats on: click the Avatar." } else { "Cheats off." });
-                        Command::Recentre
-                    }
-                    Setting::Discord => {
-                        self.discord = !self.discord;
-                        Command::Recentre
-                    }
-                    Setting::Pad | Setting::PadSpeed | Setting::Deadzone | Setting::SwapSticks => {
-                        let p = &mut self.pad;
-                        let next = |v: f32, lo: f32, hi: f32| {
-                            if v > hi - 0.05 {
-                                lo
-                            } else {
-                                ((v * 10.0).round() + 1.0) / 10.0
-                            }
-                        };
-                        match s {
-                            Setting::Pad => p.on = !p.on,
-                            Setting::PadSpeed => p.speed = next(p.speed, 0.1, 1.0),
-                            Setting::Deadzone => p.deadzone = next(p.deadzone, 0.1, 0.4),
-                            _ => p.swap = !p.swap,
-                        }
-                        if self.owner == crate::Owner::Pad {
-                            self.owner = crate::Owner::Mouse;
-                        }
-                        Command::Recentre
-                    }
-                    Setting::TouchButtons => {
-                        self.touch.buttons = !self.touch.buttons;
-                        Command::Recentre
-                    }
-                };
-                self.command(c);
-            }
+            Action::Settings => self.open_settings(true),
         }
         self.keep_settings();
         self.dirty = true;

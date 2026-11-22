@@ -483,6 +483,23 @@ impl crate::App {
             }
             return;
         }
+        if let Some(p) = &mut self.panel {
+            // The settings: the D-pad moves and changes, A goes on round, the shoulders switch
+            // tabs, B, Start and Back put it away.
+            let k = match b {
+                Btn::DUp => KeyCode::ArrowUp,
+                Btn::DDown => KeyCode::ArrowDown,
+                Btn::DLeft => KeyCode::ArrowLeft,
+                Btn::DRight => KeyCode::ArrowRight,
+                Btn::A => KeyCode::Enter,
+                Btn::LB => KeyCode::PageUp,
+                Btn::RB => KeyCode::PageDown,
+                Btn::B | Btn::Start | Btn::Back => KeyCode::Escape,
+                _ => return,
+            };
+            let out = p.key(k, false);
+            return self.panel_out(out);
+        }
         if self.menu_open() {
             if let Some(n) = nav {
                 self.pad_menu(n, el);

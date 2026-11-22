@@ -331,8 +331,9 @@ impl App {
             || self.menu_open();
         if self.dirty {
             let t0 = Instant::now();
-            // (Pages to read are drawn at the window's resolution, so their type is crisp.)
-            let reading = self.ui.as_ref().is_some_and(|u| u.reading());
+            // (Pages to read and the settings are drawn at the window's resolution, so their type
+            // is crisp.)
+            let reading = self.ui.as_ref().is_some_and(|u| u.reading()) || self.panel.is_some();
             let ui_ss = if xbrz || reading { s } else { 1 };
             let up = |smooth: bool| -> u8render::Upscaler {
                 if smooth {
@@ -359,12 +360,6 @@ impl App {
             let (vw, vh) = self.view_size();
             let (ow, oh) = if overlay_used { (vw * ui_ss, vh * ui_ss) } else { (1, 1) };
             self.overlay.resize((ow * oh * 4) as usize, 0);
-            if self.menu_open() && self.menu.is_some() {
-                let lines = self.option_lines();
-                if let Some(m) = &mut self.menu {
-                    m.options = lines;
-                }
-            }
             let (mouse, buttons_up) = (self.mouse_game(), self.touch_buttons_up());
             // Where things on the map are on the overlay (speech goes over the speaker).
             let ((ox, oy), _) = self.world_view();
@@ -458,6 +453,12 @@ impl App {
                     let img = ui.text(0, name, &self.game.data.palette);
                     let (x, y) = (r[0] + (r[2] - img.w as i32) / 2, r[1] + (r[3] - img.h as i32) / 2);
                     text::draw_plain(&mut canvas, ui_ss, &img, x, y);
+                }
+            }
+            if let Some(p) = &mut self.panel {
+                p.draw(&mut canvas, ui_ss, (vw, vh));
+                if let Some(ui) = &mut self.ui {
+                    ui.draw_notices(&mut canvas, ui_ss, vw); // ("Cheats on" and the like)
                 }
             }
             // The pad's pointer, over everything (the system's cursor is hidden meanwhile).

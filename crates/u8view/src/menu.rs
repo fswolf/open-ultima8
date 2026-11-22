@@ -1,5 +1,6 @@
 //! The game's book menus, drawn with the original's art from U8GUMPS.FLX: the main menu (Esc),
-//! the diary for saving and loading (J), the options page, and the quit question (Alt-X).
+//! the diary for saving and loading (J), and the quit question (Alt-X). Its Options entry opens
+//! the settings panel.
 use crate::art::GumpArt;
 use crate::credits::Roll;
 use std::collections::HashMap;
@@ -29,10 +30,6 @@ const LIT_FONT: usize = 6;
 /// Diary slots: the eleven the original's diary has descriptions for, and the quick save.
 const SLOTS: [u32; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, QUICK_SLOT];
 const SLOT_H: i32 = 19;
-/// An options line's text is about this tall (the last line has to fit above the page's foot).
-const OPTION_H: i32 = 10;
-/// Options on the right-hand page; any more go on the left, under the heading.
-const OPTIONS_RIGHT: usize = 13;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Diary {
@@ -44,7 +41,6 @@ pub enum Diary {
 pub enum Page {
     Main,
     Diary(Diary),
-    Options,
     /// A new game asks for the Avatar's name ("Give thy name:").
     Name,
     /// "Quit the game?" with Yes and No (U8GUMPS 17, 18, 47, 50).
@@ -59,34 +55,6 @@ const QUIT_YES: u32 = 47;
 const QUIT_NO: u32 = 50;
 const QUIT_BUTTONS: (i32, i32) = (18, 41);
 
-/// The options page's lines; the viewer supplies their current values.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(feature = "gamepad"), allow(dead_code))]
-pub enum Setting {
-    Upscaler,
-    Scale,
-    TextStyle,
-    Music,
-    Effects,
-    Volume,
-    /// Background sounds' level (fires, drips, fountains).
-    Ambience,
-    Cutaway,
-    /// The view easing up and down (ours).
-    SmoothCamera,
-    Fullscreen,
-    Buttons,
-    Cheats,
-    Discord,
-    /// A game controller: in use, its pointer's speed, its sticks' dead zone, which stick walks.
-    Pad,
-    PadSpeed,
-    Deadzone,
-    SwapSticks,
-    /// The buttons a touch screen shows on the right edge.
-    TouchButtons,
-}
-
 /// What the player chose.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -97,7 +65,8 @@ pub enum Action {
         desc: String,
     },
     Load(u32),
-    Change(Setting),
+    /// The book's Options: the settings panel.
+    Settings,
     Name(String),
     /// Roll the credits or the quotes.
     Roll(Roll),
@@ -110,7 +79,6 @@ enum Hit {
     Entry(u32),
     Tab(Diary),
     Slot(u32),
-    Option(Setting),
     Yes,
     No,
 }
@@ -131,7 +99,6 @@ pub struct Menu {
     slots: Vec<SlotInfo>,
     /// Typing a description for this slot (Write Diary).
     edit: Option<(u32, String)>,
-    pub options: Vec<(Setting, String)>,
     root: PathBuf,
     /// The quit question came from the main menu (No goes back there, not out).
     quit_from_menu: bool,
@@ -156,7 +123,6 @@ impl Menu {
             hover: None,
             slots: vec![],
             edit: None,
-            options: vec![],
             root: root.to_path_buf(),
             quit_from_menu: false,
             stay: false,
@@ -293,7 +259,6 @@ impl Menu {
                 self.edit = Some((slot, old.filter(|d| d != "(no name)").unwrap_or_default()));
                 None
             }
-            (Hit::Option(s), _) => Some(Action::Change(s)),
             (Hit::Yes, _) => Some(Action::Quit),
             (Hit::No, _) => {
                 self.back();
@@ -308,7 +273,7 @@ impl Menu {
         match k {
             1 => self.open(Page::Diary(Diary::Read)),
             2 => self.open(Page::Diary(Diary::Write)),
-            3 => self.open(Page::Options),
+            3 => return Some(Action::Settings),
             5 => self.open(Page::Quit),
             0 => return Some(Action::Film(crate::films::Which::Intro)),
             4 => return Some(Action::Roll(Roll::Credits)),
@@ -468,28 +433,6 @@ impl Menu {
                 let typed = self.label(LIT_FONT, &name);
                 text::draw_plain(canvas, ss, &typed, r[0] + 4, r[1] + 6 + ask.h as i32 + 2);
             }
-            Page::Options => {
-                art.draw(canvas, ENTRIES, 7, l[0] + 4, l[1]);
-                // The right-hand page first; what doesn't fit there goes under the heading on the
-                // left (in place of the logo).
-                let options = self.options.clone();
-                let (right, left) = options.split_at(options.len().min(OPTIONS_RIGHT));
-                if left.is_empty() {
-                    art.draw(canvas, LOGO, 0, l[0] + (LEFT[2] - 99) / 2, l[1] + 24);
-                }
-                let top = [(r, 4, RIGHT[3] - 4), (l, 20, LEFT[3] - 20)];
-                for ((page, lines), (at, from, room)) in [right, left].into_iter().enumerate().zip(top) {
-                    // Lines 14 apart, closer if that's what it takes to stay on the page.
-                    let step = ((room - OPTION_H) / lines.len().max(1) as i32).min(14);
-                    for (i, (s, v)) in lines.iter().enumerate() {
-                        let h = Hit::Option(*s);
-                        let img = self.label(if lit(h) { LIT_FONT } else { TEXT_FONT }, v);
-                        let (x, y) = (at[0] + 4, at[1] + from + i as i32 * step);
-                        text::draw_plain(canvas, ss, &img, x, y);
-                        hits.push(([x, y, [RIGHT[2], LEFT[2]][page] - 4, step], h));
-                    }
-                }
-            }
             Page::Quit => {} // drawn on its own (above)
         }
         self.hits = hits;
@@ -557,52 +500,17 @@ mod tests {
         assert!(book.iter().any(|&c| c > 100), "the book is still there behind it: {book:?}");
     }
 
-    /// Every option stays on the page, however many there are (past the right-hand page's share,
-    /// on the left). With `U8_SHOTS` set, the page is written there as PPM.
+    /// The book's fourth entry opens the settings panel.
     #[test]
     #[ignore]
-    fn options_stay_on_the_page() {
+    fn options_open_the_settings() {
         let Ok(dir) = std::env::var("U8_DATA") else { return };
         let root = PathBuf::from(dir);
         let pal =
             Palette::parse(&std::fs::read(u8data::find_file(&root, "STATIC/U8PAL.PAL").unwrap()).unwrap()).unwrap();
-        let (mut m, mut art) = (Menu::load(&root, &pal).unwrap(), GumpArt::load(&root, &pal).unwrap());
-        m.open(Page::Options);
-        use Setting::*;
-        let all = [Upscaler, Scale, TextStyle, Music, Effects, Volume, Ambience, Cutaway, SmoothCamera, Fullscreen]
-            .into_iter()
-            .chain([Buttons, Cheats, Discord, TouchButtons, Pad, PadSpeed, Deadzone, SwapSticks]);
-        m.options = all.enumerate().map(|(k, s)| (s, format!("Music volume: {k} of 10"))).collect();
-        // (How far down the letters reach, descenders included.)
-        let ink = |img: &TextImage| {
-            (0..img.h).rev().find(|&y| (0..img.w).any(|x| img.rgba[((y * img.w + x) * 4 + 3) as usize] > 0))
-        };
-        let deepest = m
-            .options
-            .iter()
-            .flat_map(|(_, t)| [m.label(LIT_FONT, t), m.label(TEXT_FONT, t)])
-            .filter_map(|i| ink(&i))
-            .max();
-        assert!((deepest.unwrap() as i32) < OPTION_H, "letters reach {deepest:?}");
-        let mut px = vec![0u8; 320 * 200 * 4];
-        m.draw(&mut Canvas::new(&mut px, 320, 200), &mut art, (320, 200));
-        let foot = (200 - 158) / 2 - BOOK_LIFT + RIGHT[1] + RIGHT[3];
-        assert_eq!(m.hits.len(), 18);
-        let left = m.hits.iter().filter(|h| h.0[0] < 160).count();
-        assert_eq!(left, 18 - OPTIONS_RIGHT, "the rest on the left page");
-        for (r, _) in &m.hits {
-            assert!(r[1] + OPTION_H <= foot, "a line ends at {}, the page at {foot}", r[1] + OPTION_H);
-        }
-        // The pad steps through them all and round.
-        m.step(1);
-        assert_eq!(m.accept(), Some(Action::Change(Upscaler)));
-        m.step(-1);
-        assert_eq!(m.accept(), Some(Action::Change(SwapSticks)), "back round to the last");
-        if let Ok(out) = std::env::var("U8_SHOTS") {
-            let mut ppm = b"P6 320 200 255\n".to_vec();
-            px.chunks(4).for_each(|p| ppm.extend(&p[..3]));
-            std::fs::write(format!("{out}/options.ppm"), ppm).unwrap();
-        }
+        let mut m = Menu::load(&root, &pal).unwrap();
+        m.open(Page::Main);
+        assert_eq!(m.key(KeyCode::Digit4, None), Some(Action::Settings));
     }
 
     /// A pad can't type: the name and a save's description come ready made, and A takes them.

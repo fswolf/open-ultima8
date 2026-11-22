@@ -426,6 +426,9 @@ impl App {
         if let Some(m) = self.menu.as_mut().filter(|m| m.is_open()) {
             self.dirty |= m.hover(gx, gy);
         }
+        if let Some(p) = &mut self.panel {
+            self.dirty |= p.hover(gx, gy);
+        }
     }
 
     /// A mouse button (or a finger, or the pad, as one), wherever it goes: the slider, a film, the
@@ -457,6 +460,20 @@ impl App {
                 self.end_film(); // skipped
             }
             return;
+        }
+        if self.panel.is_some() {
+            // The settings: a click works them, the other button puts them away.
+            if !down {
+                (self.left, self.right) = (false, false);
+                return;
+            }
+            let left = matches!((button, self.swapped), (MouseButton::Left, false) | (MouseButton::Right, true));
+            let (gx, gy) = self.mouse_game();
+            let out = match (left, &mut self.panel) {
+                (true, Some(p)) => p.click(gx, gy),
+                _ => Some(crate::panel::Out::Close),
+            };
+            return self.panel_out(out);
         }
         if self.menu_open() {
             if !down {
