@@ -451,7 +451,7 @@ impl Host for WorldHost<'_> {
         self.world.play(self.data, id, action, dir)
     }
     fn dir(&self, id: ObjId) -> u8 {
-        self.world.get(id).and_then(|it| avatar::facing(self.data, &it)).unwrap_or(4) as u8
+        self.world.facing(self.data, id).unwrap_or(4) as u8
     }
     fn anim_frame(&self, shape: u32, action: usize, dir: usize, step: usize) -> Option<(u32, bool, usize)> {
         let len = self.data.anims.get(shape, action)?.frames.get(dir)?.len();

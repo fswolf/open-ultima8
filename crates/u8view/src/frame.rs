@@ -503,32 +503,12 @@ impl App {
         );
     }
 
+    /// Just the name; F12 adds the frame time.
     pub(super) fn update_title(&mut self, win: &Window) {
-        let v = &self.view;
-        let pos =
-            self.game.world.get(AVATAR).map_or(String::new(), |it| format!(" — Avatar ({}, {}, {})", it.x, it.y, it.z));
-        #[cfg(feature = "audio")]
-        let song = self
-            .audio
-            .as_ref()
-            .map_or(String::new(), |m| format!(" — ♪ {}{}", m.name(), if m.sfx_on { "" } else { ", effects off" }));
-        #[cfg(not(feature = "audio"))]
-        let song = String::new();
-        let colour = match (v.colour_fix, v.gamma) {
-            (false, 1.0) => String::new(),
-            (fix, g) => format!(" — colour{} γ{g:.1}", if fix { " fix" } else { "" }),
-        };
-        let stats = if v.stats { format!(" — {:.1} ms/frame", self.frame_ms) } else { String::new() };
-        let title = format!(
-            "Open Ultima8 — map {} {:02}:{:02} — {} ×{:.1} — {}{}{pos}{colour}{song}{stats}",
-            self.game.map(),
-            self.game.minutes() / 60 % 24,
-            self.game.minutes() % 60,
-            v.mode.name(),
-            v.zoom_to,
-            if v.follow { "follow" } else { "free cam" },
-            if v.opts.max_z.is_some() { " — cutaway" } else { "" },
-        );
+        let mut title = String::from("Open Ultima8");
+        if self.view.stats {
+            title += &format!(" ({:.1} ms/frame)", self.frame_ms);
+        }
         if title != self.title {
             win.set_title(&title);
             self.title = title;

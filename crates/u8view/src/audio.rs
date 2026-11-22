@@ -329,10 +329,6 @@ impl Audio {
         }
     }
 
-    pub fn name(&self) -> &str {
-        self.current.and_then(|i| self.songs.get(i)).map_or("off", |s| s.name.as_str())
-    }
-
     // --- effects ---
 
     /// Start effect `sfx` (placed at `item` unless 0, at `at`: (volume, pan) where it is now, if

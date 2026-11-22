@@ -155,15 +155,17 @@ pub fn anim_frame(gd: &GameData, shape: u32, act: usize, dir: usize, step: usize
 /// Guess an actor's facing from its current frame (and whether it's mirrored: opposite facings
 /// share pictures) by finding it in the stand, walk, run, combat-stance or talk frames.
 pub fn facing(gd: &GameData, it: &Item) -> Option<usize> {
+    facing_by(gd, it, true).or_else(|| facing_by(gd, it, false))
+}
+
+/// [`facing`], with the mirror flag matched (`exact`) or not.
+pub fn facing_by(gd: &GameData, it: &Item, exact: bool) -> Option<usize> {
     let flip = it.flags & FLIPPED != 0;
-    let find = |exact: bool| {
-        [action::STAND, action::WALK, action::RUN, action::COMBAT_STAND, action::TALK].iter().find_map(|&act| {
-            gd.anims.get(it.shape, act)?.frames.iter().position(|d| {
-                d.iter().any(|f| f.frame == it.frame && (!exact || (f.flags & AnimFrame::FLIPPED != 0) == flip))
-            })
+    [action::STAND, action::WALK, action::RUN, action::COMBAT_STAND, action::TALK].iter().find_map(|&act| {
+        gd.anims.get(it.shape, act)?.frames.iter().position(|d| {
+            d.iter().any(|f| f.frame == it.frame && (!exact || (f.flags & AnimFrame::FLIPPED != 0) == flip))
         })
-    };
-    find(true).or_else(|| find(false))
+    })
 }
 
 fn show(it: &mut Item, (frame, flip): (u32, bool)) {

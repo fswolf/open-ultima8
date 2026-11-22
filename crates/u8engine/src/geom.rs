@@ -3,13 +3,28 @@
 /// U8 facings 0–7, clockwise from north (world −y): world (dx, dy) per direction.
 pub const DIRS: [(i32, i32); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
 
-/// Facing (0–7) that best points along (dx, dy); 0 for no offset.
+/// Facing (0–7) along (dx, dy), as the original works it out (DIST.C): a diagonal while one
+/// offset is within half to twice the other, else the larger axis; no offset gives 1.
 pub fn dir_towards(dx: i32, dy: i32) -> u8 {
-    if dx == 0 && dy == 0 {
-        return 0;
+    let (ax, ay) = (dx.abs(), dy.abs());
+    if ax / 2 <= ay && ay <= ax * 2 {
+        match (dx.signum(), dy.signum()) {
+            (-1, -1) => 7,
+            (1, 1) => 3,
+            (-1, 1) => 5,
+            _ => 1,
+        }
+    } else if ax * 2 <= ay {
+        if dy <= 0 {
+            0
+        } else {
+            4
+        }
+    } else if dx <= 0 {
+        6
+    } else {
+        2
     }
-    let ang = (dx as f64).atan2(-dy as f64).to_degrees();
-    ((((ang + 360.0 + 22.5) / 45.0) as u32) % 8) as u8
 }
 
 /// Axis-aligned world box. U8 anchors items at their bottom *front* corner (x, y, z); the box
@@ -55,5 +70,16 @@ mod tests {
         for (d, (dx, dy)) in DIRS.iter().enumerate() {
             assert_eq!(dir_towards(dx * 10, dy * 10) as usize, d);
         }
+    }
+
+    /// The original's edges: a diagonal from half to twice the other offset (Mordea, waking, turns
+    /// to the Avatar 28 west and 12 north of her bed: west, not north-west).
+    #[test]
+    fn diagonals_end_where_the_originals_do() {
+        assert_eq!(dir_towards(-28, -12), 6);
+        assert_eq!(dir_towards(-28, -14), 7);
+        assert_eq!(dir_towards(10, 21), 4);
+        assert_eq!(dir_towards(10, 20), 3);
+        assert_eq!(dir_towards(0, 0), 1);
     }
 }

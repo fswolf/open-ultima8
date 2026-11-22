@@ -491,3 +491,17 @@ fn mordea_woken_isnt_in_her_bed_too() {
     assert!(up > 30, "she got up ({up} ticks)");
     assert_eq!((g.world.get(bed).unwrap().frame, g.world.get(7).unwrap().z), (10, 0), "back in bed");
 }
+
+/// An actor keeps the way its last action faced, even on a frame no standing or walking has:
+/// Mordea, woken, lowers her hands facing east (CAST2, dir 2) before she's shown, and her turn
+/// to the Avatar starts from there (not from south, which made her spin round through her back).
+#[test]
+#[ignore]
+fn a_spell_pose_keeps_its_facing() {
+    use u8data::anim::action::CAST2;
+    let Some(mut g) = game(40) else { return };
+    g.world.play(&g.data, 7, CAST2, 2).expect("Mordea has the pose");
+    let it = g.world.get(7).unwrap();
+    assert_eq!(u8engine::avatar::facing(&g.data, &it), None, "(a frame the guess doesn't know)");
+    assert_eq!(g.world.facing(&g.data, 7), Some(2));
+}

@@ -86,7 +86,7 @@ pub fn snapshot<'a>(
                 map::store_npc_frame_high(d, npc as usize, e.it.frame);
                 map::store_npc_last_anim(d, npc as usize, w.last_anim(npc));
                 // The way they face (the DOS game takes it from here, not from the frame).
-                if let Some(dir) = crate::avatar::facing(gd, &e.it) {
+                if let Some(dir) = w.facing(gd, npc).or_else(|| crate::avatar::facing(gd, &e.it)) {
                     map::store_npc_dir(d, npc as usize, dir);
                 }
             }

@@ -194,6 +194,14 @@ impl World {
         self.first_step.contains(&id)
     }
 
+    /// The way `id` faces: as its frame shows it, or (a frame no walking or standing has, such
+    /// as a spell's) the way its last action went, as the original keeps it on the actor.
+    pub fn facing(&self, gd: &GameData, id: ObjId) -> Option<usize> {
+        let it = self.get(id)?;
+        let guess = |exact| crate::avatar::facing_by(gd, &it, exact);
+        guess(true).or_else(|| self.last_dir(id)).or_else(|| guess(false))
+    }
+
     /// The facing `id` last started an action in.
     pub fn last_dir(&self, id: ObjId) -> Option<usize> {
         self.last_dir.get(&id).copied()
