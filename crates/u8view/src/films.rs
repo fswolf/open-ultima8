@@ -19,9 +19,10 @@ pub enum Which {
 }
 
 impl Which {
+    /// Its file (`{}`: the language's letter, see [`u8data::lang`]).
     fn file(self) -> &'static str {
         match self {
-            Which::Intro => "STATIC/EINTRO.SKF",
+            Which::Intro => "STATIC/{}INTRO.SKF",
             Which::Endgame => "STATIC/ENDGAME.SKF",
         }
     }
@@ -47,7 +48,7 @@ pub struct Showing {
 impl App {
     /// Start a film; false (with a notice) if its file isn't there.
     pub(super) fn start_film(&mut self, which: Which, after: After) -> bool {
-        let skf = u8data::find_file(&self.root, which.file())
+        let skf = u8data::lang::file(&self.root, which.file())
             .ok()
             .and_then(|p| std::fs::read(p).ok())
             .and_then(|d| u8data::skf::Skf::parse(d).ok());

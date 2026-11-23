@@ -27,9 +27,10 @@ pub enum Roll {
 }
 
 impl Roll {
+    /// Its file (`{}`: the language's letter, see [`u8data::lang`]).
     pub fn file(self) -> &'static str {
         match self {
-            Roll::Credits => "STATIC/ECREDITS.DAT",
+            Roll::Credits => "STATIC/{}CREDITS.DAT",
             Roll::Quotes => "STATIC/QUOTES.DAT",
         }
     }
@@ -180,7 +181,12 @@ mod tests {
         let fonts = Fonts::parse(&u8data::flex::Flex::parse(read("STATIC/U8FONTS.FLX")).unwrap());
         let pal = Palette::parse(&read("STATIC/U8PAL.PAL")).unwrap();
         for roll in [Roll::Credits, Roll::Quotes] {
-            let mut s = Scroller::new(roll, &u8data::credits::decode(&read(roll.file())), &fonts, &pal);
+            let mut s = Scroller::new(
+                roll,
+                &u8data::credits::decode(&std::fs::read(u8data::lang::file(&root, roll.file()).unwrap()).unwrap()),
+                &fonts,
+                &pal,
+            );
             assert!(!s.titles.is_empty() && s.height > 1000, "{roll:?}: {} px", s.height);
             for (k, at) in [300.0f32, 900.0, 2400.0].iter().enumerate() {
                 s.offset = *at;

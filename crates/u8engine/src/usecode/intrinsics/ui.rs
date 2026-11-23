@@ -64,6 +64,6 @@ fn usecode_text(c: &Ctx, start: &[u8]) -> Option<String> {
         let d = c.usecode.class(k)?;
         let at = d.windows(start.len()).position(|w| w == start)?;
         let len = d[at..].iter().position(|&b| b == 0)?;
-        Some(String::from_utf8_lossy(&d[at..at + len]).into_owned())
+        Some(u8data::text::decode(&d[at..at + len]))
     })
 }

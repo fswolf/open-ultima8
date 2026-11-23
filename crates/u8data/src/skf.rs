@@ -94,7 +94,7 @@ impl Skf {
             }
             17 if d.len() > 6 => {
                 let text = d[6..].split(|&b| b == 0).next().unwrap_or_default();
-                Object::Subtitle { y: u16le(d, 4) as i32, text: String::from_utf8_lossy(text).into_owned() }
+                Object::Subtitle { y: u16le(d, 4) as i32, text: crate::text::decode(text) }
             }
             _ => Object::Other,
         }

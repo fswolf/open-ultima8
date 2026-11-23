@@ -135,7 +135,7 @@ pub fn write(root: &Path, slot: u32, desc: &str, save: &Save) -> Result<std::pat
         h.resize(h.len().max(HEADER_SLOT * HEADER_SLOTS as usize), 0);
         let rec = &mut h[slot as usize * HEADER_SLOT..(slot as usize + 1) * HEADER_SLOT];
         rec.fill(0);
-        let text = desc.as_bytes();
+        let text = &crate::text::encode(desc)[..];
         let n = text.len().min(HEADER_SLOT - 1);
         rec[..n].copy_from_slice(&text[..n]);
         std::fs::write(&hp, h)?;
@@ -156,7 +156,7 @@ pub fn list(root: &Path) -> Vec<(u32, String)> {
             let slot: u32 = name.strip_prefix("U8SAVE.")?.parse().ok()?;
             let text =
                 header.get(slot as usize * HEADER_SLOT..(slot as usize + 1) * HEADER_SLOT).map_or(String::new(), |s| {
-                    String::from_utf8_lossy(&s[..s.iter().position(|&b| b == 0).unwrap_or(s.len())]).into_owned()
+                    crate::text::decode(&s[..s.iter().position(|&b| b == 0).unwrap_or(s.len())])
                 });
             Some((slot, if slot == 0 && text.is_empty() { "new game".into() } else { text }))
         })
@@ -169,8 +169,9 @@ pub fn list(root: &Path) -> Vec<(u32, String)> {
 pub fn set_avatar_name(avatar_dat: &mut [u8], name: &str) {
     if let Some(field) = avatar_dat.get_mut(6..38) {
         field.fill(0);
+        let name = crate::text::encode(name);
         let n = name.len().min(31);
-        field[..n].copy_from_slice(&name.as_bytes()[..n]);
+        field[..n].copy_from_slice(&name[..n]);
     }
 }
 
@@ -179,5 +180,5 @@ pub fn avatar_name(avatar_dat: &[u8]) -> Option<String> {
     let s = avatar_dat.get(6..)?;
     let s = &s[..s.len().min(32)];
     let s = &s[..s.iter().position(|&b| b == 0).unwrap_or(s.len())];
-    (!s.is_empty()).then(|| String::from_utf8_lossy(s).into_owned())
+    (!s.is_empty()).then(|| crate::text::decode(s))
 }

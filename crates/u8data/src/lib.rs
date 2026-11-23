@@ -4,6 +4,7 @@ pub mod anim;
 pub mod credits;
 pub mod flex;
 pub mod font;
+pub mod lang;
 pub mod map;
 pub mod music;
 pub mod overlay;
@@ -12,6 +13,7 @@ pub mod save;
 pub mod shape;
 pub mod skf;
 pub mod sound;
+pub mod text;
 pub mod typeflag;
 pub mod usecode;
 pub mod weapons;
@@ -56,9 +58,10 @@ pub fn fixed_slot(root: &Path) -> Option<u32> {
     find_file(root, &format!("SAVEGAME/U8SAVE.{n:03}")).is_ok().then_some(n)
 }
 
-/// Load EUSECODE.FLX and the saved global flags (GAMEDAT/FLAG.DAT, if present).
+/// Load the scripts (EUSECODE.FLX, or a translation's: see [`lang`]) and the saved global flags
+/// (GAMEDAT/FLAG.DAT, if present).
 pub fn load_usecode(root: &Path) -> Result<(usecode::Usecode, Option<Vec<u8>>)> {
-    let uc = usecode::Usecode::new(flex::Flex::parse(std::fs::read(find_file(root, "USECODE/EUSECODE.FLX")?)?)?);
+    let uc = usecode::Usecode::new(flex::Flex::parse(std::fs::read(lang::file(root, "USECODE/{}USECODE.FLX")?)?)?);
     let flags = find_file(root, "GAMEDAT/FLAG.DAT").ok().and_then(|p| std::fs::read(p).ok());
     Ok((uc, flags))
 }

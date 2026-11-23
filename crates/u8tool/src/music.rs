@@ -33,10 +33,11 @@ fn sfx(a: &Args) -> Result<()> {
     Ok(())
 }
 
-/// `speech <shape> list` or `speech <shape> <n> [out.wav]` from SOUND/E<shape>.FLX.
+/// `speech <shape> list` or `speech <shape> <n> [out.wav]` from SOUND/E<shape>.FLX (or the
+/// language played's).
 fn speech(a: &Args) -> Result<()> {
     let shape: u32 = a.num(2, "44", "shape")?;
-    let flex = Flex::parse(std::fs::read(u8data::find_file(a.data(), &format!("SOUND/E{shape}.FLX"))?)?)?;
+    let flex = Flex::parse(std::fs::read(u8data::lang::file(a.data(), &format!("SOUND/{{}}{shape}.FLX"))?)?)?;
     let phrases = sound::phrases(&flex);
     let want = a.get(3, "list");
     if want == "list" {

@@ -5,7 +5,7 @@
 
 /// Unscramble a credits or quotes file into its lines.
 pub fn decode(d: &[u8]) -> Vec<String> {
-    let text: String = d
+    let plain: Vec<u8> = d
         .iter()
         .enumerate()
         .map(|(i, &c)| {
@@ -14,11 +14,11 @@ pub fn decode(d: &[u8]) -> Vec<String> {
                 2 => 0xE1,
                 _ => 0x20 * (i + 1) + (i >> 1) + (i % 0x40) * ((i & 0xC0) >> 6) * 0x40,
             };
-            // Latin-1 (the French and German quotes use DOS accented letters; shown as is).
-            (c ^ x as u8) as char
+            c ^ x as u8
         })
         .collect();
-    text.split('\0').map(|l| l.replace("%%", "%")).collect()
+    // (In the DOS character set: the French and German credits' accented letters.)
+    crate::text::decode(&plain).split('\0').map(|l| l.replace("%%", "%")).collect()
 }
 
 #[cfg(test)]

@@ -410,7 +410,7 @@ impl Audio {
             .speech
             .entry(shape)
             .or_insert_with(|| {
-                let bank = Bank::open(u8data::find_file(&data, &format!("SOUND/E{shape}.FLX")).ok())?;
+                let bank = Bank::open(u8data::lang::file(&data, &format!("SOUND/{{}}{shape}.FLX")).ok())?;
                 let phrases = sound::phrases(&bank.flex);
                 Some((bank, phrases))
             })

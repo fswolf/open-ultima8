@@ -154,6 +154,6 @@ pub fn names(f: &Flex) -> Vec<String> {
 /// Speech file text (entry 0): one phrase per audio entry, entry n + 1 speaks phrase n.
 pub fn phrases(f: &Flex) -> Vec<String> {
     f.get(0).map_or(vec![], |d| {
-        d.split(|&b| b == 0).map(|p| String::from_utf8_lossy(p).trim().to_string()).filter(|p| !p.is_empty()).collect()
+        d.split(|&b| b == 0).map(|p| crate::text::decode(p).trim().to_string()).filter(|p| !p.is_empty()).collect()
     })
 }

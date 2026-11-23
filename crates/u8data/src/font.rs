@@ -35,8 +35,9 @@ impl Fonts {
         }
     }
 
+    /// (Text is Unicode; the fonts have a glyph per game byte: see [`crate::text`].)
     pub fn width(&self, font: usize, s: &str) -> u32 {
-        s.bytes().map(|c| self.advance(font, c)).sum()
+        s.chars().map(|c| self.advance(font, crate::text::byte(c))).sum()
     }
 
     /// Greedy word wrap to `max_w` pixels.
@@ -89,7 +90,7 @@ impl Fonts {
         paging: bool,
         centre: bool,
     ) -> (Vec<String>, usize) {
-        let w = |s: &[u8]| s.iter().map(|&c| self.advance(font, c)).sum::<u32>();
+        let w = |s: &[u8]| self.width(font, &String::from_utf8_lossy(s));
         let page = (height > 0).then_some(height);
         typeset(text, w, (self.full_height(font), self.line_skip(font)), (width, page), paging, centre)
     }
@@ -105,7 +106,7 @@ impl Fonts {
         for (li, l) in lines.iter().enumerate() {
             let mut x = if centre { w.saturating_sub(self.width(font, l)) / 2 } else { 0 } as i32;
             let top = (li as u32 * skip) as i32 + base;
-            for c in l.bytes() {
+            for c in l.chars().map(crate::text::byte) {
                 if let Some(g) = self.glyph(font, c) {
                     for gy in 0..g.height as i32 {
                         for gx in 0..g.width as i32 {
@@ -149,7 +150,7 @@ impl Fonts {
         for (li, line) in lines.iter().enumerate() {
             let mut x = if centre { 1 + (w - 2 - self.width(font, line)) / 2 } else { 1 };
             let base = 1 + li as u32 * lh;
-            for c in line.bytes() {
+            for c in line.chars().map(crate::text::byte) {
                 if let Some(g) = self.glyph(font, c) {
                     for gy in 0..g.height {
                         for gx in 0..g.width {
@@ -235,10 +236,11 @@ pub fn typeset(
             continue;
         }
         if cur.is_empty() {
-            // A word wider than the line: as much as fits (at least a character).
-            let mut k = next + 1;
-            while k < end && width(&[&spaces[..], &t[next..k + 1]].concat()) <= max_w {
-                k += 1;
+            // A word wider than the line: as much as fits (at least a character; whole ones).
+            let step = |k: usize| k + text[k..].chars().next().map_or(1, char::len_utf8);
+            let mut k = step(next);
+            while k < end && width(&[&spaces[..], &t[next..step(k)]].concat()) <= max_w {
+                k = step(k);
             }
             cur = [&spaces[..], &t[next..k]].concat();
             i = k;
@@ -264,6 +266,14 @@ mod tests {
 
     fn set(text: &str, w: u32, h: u32, paging: bool) -> (Vec<String>, usize) {
         fonts().typeset(9, text, w, h, paging, false)
+    }
+
+    /// A translation's letters are one glyph each (the font's for their DOS byte), and a word
+    /// broken across lines breaks between letters.
+    #[test]
+    fn translated_letters_are_one_glyph_each() {
+        assert_eq!(fonts().width(9, "Grüße"), 25);
+        assert_eq!(set("Größenwahnsinnigkeit", 30, 0, false).0, ["Größen", "wahnsi", "nnigke", "it"]);
     }
 
     #[test]

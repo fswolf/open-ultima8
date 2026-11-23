@@ -37,6 +37,8 @@ pub enum Setting {
     Cheats,
     Discord,
     Editor,
+    /// The language played in (a translated install's, or English).
+    Language,
 }
 
 /// The tabs, and the settings on each (the last tab lists the controls).
@@ -47,7 +49,7 @@ pub const ON_TAB: [&[Setting]; 4] = {
         &[Upscaler, Scale, Zoom, Fullscreen, Brightness, ColourFix, SmoothCamera, FrameTime],
         &[Music, Volume, Song, Effects, Ambience],
         &[Buttons, Pad, PadSpeed, Deadzone, SwapSticks, TouchButtons],
-        &[TextStyle, Cutaway, Roofs, Follow, Cheats, Discord, Editor],
+        &[TextStyle, Cutaway, Roofs, Follow, Cheats, Discord, Editor, Language],
     ]
 };
 const KEYS_TAB: usize = 4;
@@ -407,7 +409,7 @@ mod tests {
         for (i, s) in all.iter().enumerate() {
             assert!(!all[i + 1..].contains(s), "{s:?} twice");
         }
-        assert_eq!(all.len(), 26);
+        assert_eq!(all.len(), 27);
     }
 
     /// The keys: up and down choose, left and right change (stopping at the ends), Enter goes on

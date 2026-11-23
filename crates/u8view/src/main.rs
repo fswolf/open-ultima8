@@ -433,6 +433,7 @@ fn start() -> Result<()> {
     };
     let data = find_data(a.first())?;
     let map = a.get(1).map(|s| s.parse().map_err(|_| anyhow!("map must be a number, got {s:?}"))).transpose()?;
+    u8data::lang::prefer(settings::Settings::load().language.chars().next());
     let game = Game::open(&data, save, map).map_err(|e| anyhow!(e))?;
     let el = EventLoop::new()?;
     el.set_control_flow(ControlFlow::Wait);

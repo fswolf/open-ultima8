@@ -17,7 +17,10 @@ u8cmp                            test harness: headless play, saves in and out, 
 ## u8data: formats
 
 One module per file type: `flex` (archives), `palette`, `shape` (RLE frames), `typeflag` (shape
-properties), `map` (FIXED/NONFIXED/ITEMCACH items, globs), `anim` (ANIM.DAT), `font`, `music`
+properties), `map` (FIXED/NONFIXED/ITEMCACH items, globs), `anim` (ANIM.DAT), `font`, `text` (the
+game's text is DOS code page 437: decoded to Unicode where it's read, back to a byte per glyph
+in the fonts), `lang` (which translation is played, and `lang::file` for files named by its
+letter, falling back to English), `music`
 (XMIDI, plus the SoundFont `Sequencer` behind the `synth` feature), `sound` (Sonarc-compressed
 effects and speech), `save` (SAVEGAME bundles, read and written; `GameData::load_save` takes the
 game state from one instead of GAMEDAT and keeps its files in `GameData::state`), `usecode`

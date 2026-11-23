@@ -91,6 +91,11 @@ the usual system places are searched (Fedora: `sudo dnf install fluid-soundfont-
 `$U8_SOUNDFONT` points at one anywhere. Without one the game says so and plays without music;
 sound effects and voices need nothing extra.
 
+**Other languages.** A German, French or Spanish install plays in its own language: its
+scripts (all the words), the intro's subtitles, the credits and its speech, wherever it has
+them. With more than one language installed, Settings → Game → Language picks (from the next
+start).
+
 ### Steam Deck and ROG Ally
 
 > [!TIP]

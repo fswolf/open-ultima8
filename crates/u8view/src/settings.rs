@@ -40,6 +40,9 @@ pub struct Settings {
     pub swap_sticks: bool,
     /// Buttons on the screen's edge once it's been touched.
     pub touch_buttons: bool,
+    /// The language to play in, by its files' letter (empty: the install's own; see
+    /// `u8data::lang`). Takes effect at the next start.
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -68,6 +71,7 @@ impl Default for Settings {
             pad_deadzone: 0.2,
             swap_sticks: false,
             touch_buttons: true,
+            language: String::new(),
         }
     }
 }
@@ -119,6 +123,7 @@ impl Settings {
                 "cheats" => s.cheats = on,
                 "discord" => s.discord = on,
                 "data" => s.data = v.to_string(),
+                "language" => s.language = v.chars().take(1).collect::<String>().to_ascii_uppercase(),
                 "finished" => s.finished = on,
                 "pad" => s.pad = on,
                 "pad_speed" => s.pad_speed = v.parse::<f32>().map_or(s.pad_speed, |x| x.clamp(0.1, 1.0)),
@@ -143,7 +148,7 @@ impl Settings {
             "# Open Ultima8 settings (written by the game; edit while it isn't running)\n\
              version = 2\nupscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nvolume = {:.1}\nambience = {:.1}\n\
              cutaway = {}\nsmooth_camera = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\n\
-             discord = {}\ndata = {}\nfinished = {}\npad = {}\npad_speed = {:.1}\npad_deadzone = {:.2}\nswap_sticks = {}\ntouch_buttons = {}\n",
+             discord = {}\ndata = {}\nfinished = {}\npad = {}\npad_speed = {:.1}\npad_deadzone = {:.2}\nswap_sticks = {}\ntouch_buttons = {}\nlanguage = {}\n",
             self.upscaler,
             self.scale,
             self.zoom,
@@ -166,7 +171,8 @@ impl Settings {
             self.pad_speed,
             self.pad_deadzone,
             self.swap_sticks,
-            self.touch_buttons
+            self.touch_buttons,
+            self.language
         )
     }
 
@@ -221,6 +227,7 @@ mod tests {
             pad_deadzone: 0.3,
             swap_sticks: true,
             touch_buttons: false,
+            language: "G".into(),
             ..Default::default()
         };
         assert_eq!(Settings::parse(&s.to_text()), s);

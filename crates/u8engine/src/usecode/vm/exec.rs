@@ -52,7 +52,7 @@ impl Vm {
                 0x0B => st.push(&a[..2])?,
                 0x0C => st.push(&a[..4])?,
                 0x0D => {
-                    let id = self.heap.new_string(String::from_utf8_lossy(&a[2..a.len() - 1]).into_owned());
+                    let id = self.heap.new_string(u8data::text::decode(&a[2..a.len() - 1]));
                     st.push2(id)?;
                 }
                 0x0E => {

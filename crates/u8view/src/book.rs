@@ -107,7 +107,7 @@ impl App {
 
     /// Roll the credits or the quotes (from the main menu), to their own music.
     pub(super) fn start_roll(&mut self, r: credits::Roll) {
-        let file = u8data::find_file(&self.root, r.file()).ok().and_then(|p| std::fs::read(p).ok());
+        let file = u8data::lang::file(&self.root, r.file()).ok().and_then(|p| std::fs::read(p).ok());
         let (Some(d), Some(m)) = (file, &mut self.menu) else {
             self.notice("The credits (STATIC/ECREDITS.DAT, QUOTES.DAT) are missing.");
             return;
@@ -264,6 +264,12 @@ impl App {
             Cheats => ("Cheats", on(self.cheats)),
             Discord => ("Discord status", on(self.discord)),
             Editor => ("Editor view", on(v.opts.editor)),
+            Language => {
+                let (now, next) = (u8data::lang::of(&self.root), self.settings.language.chars().next());
+                let next = next.filter(|c| u8data::lang::available(&self.root).contains(c)).unwrap_or(now);
+                let later = if next == now { "" } else { " (next start)" };
+                ("Language", format!("{}{later}", u8data::lang::name(next)))
+            }
         })
     }
 
@@ -333,6 +339,19 @@ impl App {
                 self.notice(if self.cheats { "Cheats on: click the Avatar." } else { "Cheats off." });
             }
             Discord => flip(&mut self.discord),
+            Language => {
+                // (The scripts are loaded at the start: it's the next start's language.)
+                let have = u8data::lang::available(&self.root);
+                let now = self.settings.language.chars().next().unwrap_or(u8data::lang::of(&self.root));
+                let at = have.iter().position(|&c| c == now).unwrap_or(0) as i32;
+                if let Some(&c) = have.get(((at + d).rem_euclid(have.len().max(1) as i32)) as usize) {
+                    self.settings.language = c.to_string();
+                    self.settings.save();
+                    if have.len() < 2 {
+                        self.notice("Only English is installed.");
+                    }
+                }
+            }
         }
         self.keep_settings();
         self.dirty = true;

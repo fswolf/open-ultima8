@@ -21,8 +21,8 @@ pub fn run(a: &Args, gd: &GameData) -> Result<()> {
 fn film(a: &Args, gd: &GameData) -> Result<()> {
     let fonts = Fonts::parse(&Flex::parse(std::fs::read(u8data::find_file(a.data(), "STATIC/U8FONTS.FLX")?)?)?);
     use u8engine::film::{Film, HEIGHT, WIDTH};
-    let name = if a.get(2, "intro") == "endgame" { "STATIC/ENDGAME.SKF" } else { "STATIC/EINTRO.SKF" };
-    let skf = u8data::skf::Skf::parse(std::fs::read(u8data::find_file(a.data(), name)?)?)?;
+    let name = if a.get(2, "intro") == "endgame" { "STATIC/ENDGAME.SKF" } else { "STATIC/{}INTRO.SKF" };
+    let skf = u8data::skf::Skf::parse(std::fs::read(u8data::lang::file(a.data(), name)?)?)?;
     let mut film = Film::new(skf);
     let times: Vec<f32> =
         a.get(3, "5,20,40,60,80").split(',').map(|t| crate::cli::num(t, "seconds")).collect::<Result<_>>()?;
