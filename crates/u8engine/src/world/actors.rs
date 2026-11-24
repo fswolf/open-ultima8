@@ -224,6 +224,9 @@ impl World {
     pub fn last_dir(&self, id: ObjId) -> Option<usize> {
         self.last_dir.get(&id).copied()
     }
+    pub fn set_last_dir(&mut self, id: ObjId, dir: usize) {
+        self.last_dir.insert(id, dir);
+    }
 
     fn frames_to_play(&self, id: ObjId, action: usize, dir: usize, flags: u16, size: usize) -> Vec<usize> {
         let again = self.last_anim(id) == action && self.last_dir.get(&id) == Some(&dir);

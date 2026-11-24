@@ -2,6 +2,8 @@
 //! reading of the original's CombatProcess: go after the quarry a blow or a script named, else
 //! the nearest enemy (by alignment) about; close in, turn to face it, swing when it's within the
 //! attack's reach, and get one's breath back (longer the clumsier) before the next swing.
+//! Changelings follow the original's own brain (COMBATBR.C): they hide as a tree when the Avatar
+//! is far, and take the Avatar's shape to fight.
 use crate::avatar::facing;
 use crate::game::Game;
 use crate::geom::dir_towards;
@@ -24,12 +26,19 @@ const STUCK_TICKS: u32 = 10;
 /// Dexterity at which there's no pause between swings; each point below adds this many ticks.
 const DEX_QUICK: i32 = 25;
 const PAUSE_PER_DEX: i32 = 3;
-/// A changeling's actions into a tree and back, and how near its quarry comes before it
-/// springs (looked for every 10 ticks).
-const SHIFT_AWAY: usize = 20;
-const SHIFT_BACK: usize = 21;
-const AMBUSH: i32 = 192;
-const AMBUSH_TICKS: u32 = 10;
+/// The changeling: its own shape, its actions into a tree and out, into the Avatar and back
+/// (the original's Climb 3 to 6), and the shape it takes.
+const CHANGELING: u32 = 357;
+const INTO_TREE: usize = 20;
+const OUT_OF_TREE: usize = 21;
+const INTO_AVATAR: usize = 22;
+const OUT_OF_AVATAR: usize = 23;
+const AVATAR_SHAPE: u32 = 1;
+/// From this far from the Avatar (either axis) a changeling hides as a tree rather than become
+/// him; how near a tree looks for a victim, and a clone for a quarry.
+const FAR: i32 = 0x800;
+const TREE_LOOK: i32 = 160;
+const CLONE_LOOK: i32 = 600;
 /// Shape of demons (ScummVM): like the undead, they aren't fooled by someone playing dead.
 const DEMON: u32 = 96;
 
@@ -44,8 +53,34 @@ pub(crate) struct Fighter {
     struck: bool,
     /// The `cast` script run on going into combat: no fighting till it's done.
     cast: Option<Pid>,
-    /// A changeling waiting in ambush as a tree.
-    hidden: bool,
+    /// A changeling (its shape when it went into combat): where it is in its changes, and the
+    /// ticks left of being the Avatar and of being a tree.
+    pub(crate) changeling: bool,
+    pub(crate) morph: Morph,
+    pub(crate) clone_wait: u32,
+    pub(crate) tree_wait: u32,
+}
+
+/// Where a changeling is in its changes. The `Into` and `Out` ones are playing their action.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Morph {
+    #[default]
+    Itself,
+    IntoClone,
+    Clone,
+    Back,
+    IntoTree,
+    Tree,
+    OutOfTree,
+}
+
+impl Morph {
+    pub(crate) const ALL: [Morph; 7] =
+        [Morph::Itself, Morph::IntoClone, Morph::Clone, Morph::Back, Morph::IntoTree, Morph::Tree, Morph::OutOfTree];
+    /// A tree is dead to the world (can't be struck, searched as a body), but still thinks.
+    pub(crate) fn tree(self) -> bool {
+        matches!(self, Morph::IntoTree | Morph::Tree)
+    }
 }
 
 impl Game {
@@ -57,7 +92,8 @@ impl Game {
             return;
         }
         for id in fighters.into_iter().filter(|&id| id != AVATAR) {
-            if self.stats.get(id).is_some_and(|s| s.dead) || self.world.is_void(id) {
+            let tree = self.fights.get(&id).is_some_and(|f| f.morph.tree());
+            if self.stats.get(id).is_some_and(|s| s.dead) && !tree || self.world.is_void(id) {
                 continue;
             }
             if !self.fights.contains_key(&id) {
@@ -84,14 +120,16 @@ impl Game {
         }
         let cast = self.start_event(id, event::CAST, &[0, 0]);
         let dir = self.world.get(id).and_then(|it| facing(&self.data, &it));
-        self.fights.insert(id, Fighter { dir, cast, ..Fighter::default() });
+        let changeling = self.world.get(id).is_some_and(|it| it.shape == CHANGELING);
+        self.fights.insert(id, Fighter { dir, cast, changeling, ..Fighter::default() });
     }
 
     /// Back in a fight it was in when saved (or when the map was left): it carries on, without
     /// its going-into-combat script again (that ran when it went in).
     pub(crate) fn resume_fight(&mut self, id: ObjId) {
         let dir = self.world.get(id).and_then(|it| facing(&self.data, &it));
-        self.fights.insert(id, Fighter { dir, ..Fighter::default() });
+        let changeling = self.world.get(id).is_some_and(|it| it.shape == CHANGELING);
+        self.fights.insert(id, Fighter { dir, changeling, ..Fighter::default() });
     }
 
     /// Stop walks the scripts ordered for `id` (telling them it didn't get there).
@@ -110,6 +148,8 @@ impl Game {
             }
             f.cast = None;
         }
+        // (The original's waits count on whatever is playing.)
+        (f.clone_wait, f.tree_wait) = (f.clone_wait.saturating_sub(1), f.tree_wait.saturating_sub(1));
         if let Some((act, dir, step)) = self.world.acting(id) {
             // Mid-swing: the blow lands on the frame that reaches.
             if f.swinging && act == action::ATTACK && !f.struck {
@@ -127,30 +167,14 @@ impl Game {
             f.wait -= 1;
             return;
         }
+        if f.changeling && self.changeling(id, f) {
+            return;
+        }
         let Some(t) = self.quarry(id) else {
             f.walk = None;
             f.wait = IDLE_TICKS;
-            // Nobody about: half the time a changeling turns into a tree (not those at the
-            // pentagram, map 43) and waits in ambush (ScummVM's waitForTarget).
-            let shifter = self.monster(id).is_some_and(|m| m.shifter) && self.world.map() != 43;
-            if shifter && !f.hidden && self.world.roll(2) == 0 {
-                let dir = f.dir.unwrap_or(0);
-                f.hidden = self.world.play(&self.data, id, SHIFT_AWAY, dir).is_some();
-            }
             return;
         };
-        if f.hidden {
-            // Ambush: until the quarry comes close, then back into shape.
-            let (a, b) = (self.world.get(id), self.world.get(t));
-            let near = a.zip(b).is_some_and(|(a, b)| (a.x - b.x).abs().max((a.y - b.y).abs()) <= AMBUSH);
-            if near {
-                self.world.play(&self.data, id, SHIFT_BACK, f.dir.unwrap_or(0));
-                f.hidden = false;
-            } else {
-                f.wait = AMBUSH_TICKS;
-            }
-            return;
-        }
         let want = self.dir_to(id, t);
         if self.in_reach(id, want, t) {
             f.walk = None;
@@ -196,6 +220,129 @@ impl Game {
             f.walk = None;
             f.wait = STUCK_TICKS;
         }
+    }
+
+    /// A changeling's turn to think (COMBATBR.C CombatBrain::process, with nothing playing). True
+    /// if it's dealt with; false: fight as any creature does (it has a quarry). Back from being
+    /// the Avatar once that has run its time; with a quarry, fight, unless in its own shape and a
+    /// 1 in 8 roll, or far from the Avatar; in its own shape otherwise, a tree if far (not at the
+    /// pentagram, map 43), else the Avatar for 5 to 25 seconds; as the Avatar with no quarry,
+    /// look for one within 600 or wait about. It never looks for a quarry in its own shape.
+    fn changeling(&mut self, id: ObjId, f: &mut Fighter) -> bool {
+        match f.morph {
+            Morph::IntoClone => {
+                // (TypeChanger: the Avatar's shape, first frame, facing north.)
+                self.reshape(id, AVATAR_SHAPE);
+                (f.morph, f.dir) = (Morph::Clone, Some(0));
+                return true;
+            }
+            // WaitForVictim: until something comes within reach, or its time is up.
+            Morph::IntoTree | Morph::Tree => {
+                f.morph = Morph::Tree;
+                if f.tree_wait > 0 && self.held_target(id).is_none() && !self.select_target(id, TREE_LOOK) {
+                    return true;
+                }
+                if let Some(s) = self.stats.get_mut(id) {
+                    s.dead = false;
+                }
+                self.world.play(&self.data, id, OUT_OF_TREE, 0);
+                (f.morph, f.dir) = (Morph::OutOfTree, Some(0));
+                return true;
+            }
+            Morph::OutOfTree | Morph::Back => f.morph = Morph::Itself,
+            Morph::Itself | Morph::Clone => {}
+        }
+        let (Some(me), Some(av)) = (self.world.get(id), self.world.get(AVATAR)) else { return true };
+        let far = (me.x - av.x).abs().max((me.y - av.y).abs()) >= FAR;
+        if me.shape == AVATAR_SHAPE && f.clone_wait == 0 {
+            self.stop_all(id, f);
+            self.reshape(id, CHANGELING);
+            self.world.play(&self.data, id, OUT_OF_AVATAR, 0);
+            (f.morph, f.dir) = (Morph::Back, Some(0));
+            return true;
+        }
+        let held = self.held_target(id).is_some();
+        if held && me.shape == CHANGELING && f.walk.is_some() && f.walked + 1 < REPLAN_TICKS {
+            return false; // (still on its way: the original thinks when a walk ends)
+        }
+        if held && (me.shape != CHANGELING || self.world.roll(8) != 0 && !far) {
+            return false;
+        }
+        if me.shape == CHANGELING {
+            self.stop_all(id, f);
+            f.dir = Some(0); // (its changes all play facing north)
+            if far && self.world.map() != 43 {
+                if let Some(s) = self.stats.get_mut(id) {
+                    s.dead = true;
+                }
+                self.world.play(&self.data, id, INTO_TREE, 0);
+                (f.morph, f.tree_wait) = (Morph::IntoTree, (25 + self.world.roll(21)) * 30);
+            } else {
+                self.world.play(&self.data, id, INTO_AVATAR, 0);
+                (f.morph, f.clone_wait) = (Morph::IntoClone, (5 + self.world.roll(21)) * 30);
+            }
+            return true;
+        }
+        if self.select_target(id, CLONE_LOOK) {
+            return false;
+        }
+        // (wander: the original also loiters half of these times; this waits instead.)
+        f.wait = (2 + self.world.roll(2)) * 30;
+        true
+    }
+
+    /// `id` takes `shape`, first frame, facing north (the original's setType and TypeChanger).
+    fn reshape(&mut self, id: ObjId, shape: u32) {
+        if let Some(it) = self.world.get(id) {
+            self.world.set(&self.data, id, u8data::map::Item { shape, frame: 0, ..it });
+            self.world.set_last_dir(id, 0);
+        }
+    }
+
+    /// Everything `id` was up to but fighting stops (its walks, its scripts).
+    fn stop_all(&mut self, id: ObjId, f: &mut Fighter) {
+        f.walk = None;
+        self.stop_walking(id);
+        if let Some(s) = &mut self.scripts {
+            s.vm.kill_item_procs(id, crate::usecode::vm::PROC_TYPE_ALL, 0);
+        }
+    }
+
+    /// `id`'s quarry if it's still about, else the one it was first sent after; nobody, and both
+    /// are forgotten (CombatBrain::hasTarget: never looks for anyone new).
+    fn held_target(&mut self, id: ObjId) -> Option<ObjId> {
+        let mut tg = self.world.target(id);
+        let held = loop {
+            if tg.now == 0 {
+                tg.now = tg.fixed;
+            }
+            if tg.now == 0 {
+                break None;
+            }
+            if self.fair_game(id, tg.now) {
+                break Some(tg.now);
+            }
+            if tg.now == tg.fixed {
+                tg = crate::world::Target::default();
+                break None;
+            }
+            tg.now = tg.fixed;
+        };
+        self.world.restore_target(id, tg);
+        held
+    }
+
+    /// The first enemy of `id` within `range` (either axis), in the search's order, but not the
+    /// one it was first after: now its quarry (CombatBrain::selectTarget).
+    fn select_target(&mut self, id: ObjId, range: i32) -> bool {
+        let (Some(me), Some(mine)) = (self.world.get(id), self.stats.get(id)) else { return false };
+        let fixed = self.world.target(id).fixed;
+        let found = self
+            .world
+            .search_area((me.x, me.y), range, (0, 0), false)
+            .into_iter()
+            .find(|&t| t != fixed && self.fair_game(id, t) && self.stats.get(t).is_some_and(|s| mine.is_enemy(&s)));
+        found.inspect(|&t| self.world.set_target(id, t)).is_some()
     }
 
     /// Who `id` goes after: its quarry while still about, else the nearest enemy (None: nobody).

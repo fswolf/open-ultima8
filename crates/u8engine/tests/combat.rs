@@ -370,42 +370,6 @@ fn blood_fanfares_and_bursting_seekers() {
     assert_eq!(shapes(&g, 458), 5, "pieces");
 }
 
-#[test]
-#[ignore]
-fn changelings_wait_as_trees() {
-    let Some(mut g) = game(40) else { return };
-    let c = 61;
-    let mut it = g.world.get(c).unwrap();
-    it.shape = 357; // a changeling
-    g.world.set(&g.data, c, it);
-    let avatar_side = g.stats.get(AVATAR).unwrap().alignment;
-    g.stats.get_mut(c).unwrap().enemies |= avatar_side;
-    g.world.set_in_combat(c, true);
-    // The Avatar far off: nobody to fight, so before long it turns into a tree.
-    let mut a = g.world.get(AVATAR).unwrap();
-    (a.x, a.y) = (it.x + 900, it.y);
-    g.world.set(&g.data, AVATAR, a);
-    let tick = |g: &mut Game, n: usize| (0..n).for_each(|_| _ = g.update(1.0 / 30.0, &Input::default()));
-    let mut hid = false;
-    for _ in 0..40 {
-        tick(&mut g, 30);
-        if g.world.last_anim(c) == 20 {
-            hid = true;
-            break;
-        }
-    }
-    assert!(hid, "a tree");
-    // The Avatar comes close: it springs back.
-    (a.x, a.y, a.z) = (it.x + 128, it.y, it.z);
-    g.world.set(&g.data, AVATAR, a);
-    // (Once it's done turning into one: frames stay up their repeat + 1 ticks.)
-    let back = (0..20).any(|_| {
-        tick(&mut g, 10);
-        g.world.last_anim(c) == 21
-    });
-    assert!(back, "back into shape");
-}
-
 /// Walking off the end of the Docks' pier: deep water drowns the Avatar (the water's script puts
 /// the body away at 0,0,0) and the view stays over the water, as the DOS game's, instead of
 /// following the body to the map's corner.

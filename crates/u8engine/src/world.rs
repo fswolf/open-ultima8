@@ -489,6 +489,7 @@ impl World {
             parent: old.parent,
             seq: old.seq,
             fast: old.fast,
+            glob: old.glob,
             ..Entry::new(gd, it)
         };
         let moved = (old.x0, old.y0, old.it.x, old.it.y) != (e.x0, e.y0, e.it.x, e.it.y);

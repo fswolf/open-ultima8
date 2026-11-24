@@ -1,6 +1,7 @@
 //! What the original's saves have no room for, kept beside them in SAVEGAME/U8SAVE.nnn.ou8:
 //! use built up towards the Avatar's next STR/DEX/INT point, the healing clock and hunger, whom
-//! fighters on the current map are after, the Avatar hanging from a ledge or knocked flat, and
+//! fighters on the current map are after, where changelings are in their changes (the original
+//! keeps their brains in its process list), the Avatar hanging from a ledge or knocked flat, and
 //! which pieces of restored content have been put in. It carries a fingerprint of the save it goes
 //! with, so a save written since by the original game (DOSBox) isn't paired with stale numbers.
 use crate::avatar::Plight;
@@ -37,6 +38,12 @@ impl Game {
         for id in self.world.fighters() {
             let t = self.world.target(id);
             s += &format!("target {id} {} {}\n", t.now, t.fixed);
+        }
+        let mut morphs: Vec<_> = self.fights.iter().filter(|(_, f)| f.changeling).collect();
+        morphs.sort_by_key(|(&id, _)| id);
+        for (id, f) in morphs {
+            let m = crate::fight::Morph::ALL.iter().position(|&m| m == f.morph).unwrap_or(0);
+            s += &format!("changeling {id} {m} {} {}\n", f.clone_wait, f.tree_wait);
         }
         for (name, at) in &self.restored.done {
             s += &format!("restored {name} {at}\n");
@@ -83,6 +90,20 @@ impl Game {
                 ("target", &[id, now, fixed]) if self.world.get(id as u16).is_some() => {
                     let t = Target { now: now as u16, fixed: fixed as u16 };
                     self.world.restore_target(id as u16, t);
+                }
+                ("changeling", &[id, m, clone, tree]) if self.world.get(id as u16).is_some() => {
+                    let (id, morph) =
+                        (id as u16, crate::fight::Morph::ALL.get(m as usize).copied().unwrap_or_default());
+                    if self.stats.get(id).is_some_and(|s| s.dead) && !morph.tree() {
+                        continue; // (killed since)
+                    }
+                    if !self.world.in_combat(id) {
+                        self.world.set_in_combat(id, true);
+                    }
+                    let f = self.fights.entry(id).or_default();
+                    f.changeling = true;
+                    f.morph = morph;
+                    (f.clone_wait, f.tree_wait) = (clone, tree);
                 }
                 _ => {}
             }

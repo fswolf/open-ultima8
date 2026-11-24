@@ -167,6 +167,10 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   script (event 17, `cast`: guards shout, townsfolk cry for Beren), which it waits for; those
   put back in a fight by a load or a return to the map don't run it again. Schedules skip
   fighters.
+  Changelings (`Fighter::changeling`: shape 357 when it went in) follow the original's brain
+  (COMBATBR.C): `Morph` steps through becoming the Avatar (shape 1, 5 to 25 s) and a tree (dead
+  to the world while the Avatar is 2048 or more away, not on map 43); the side file keeps their
+  `Morph` and timers, as the original keeps its brains in its process list.
 - **The ethereal stack**: `World::{push_ethereal, ethereal_top}`, `Host::pop_ethereal(Pop)`:
   scripts make things (`Item::create`, `Actor::createActor`) or push them into the void, then pop
   the *top* of the stack back, to a point or into a container (ScummVM's reading). Left over on

@@ -211,19 +211,27 @@ impl App {
             art.set_style(ui_ss, xbrz);
             let (game, gd, ui, stats_pressed) = (&self.game, &self.game.data, &self.ui, self.stats_pressed);
             // The paperdoll's stats panel goes with its window (under any window above it).
+            // (A changeling as the Avatar opens its own paperdoll, as in the original: its numbers,
+            // its kind's armour, what it carries.)
+            let weighs = |id: ObjId| match id {
+                AVATAR => game.load().0,
+                _ => game
+                    .world
+                    .contents(id)
+                    .iter()
+                    .map(|&t| u8engine::equip::weight(gd, &game.world, t))
+                    .sum::<u32>()
+                    .div_ceil(10),
+            };
+            let armour = |id: ObjId| match id {
+                AVATAR => game.armour_class(),
+                _ => game.world.get(id).and_then(|it| u8engine::monsters::get(it.shape)).map_or(0, |m| m.armour as i32),
+            };
             let stats = |canvas: &mut Canvas, art: &mut art::GumpArt, item: ObjId, gump: u32, at: (i32, i32)| {
                 let st = game.stats.get(item);
                 if let (Some(st), Some(ui), gumps::PAPERDOLL) = (st, ui, gump) {
                     // (Weighing walks everything carried: only when the paperdoll is open.)
-                    paperdoll_stats(
-                        canvas,
-                        art,
-                        ui_ss,
-                        ui,
-                        gd,
-                        (st, game.load().0, game.armour_class(), stats_pressed),
-                        at,
-                    );
+                    paperdoll_stats(canvas, art, ui_ss, ui, gd, (st, weighs(item), armour(item), stats_pressed), at);
                 }
             };
             self.windows.draw(canvas, art, gd, &self.game.world, &mut self.ui_cache, self.item_drag, stats);
