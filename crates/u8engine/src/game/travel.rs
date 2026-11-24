@@ -194,3 +194,40 @@ impl Game {
         self.load_map(next);
     }
 }
+
+impl Game {
+    /// The fast area round where the Avatar is now: what comes in gets its event, what goes out
+    /// its own (hatched creatures put away, passing pieces gone).
+    pub(crate) fn refresh_fast(&mut self) {
+        let change = self.fast.update(&mut self.world);
+        for id in change.entered {
+            if !self.stats.get(id).is_some_and(|s| s.dead) {
+                self.trigger(id, event::ENTER_FAST_AREA); // (not the dead: ScummVM)
+            }
+        }
+        for id in change.left {
+            if self.fast_only(id) {
+                self.put_away(id); // a hatched creature: gone again
+            } else if id >= 256 && self.world.get(id).is_some_and(|it| it.flags & item_flag::FAST_ONLY != 0) {
+                self.world.remove(id); // pieces of a burst, and the like
+            } else {
+                self.trigger(id, event::LEAVE_FAST_AREA);
+            }
+        }
+    }
+
+    /// A script sent the Avatar to `at` on this map: the fast area goes with it there and then
+    /// (the original moves its item cache in the teleport itself, ITEMCACH.C goTo), even if the
+    /// same script sends it straight back. The Skull of Quakes does just that, so the swapped
+    /// parts of the Catacombs (GLOBSWAP) are made again for after the quake.
+    pub(crate) fn avatar_jumped(&mut self, at: (i32, i32, i32)) {
+        let Some(now) = self.world.get(AVATAR) else { return };
+        if (now.x, now.y, now.z) != at {
+            self.world.set(&self.data, AVATAR, map::Item { x: at.0, y: at.1, z: at.2, ..now });
+        }
+        self.refresh_fast();
+        if (now.x, now.y, now.z) != at {
+            self.world.set(&self.data, AVATAR, now);
+        }
+    }
+}

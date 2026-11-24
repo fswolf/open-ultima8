@@ -100,7 +100,8 @@ impl Game {
                 }
                 Request::Created(id) => self.made_actor(id),
                 Request::StopActing(id) => self.world.stop_acting(&self.data, id),
-                Request::Teleported { id, by } => self.redraw_sleepers(id, by),
+                Request::Teleported { id: AVATAR, at, .. } => self.avatar_jumped(at),
+                Request::Teleported { id, by, .. } => self.redraw_sleepers(id, by),
                 Request::Fetch { id, at, pid } => {
                     self.fetch(id, at);
                     done.push(pid);

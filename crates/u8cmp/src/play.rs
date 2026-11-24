@@ -97,6 +97,12 @@ pub(super) fn play(root: &Path, slot: Option<u32>, steps: &[String]) {
                 nums[1],
                 g.teleport(nums[0] as u16, nums[1] as u8)
             ),
+            "put" => {
+                // put=ID,x,y,z: a thing on this map moved there as it is (no reach or room checks)
+                if let Some(it) = g.world.get(nums[0] as u16) {
+                    g.world.set(&g.data, nums[0] as u16, map::Item { x: nums[1], y: nums[2], z: nums[3], ..it });
+                }
+            }
             "goto" => println!("[t{t}] go to {v} -> {}", g.go_to(v)),
             "kit" => println!("[t{t}] kit bag {:?}", g.give_test_kit()),
             "mins" => g.set_minutes(nums[0] as u32),
@@ -440,6 +446,7 @@ pub(super) fn play(root: &Path, slot: Option<u32>, steps: &[String]) {
                 std::fs::write(v, dump::dump(&gd)).unwrap();
             }
             "gamedat" => write_dir(&g.snapshot(), &PathBuf::from(v)),
+            "aim" => println!("[t{t}] aim {} at {:?} (320x200)", nums[0], scene::aim(&mut g, nums[0] as u16)),
             "where" => {
                 let it = g.world.get(AVATAR);
                 let a = g.avatar.as_ref();

@@ -141,7 +141,6 @@ struct App {
     last_right: Option<Instant>,
     /// Earthquake: the view's shake this frame (game pixels).
     shake: (i32, i32),
-    shake_seed: u32,
     /// A script asked the player to pick something (the targeting cursor): its process.
     targeting: Option<u16>,
     /// The credits or quotes rolling (the game waits), and the song to go back to.
@@ -290,7 +289,6 @@ impl App {
             swung: None,
             last_right: None,
             shake: (0, 0),
-            shake_seed: 0x2545_F491,
             targeting: None,
             roll: None,
             film: None,

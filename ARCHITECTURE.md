@@ -78,7 +78,9 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   centre on; it resets to the Avatar on a new map or when no script is running. `Game::roof()`
   is the cutaway height, kept as the original's camera keeps it: the roof over the Avatar, looked
   up again when he moves while the camera is centred on him (a scene holding the camera, as
-  Flash does, leaves it be).
+  Flash does, leaves it be). `camera::Shake` is a script quake's shake (`Game::shake`, stepped
+  each tick as CAMERA.C slamQuake: a drift pulled back by half the offset, nudged at random,
+  held to the strength; stopping puts the view back exactly).
 - **`film::Film`**: an SKF film (`u8data::skf`) played on a 320×200 palette screen: pictures
   one per frame (`speed`/70 s each), events for music, effects, recorded lines and subtitles,
   waits (1/15 s) and fades; hands the host `Cue`s. The viewer's `films.rs` shows it (the intro
@@ -94,10 +96,11 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   `extra` is the `.ou8` side file beside saves (also the Avatar's `Plight`: hanging, down, and
   `restored name minutes` for each piece of restored content put in).
   `restore` is the Restored content option (`Game::restored`, off by default): one table,
-  `ENTRIES`, each a `Hook` (a map, holding a thing, a death, minutes after another entry) and an
-  `Act` (set or clear a story flag, place a thing); each runs once, on a map change or load and
-  once a second. Turning it off stops new entries (a follow-up, `Hook::After`, still finishes
-  its entry); what has happened stays. A thing isn't placed where one like it already lies, and
+  `ENTRIES`, each a `Hook` (a map, maps while a flag is set, holding a thing, a death, minutes
+  after another entry) and an `Act` (set or clear a story flag, place a thing, a quake that
+  waits out a talk or scene); each runs once, on a map change or load and once a second.
+  Turning it off stops new entries (a follow-up, `Hook::After`, still finishes its entry); what
+  has happened stays. A thing isn't placed where one like it already lies, and
   the side file's `restored` lines are read even when its save was written over since.
   `kit` is a tester's kit (`Game::give_test_kit`: stats, a bag of every school's magic, the story
   flags it needs; `go_to` the recall item's places); `u8tool kit` saves it. `vm.cheats` answers
@@ -107,7 +110,11 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   the original's diamond of 512-unit regions, sized for a 320x200 view and widened by what a
   bigger window or zoom shows (`Game::set_view`), so people are live before they come into sight.
   Fights and loitering run only inside it, as in DOS. Someone a script teleports into it gets
-  their `enterFastArea` at once, before the script goes on (`World::in_fast_area`).
+  their `enterFastArea` at once, before the script goes on (`World::in_fast_area`). A script
+  sending the Avatar somewhere on the same map takes the area there and then
+  (`Game::avatar_jumped`, as ITEMCACH.C goTo), even when it sends him straight back: the Skull of
+  Quakes relies on it. What glob eggs expand to (`Entry::glob`) is only found by scripts'
+  searches inside the area, as the original expands them only there.
 - **`usecode`**: the VM.
   - `vm.rs` the `Vm` and its scheduler; in `vm/`: `procs.rs` spawning and killing processes,
     `memory.rs` pointers (segment:offset) and global bits, `exec.rs` the opcode interpreter,
@@ -274,7 +281,8 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   headless for all of them (`Drv`), `scene.rs` sets up scenes as in the original (where to stand,
   what's loose, where to point in the 320 by 200 view), `magic.rs` casts the kit's spells and
   compares their pictures with the world. `play` takes `restored=1` and `flag=N` (a global bit,
-  decimal) steps; `talk` takes `flag=HEX,..` to set story flags before talking.
+  decimal) steps, `put=ID,x,y,z` (a thing moved as it is) and `aim=ID` (where to click on it in
+  DOS); `talk` takes `flag=HEX,..` to set story flags before talking.
 
 ## Adding things
 

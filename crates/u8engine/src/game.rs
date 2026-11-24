@@ -101,6 +101,8 @@ pub struct Game {
     map_changed: bool,
     /// The "Restored content" option and what it has done (see [`restore`](crate::restore)).
     pub restored: crate::restore::Restore,
+    /// The view's shake while a script's quake runs (stepped each tick).
+    pub shake: crate::camera::Shake,
 }
 
 /// What an update did, so the host knows whether to redraw and keep the frames coming.
@@ -171,6 +173,7 @@ impl Game {
             tick_clock: 0.0,
             map_changed: false,
             restored: Default::default(),
+            shake: Default::default(),
         };
         g.new_game = g.data.clock.is_none(); // no kernel state: the start of a new game
         g.resume_fights(true);
@@ -340,6 +343,7 @@ impl Game {
         if std::mem::take(&mut self.new_game) {
             self.start_new_game();
         }
+        self.quake_ends();
         if std::mem::take(&mut self.cache_in) {
             let ids: Vec<ObjId> = self.world.objects().filter(|&id| id >= 256).collect();
             for id in ids {
@@ -350,6 +354,7 @@ impl Game {
             self.restore();
         }
         self.clock += CLOCK_HZ / TICK_HZ as u32;
+        self.shake.step(self.scripts.as_ref().map_or(0, |s| s.vm.quake));
         for id in self.world.tick_acting(&self.data) {
             self.fall(id);
         }
@@ -371,21 +376,7 @@ impl Game {
             }
         }
         if self.tick % FAST_AREA_EVERY == 1 || self.map_changed {
-            let change = self.fast.update(&mut self.world);
-            for id in change.entered {
-                if !self.stats.get(id).is_some_and(|s| s.dead) {
-                    self.trigger(id, event::ENTER_FAST_AREA); // (not the dead: ScummVM)
-                }
-            }
-            for id in change.left {
-                if self.fast_only(id) {
-                    self.put_away(id); // a hatched creature: gone again
-                } else if id >= 256 && self.world.get(id).is_some_and(|it| it.flags & item_flag::FAST_ONLY != 0) {
-                    self.world.remove(id); // pieces of a burst, and the like
-                } else {
-                    self.trigger(id, event::LEAVE_FAST_AREA);
-                }
-            }
+            self.refresh_fast();
         }
         self.schedule();
         self.walk();

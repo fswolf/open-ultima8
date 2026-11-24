@@ -8,6 +8,9 @@
 //! eggs) make ghouls instead of guards while it is set, and the townsfolk and guards it silences
 //! (Jenna, Darion, Shaana, Tarna, Aramina, the guards) won't talk. Nothing in the scripts clears
 //! it, so here it clears a game day after it was set: the dead go back and people talk again.
+//! The lines also speak of the ground shaking, and nothing shakes it: the first time the Avatar is
+//! in Tenebrae while the dead walk, the Mountain King's own quake plays, as at Lothian's
+//! interment (VIVIDOS: startQuake(1), sound 49, 120 ticks, stopQuake), never over a talk or scene.
 use crate::game::Game;
 use crate::world::{ObjId, AVATAR};
 
@@ -15,6 +18,8 @@ use crate::world::{ObjId, AVATAR};
 pub mod flag {
     pub const HAS_HEART: usize = 0x3C;
     pub const MORDEA_DEAD: usize = 0x11A;
+    /// Someone is in a conversation (METHOD sets it while one runs).
+    pub const SOMEBODY_TALKING: usize = 0x0F;
 }
 
 /// When an entry runs.
@@ -28,6 +33,8 @@ pub enum Hook {
     Dies(ObjId),
     /// This many game minutes after the named entry ran.
     After(&'static str, u32),
+    /// On one of these maps while a story flag is set.
+    MapsWhile(&'static [u16], usize),
 }
 
 /// What an entry does.
@@ -39,6 +46,9 @@ pub enum Act {
     Clear(usize),
     /// Put a thing (shape, frame, quality) at a spot on the hook's map.
     Place(u32, u32, u16, (i32, i32, i32)),
+    /// Shake the ground (strength) with a sound (number, priority) for some ticks; not over a talk
+    /// or a scene: it waits for them to end.
+    Quake(u16, u16, u16, u32),
 }
 
 #[derive(Debug)]
@@ -60,6 +70,9 @@ pub const ENTRIES: &[Entry] = &[
     Entry { name: "has-heart", hook: Hook::Holding(793, 1), act: Act::Flag(flag::HAS_HEART) },
     // A game day later the dead have gone back.
     Entry { name: "dead-rest", hook: Hook::After("has-heart", 24 * 60), act: Act::Clear(flag::HAS_HEART) },
+    // The ground shakes as the dead come: the first time in Tenebrae (the docks, the city, the
+    // castle) while they walk.
+    Entry { name: "quake", hook: Hook::MapsWhile(&[39, 40, 41], flag::HAS_HEART), act: Act::Quake(1, 49, 200, 120) },
     // The Key of the Necromancer on the altar of the Birthplace of Moriens.
     Entry { name: "necromancer-key", hook: Hook::Map(50), act: Act::Place(232, 4, 0, (14212, 12684, 64)) },
 ];
@@ -70,6 +83,8 @@ pub struct Restore {
     pub on: bool,
     /// The entries that have run, and when (game minutes).
     pub done: Vec<(String, u32)>,
+    /// Ticks left of a quake of ours.
+    quake_left: u32,
 }
 
 impl Game {
@@ -81,6 +96,9 @@ impl Game {
             let follow = matches!(e.hook, Hook::After(..));
             if !(self.restored.on || follow) || self.restored.done.iter().any(|d| d.0 == e.name) || !self.due(e.hook) {
                 continue;
+            }
+            if matches!(e.act, Act::Quake(..)) && self.busy() {
+                continue; // (after the talk or scene)
             }
             match e.act {
                 Act::Flag(f) | Act::Clear(f) => {
@@ -94,6 +112,16 @@ impl Game {
                     self.world.add(&self.data, it, true);
                 }
                 Act::Place(..) => {}
+                Act::Quake(strength, sfx, priority, ticks) => {
+                    if self.scripts.is_none() {
+                        continue;
+                    }
+                    let [a, b] = strength.to_le_bytes();
+                    let ([c, d], [p, q]) = (sfx.to_le_bytes(), priority.to_le_bytes());
+                    self.call_intrinsic(0xC6, &[a, b]); // Camera::startQuake
+                    self.call_intrinsic(0xEC, &[c, d, p, q]); // playSFX
+                    self.restored.quake_left = ticks;
+                }
             }
             self.restored.done.push((e.name.to_string(), self.minutes()));
         }
@@ -108,11 +136,29 @@ impl Game {
             .any(|it| it.shape == shape && it.frame == frame && (it.z - z).abs() <= 64)
     }
 
+    /// Each tick: a quake of ours stops when its time is up (Camera::stopQuake).
+    pub(crate) fn quake_ends(&mut self) {
+        if self.restored.quake_left > 0 {
+            self.restored.quake_left -= 1;
+            if self.restored.quake_left == 0 {
+                self.call_intrinsic(0xC7, &[]);
+            }
+        }
+    }
+
+    /// A talk or a scene is on: a conversation is running, or a script holds the Avatar.
+    fn busy(&self) -> bool {
+        self.in_stasis() || self.scripts.as_ref().is_some_and(|s| s.vm.global_bits(flag::SOMEBODY_TALKING, 1) != 0)
+    }
+
     fn due(&self, hook: Hook) -> bool {
         match hook {
             Hook::Map(m) => self.map() == m,
             Hook::Holding(shape, frame) => self.holds(AVATAR, shape, frame),
             Hook::Dies(id) => self.stats.get(id).is_some_and(|s| s.dead),
+            Hook::MapsWhile(maps, f) => {
+                maps.contains(&self.map()) && self.scripts.as_ref().is_some_and(|s| s.vm.global_bits(f, 1) != 0)
+            }
             Hook::After(name, mins) => {
                 self.restored.done.iter().any(|d| d.0 == name && self.minutes() >= d.1.saturating_add(mins))
             }

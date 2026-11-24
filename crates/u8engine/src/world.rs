@@ -117,6 +117,9 @@ pub struct Entry {
     pub(crate) seq: i32,
     /// In the fast area (ScummVM's FLG_FASTAREA): it has had its enterFastArea.
     pub fast: bool,
+    /// What a glob egg expands to. The original only expands them in the part of the map it
+    /// holds (round the Avatar), so elsewhere scripts' searches don't find them.
+    pub glob: bool,
 }
 
 impl Entry {
@@ -152,6 +155,7 @@ impl Entry {
             parent: None,
             seq: 0,
             fast: false,
+            glob: false,
         }
     }
 
@@ -256,11 +260,24 @@ impl World {
         let l = gd.map_layers(map as usize);
         let mut nested: Vec<(usize, Vec<u8>)> = vec![];
         let mut entries: Vec<Entry> = vec![];
+        // (FIXED.DAT's own records; past those, what's there came out of a glob egg.)
+        let key = |it: &Item| (it.x, it.y, it.z, it.shape, it.frame);
+        let mut records: HashMap<_, usize> = HashMap::new();
+        for it in map::load_fixed(gd.fixed.get(map as usize).unwrap_or(&[]), &map::Globs(vec![]), &gd.typeflags) {
+            *records.entry(key(&it)).or_default() += 1;
+        }
         for (it, inside) in l.fixed {
             if !inside.is_empty() {
                 nested.push((entries.len(), inside));
             }
-            entries.push(Entry { origin: Origin::Fixed, ..Entry::new(gd, it) });
+            let glob = match records.get_mut(&key(&it)) {
+                Some(n) if *n > 0 => {
+                    *n -= 1;
+                    false
+                }
+                _ => true,
+            };
+            entries.push(Entry { origin: Origin::Fixed, glob, ..Entry::new(gd, it) });
         }
         for (it, inside) in l.movable {
             if !inside.is_empty() {

@@ -37,7 +37,8 @@ const USAGE: &str = "usage: u8cmp <cmd> …
   play <root> <slot|g> steps…           play headless. steps:
        wait=T  walk=DIR,T  run=DIR,T  at=x,y,z[,map]  use=ID  useshape=SHAPE  look=ID
        answer=N|last  shot=out.png  state=out.txt  gamedat=dir  log  mins=M  jump  combat
-       bark=T (ticks a line of speech stays up; default by length)  restored[=0]  flag=BIT[,0|1]
+       bark=T (ticks a line of speech stays up; default by length)  restored[=0]  flag=BIT[,0|1]  aim=ID (where to point in DOS)
+       put=ID,x,y,z (a thing moved as it is)
   fuzz <root> <slot> seed=N steps=N [at=x,y,z,map] [nojump] [verbose]
                                         random play, looking for errors and stuck states
   soak <root> <slot> ticks=N seed=N [every=3000] [saveslot=30]

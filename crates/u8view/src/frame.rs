@@ -80,18 +80,10 @@ impl App {
         let (_, seen) = self.world_view();
         self.game.set_view(seen.0, seen.1); // (the fast area covers what's on screen)
         let status = self.game.update(dt, &input);
-        let quake = self.game.scripts.as_ref().map_or(0, |s| s.vm.quake as i32);
-        let shake = if quake > 0 {
-            let s = &mut self.shake_seed;
-            *s ^= *s << 13;
-            *s ^= *s >> 17;
-            *s ^= *s << 5;
-            let n = 2 * quake as u32 + 1;
-            ((*s % n) as i32 - quake, ((*s >> 16) % n) as i32 - quake)
-        } else {
-            (0, 0)
-        };
-        if shake != self.shake || quake > 0 {
+        // (The original moves the picture right by the shake's x: the view's origin goes left.)
+        let (qx, qy) = self.game.shake.at;
+        let shake = (-(qx as i32), qy as i32);
+        if shake != self.shake {
             (self.shake, self.dirty) = (shake, true);
         }
         #[cfg(feature = "audio")]

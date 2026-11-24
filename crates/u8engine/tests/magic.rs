@@ -305,3 +305,76 @@ fn flash_keeps_the_roof_cut_while_the_avatar_is_away() {
     assert!(away > 10, "the Avatar was away {away} ticks");
     assert!(g.world.get(AVATAR).is_some_and(|b| (b.x, b.y) != (a.x, a.y)), "and landed elsewhere");
 }
+
+/// The Skull of Quakes (SKULLHEA) as the original has it, checked against DOS: used on its socket
+/// (805) in the Catacombs it goes there, shakes the ground (strength 5) with sounds 48 and 49,
+/// sets postEarthQuake, and the Avatar's teleport away and back makes the Catacombs' swapped
+/// rooms (GLOBSWAP) again from their after-the-quake pattern: the same things as DOS's save.
+/// Only then do the catacomb pads (CATAPORT) carry the Avatar.
+#[test]
+#[ignore]
+fn the_skull_of_quakes_opens_the_catacombs() {
+    const POST_EARTHQUAKE: usize = 0x12;
+    let Some(mut g) = saved(1) else { return };
+    g.put_avatar(50, (15583, 6143, 48));
+    let find = |g: &Game, shape: u32| g.world.objects().find(|&id| g.world.get(id).unwrap().shape == shape).unwrap();
+    let (skull, socket) = (find(&g, 814), find(&g, 805));
+    let it = g.world.get(skull).unwrap();
+    g.world.set(&g.data, skull, u8data::map::Item { x: 15647, y: 6143, z: 48, ..it });
+    let things = |g: &Game, (cx, cy): (i32, i32)| -> Vec<(u32, u32, i32, i32, i32)> {
+        let mut v: Vec<_> = g
+            .world
+            .objects()
+            .filter_map(|id| g.world.get(id).filter(|_| !g.world.is_void(id)))
+            .filter(|it| (it.x & !511, it.y & !511) == (cx, cy) && it.shape != 73)
+            .map(|it| (it.shape, it.frame, it.x, it.y, it.z))
+            .collect();
+        v.sort();
+        v
+    };
+    // The pads do nothing yet.
+    let pad = |g: &mut Game| {
+        g.put_avatar(50, (16063, 6079, 0));
+        for _ in 0..60 {
+            g.update(1.0 / 30.0, &Input::default());
+            answer(g);
+        }
+        let a = g.world.get(AVATAR).unwrap();
+        (a.x, a.y)
+    };
+    let mut h = saved(1).unwrap();
+    h.put_avatar(50, (0, 0, 0));
+    assert_eq!(pad(&mut h), (16063, 6079), "no pads before the quake");
+    for _ in 0..30 {
+        g.update(1.0 / 30.0, &Input::default());
+    }
+    assert!(things(&g, (15872, 6144)).contains(&(233, 3, 16031, 6303, 48)), "before: the old room");
+    g.trigger(skull, event::USE);
+    let (mut strongest, mut sounds) = (0, vec![]);
+    for _ in 0..300 {
+        g.update(1.0 / 30.0, &Input::default());
+        for e in g.take_events() {
+            match e {
+                UiEvent::Target { pid } => g.vm().unwrap().finish(pid, socket as u32),
+                UiEvent::Sfx { sfx, .. } => sounds.push(sfx),
+                UiEvent::Bark { pid, .. } => g.vm().unwrap().finish(pid, 0),
+                _ => {}
+            }
+        }
+        strongest = strongest.max(g.vm().unwrap().quake);
+    }
+    let s = g.world.get(skull).unwrap();
+    assert_eq!(((s.x, s.y, s.z), s.quality), ((15519, 6135, 64), 1), "in its socket, spent");
+    assert!(strongest == 5 && g.vm().unwrap().quake == 0 && g.shake.at == (0, 0));
+    assert!(sounds.contains(&48) && sounds.contains(&49), "{sounds:?}");
+    assert_eq!(g.vm().unwrap().global_bits(POST_EARTHQUAKE, 1), 1);
+    let a = g.world.get(AVATAR).unwrap();
+    assert_eq!((a.x, a.y, a.z), (15583, 6143, 48), "back where it stood");
+    // The swapped rooms as DOS's save has them: the after pattern, and of what a glob egg holds
+    // there only the egg (the original expands them only round the Avatar).
+    let room = things(&g, (15872, 6144));
+    assert!(room.contains(&(246, 7, 15903, 6303, 0)) && !room.contains(&(233, 3, 16031, 6303, 48)), "{room:?}");
+    let other = things(&g, (13824, 3584));
+    assert!(other.contains(&(352, 6, 14335, 3839, 48)) && !other.contains(&(352, 6, 14079, 3839, 40)), "{other:?}");
+    assert_eq!(pad(&mut g), (21503, 11167), "the pad carries the Avatar");
+}

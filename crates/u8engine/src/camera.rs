@@ -95,3 +95,64 @@ impl Camera {
         self.glide.take().map(|g| g.pid)
     }
 }
+
+/// The view's shake while a script's quake runs (CAMERA.C slamQuake, once a frame): each way, a
+/// drift pulled back by half the offset, nudged one at random and held to the quake's strength,
+/// then added to the offset. Strength 1 wanders about 4 pixels, 5 about 10. Stopping puts all
+/// back to nothing, so the view is where it was.
+#[derive(Clone, Copy, Debug)]
+pub struct Shake {
+    /// The picture's offset (game pixels: right, down).
+    pub at: (i8, i8),
+    drift: (i8, i8),
+    seed: u32,
+}
+
+impl Default for Shake {
+    fn default() -> Self {
+        Self { at: (0, 0), drift: (0, 0), seed: 0x2545_F491 }
+    }
+}
+
+impl Shake {
+    /// One frame of a quake of `strength` (0: still, all back to nothing).
+    pub fn step(&mut self, strength: u16) {
+        if strength == 0 {
+            (self.at, self.drift) = ((0, 0), (0, 0));
+            return;
+        }
+        let m = strength.min(127) as i8;
+        let mut axis = |at: &mut i8, d: &mut i8| {
+            let s = &mut self.seed;
+            *s ^= *s << 13;
+            *s ^= *s >> 17;
+            *s ^= *s << 5;
+            *d = d.wrapping_sub(*at / 2).wrapping_add(if *s & 1 == 1 { 1 } else { -1 }).clamp(-m, m);
+            *at = at.wrapping_add(*d);
+        };
+        let (mut a, mut d) = (self.at, self.drift);
+        axis(&mut a.0, &mut d.0);
+        axis(&mut a.1, &mut d.1);
+        (self.at, self.drift) = (a, d);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_quake_wanders_by_its_strength_and_stops_where_it_started() {
+        for (strength, most) in [(1, 4), (5, 10)] {
+            let mut s = Shake::default();
+            let mut seen = 0;
+            for _ in 0..20000 {
+                s.step(strength);
+                seen = seen.max(s.at.0.abs()).max(s.at.1.abs());
+            }
+            assert_eq!(seen, most, "strength {strength}");
+            s.step(0);
+            assert_eq!(s.at, (0, 0));
+        }
+    }
+}

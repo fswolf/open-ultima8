@@ -587,6 +587,93 @@ fn guard_posts_raise_the_dead_while_the_heart_is_out() {
     }
 }
 
+/// Ticks of `secs` seconds (speech finished at once): how many had the ground shaking, and the
+/// furthest the view was shaken.
+fn shaking(g: &mut Game, secs: u32) -> (u32, i8) {
+    let (mut n, mut most) = (0, 0);
+    for _ in 0..secs * 30 {
+        run(g, 0, 0, "");
+        g.update(1.0 / 30.0, &Input::default());
+        for e in g.take_events() {
+            if let UiEvent::Bark { pid, .. } = e {
+                g.vm().unwrap().finish(pid, 0);
+            }
+        }
+        if g.vm().unwrap().quake > 0 {
+            n += 1;
+        }
+        most = most.max(g.shake.at.0.abs()).max(g.shake.at.1.abs());
+    }
+    (n, most)
+}
+
+/// The quake: the first time in Tenebrae while the dead walk, the Mountain King's own (strength
+/// 1, 120 ticks), once; never over a talk; not with the option off; none once the dead are gone.
+#[test]
+#[ignore]
+fn the_ground_shakes_once_when_the_dead_come() {
+    const TALKING: usize = u8engine::restore::flag::SOMEBODY_TALKING;
+    let Some(mut g) = on_map(39, (0, 0, 0), false) else { return };
+    g.vm().unwrap().set_global_bits(HAS_HEART, 1, 1);
+    assert_eq!(shaking(&mut g, 3).0, 0, "option off: nothing");
+    for map in [39, 40, 41] {
+        let mut g = on_map(map, (0, 0, 0), true).unwrap();
+        assert_eq!(shaking(&mut g, 2).0, 0, "no dead, no quake");
+        g.vm().unwrap().set_global_bits(TALKING, 1, 1);
+        g.vm().unwrap().set_global_bits(HAS_HEART, 1, 1);
+        assert_eq!(shaking(&mut g, 3).0, 0, "not over a talk");
+        g.vm().unwrap().set_global_bits(TALKING, 1, 0);
+        let (n, most) = shaking(&mut g, 6);
+        assert_eq!(n, 120, "map {map}: four seconds of it");
+        assert!((1..=4).contains(&most), "a mild shake: {most}");
+        assert_eq!((g.vm().unwrap().quake, g.shake.at), (0, (0, 0)), "over, the view still");
+        assert_eq!(shaking(&mut g, 3).0, 0, "once");
+        g.put_avatar(if map == 39 { 40 } else { 39 }, (0, 0, 0));
+        assert_eq!(shaking(&mut g, 2).0, 0, "once in the whole town");
+        let mut h = reload(&g);
+        assert_eq!(shaking(&mut h, 3).0, 0, "not again after a load");
+    }
+    // In a real conversation (Tarna's): it waits until the talk is over.
+    let mut g = beside(41, 8, &[]).unwrap();
+    g.restored.on = true;
+    g.trigger(8, event::USE);
+    let mut asked = None;
+    for _ in 0..90 {
+        g.update(1.0 / 30.0, &Input::default());
+        for e in g.take_events() {
+            match e {
+                UiEvent::Bark { pid, .. } => g.vm().unwrap().finish(pid, 0),
+                UiEvent::Ask { pid, options, .. } => asked = Some((pid, options)),
+                _ => {}
+            }
+        }
+        if asked.is_some() {
+            break;
+        }
+    }
+    let (pid, options) = asked.expect("Tarna asks");
+    g.vm().unwrap().set_global_bits(HAS_HEART, 1, 1);
+    let mut quiet = 0;
+    for _ in 0..60 {
+        g.update(1.0 / 30.0, &Input::default());
+        quiet += (g.vm().unwrap().quake == 0) as u32;
+    }
+    assert_eq!(quiet, 60, "not while she asks");
+    let bye = options.iter().position(|o| o.starts_with("Bye")).unwrap_or(options.len() - 1);
+    g.vm().unwrap().answer(pid, &options, bye);
+    assert_eq!(shaking(&mut g, 8).0, 120, "after the talk");
+    // The Heart taken away from town, and the day over before the Avatar comes: no quake.
+    let mut g = on_map(6, (0, 0, 0), true).unwrap();
+    g.world.add_inside(&g.data, u8data::map::Item { shape: 793, frame: 1, x: 30, y: 20, ..Default::default() }, AVATAR);
+    run(&mut g, 2, 0, "");
+    assert_eq!(g.vm().unwrap().global_bits(HAS_HEART, 1), 1);
+    let now = g.minutes();
+    g.set_minutes(now + 24 * 60 + 5);
+    run(&mut g, 2, 0, "");
+    g.put_avatar(40, (0, 0, 0));
+    assert_eq!(shaking(&mut g, 3).0, 0, "the dead gone back: no quake");
+}
+
 /// With U8_DOS_OUT set: a save made with the option on for the original (by the Birthplace's
 /// altar with the Key of the Necromancer on it, the Heart held: hasHeart set).
 #[test]
@@ -597,6 +684,14 @@ fn restored_save_for_dos() {
     g.world.add_inside(&g.data, u8data::map::Item { shape: 793, frame: 1, x: 30, y: 20, ..Default::default() }, AVATAR);
     run(&mut g, 2, 0, "");
     assert_eq!(g.vm().unwrap().global_bits(HAS_HEART, 1), 1);
+    if std::env::var("U8_DOS_AT").is_ok_and(|m| m == "40") {
+        // (Or in the castle, after the quake.)
+        g.put_avatar(40, (0, 0, 0));
+        assert!((0..120)
+            .step_by(8)
+            .any(|z| g.put_avatar(40, (12799, 9400, z)) && g.world.floor_under(AVATAR) == Some(z)));
+        assert_eq!(shaking(&mut g, 6).0, 120);
+    }
     std::fs::create_dir_all(&out).unwrap();
     for (name, d) in &g.snapshot().files {
         if name != u8data::save::EXTRA {

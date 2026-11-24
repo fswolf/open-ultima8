@@ -63,7 +63,7 @@ pub fn teleport(c: &mut Ctx) -> u32 {
     c.host.set_ethereal(id, false);
     c.update(|i| (i.x, i.y, i.z, i.mapnum) = (x, y, z, map as u8));
     let by = c.vm.item_of(c.pid).unwrap_or(0);
-    c.vm.requests.push(Request::Teleported { id, by });
+    c.vm.requests.push(Request::Teleported { id, by, at: (x, y, z) });
     if c.host.in_fast_area(x, y) {
         // Into the fast area: its event now, before the script goes on (the original's
         // Npc::teleport). Beren called to a fight is told to stop his routine straight after:

@@ -40,8 +40,8 @@ impl World {
     pub fn search_area(&self, (x, y): (i32, i32), range: i32, back: (i32, i32), recurse: bool) -> Vec<ObjId> {
         let (x0, y0, x1, y1) = (x - back.0 - range, y - back.1 - range, x + range, y + range);
         let near = self.near(x0, y0, x1, y1).filter(|&i| {
-            let it = &self.entries[i].it;
-            (x0..=x1).contains(&it.x) && (y0..=y1).contains(&it.y)
+            let (it, e) = (&self.entries[i].it, &self.entries[i]);
+            (x0..=x1).contains(&it.x) && (y0..=y1).contains(&it.y) && (e.fast || !e.glob)
         });
         let found = self.ordered(near.collect());
         if !recurse {

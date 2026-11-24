@@ -73,9 +73,9 @@ pub enum UiEvent {
 /// Work a script hands to the game; the game finishes `pid` when it's done (result 1 = success).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Request {
-    /// An actor teleported within the map by a script running for item `by` (what shows where
-    /// people are may need redrawing).
-    Teleported { id: ObjId, by: ObjId },
+    /// An actor teleported within the map, to `at`, by a script running for item `by` (what shows
+    /// where people are may need redrawing; the Avatar takes the fast area with it).
+    Teleported { id: ObjId, by: ObjId, at: (i32, i32, i32) },
     /// Someone not on this map teleported onto it (Beren called to a theft): brought over from
     /// where they are, then `pid` finished.
     Fetch { id: ObjId, at: (i32, i32, i32), pid: Pid },

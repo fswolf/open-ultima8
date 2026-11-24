@@ -253,6 +253,7 @@ exactly as the original. It can be turned on mid-game; pieces for the map you're
 | **Key of the Necromancer** | Lies on the altar in the Birthplace of Moriens (the tomb in the Catacombs the Scion's key opens) | A reward for the pilgrimage. It works like the Caretaker's key: put reagents in a bag and use the key on it to make Necromancy spells |
 | **Mordea's death** | Noted when Mordea dies | Lines Aramina, Gwillim, Kilandra, Torwin and Vividos have for it. Aramina will trade the key to Mordea's chest for the dagger |
 | **The dead walk** | When you pick up the glowing Heart of Earth | The town guard posts raise the original's own ghouls instead of guards, 17 people have lines about the dead in the streets, and some (Tarna, Aramina, Shaana, Jenna, Darion, the city guards) are too frightened to talk. After one game day the dead go back and everyone talks again |
+| **The ground shakes** | The first time you're in Tenebrae while the dead walk | The Mountain King's own quake, the one played at Lothian's burial: a short, mild shake with its rumble. Never in the middle of a conversation |
 | **Trowel** | On the ground by the Necromancer's tomb door in the cemetery | Dig dirt (a Necromancy reagent) out of the ground |
 | ***The Mysteries of Lithos*** | On the Necromancer's bookcase, beside the Grim Book | A whole book that was in the game but nowhere to be found |
 | **Hand torch** | On Bentic's desk in the library | Only the torch: its script was meant to light wood into a campfire, but a bug in the original's own script stops it ever working |
