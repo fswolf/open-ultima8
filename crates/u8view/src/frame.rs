@@ -77,6 +77,8 @@ impl App {
                 self.game.trigger(id, u8engine::usecode::event::LOOK);
             }
         }
+        let (_, seen) = self.world_view();
+        self.game.set_view(seen.0, seen.1); // (the fast area covers what's on screen)
         let status = self.game.update(dt, &input);
         let quake = self.game.scripts.as_ref().map_or(0, |s| s.vm.quake as i32);
         let shake = if quake > 0 {

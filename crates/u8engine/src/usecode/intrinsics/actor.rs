@@ -64,6 +64,12 @@ pub fn teleport(c: &mut Ctx) -> u32 {
     c.update(|i| (i.x, i.y, i.z, i.mapnum) = (x, y, z, map as u8));
     let by = c.vm.item_of(c.pid).unwrap_or(0);
     c.vm.requests.push(Request::Teleported { id, by });
+    if c.host.in_fast_area(x, y) {
+        // Into the fast area: its event now, before the script goes on (the original's
+        // Npc::teleport). Beren called to a fight is told to stop his routine straight after:
+        // the walk back to his post his arriving starts goes with it.
+        super::item::enter_fast(c, id);
+    }
     0
 }
 
@@ -71,7 +77,7 @@ pub fn teleport(c: &mut Ctx) -> u32 {
 pub fn pathfind_to_item(c: &mut Ctx) -> u32 {
     let (actor, range) = (c.this(), c.arg2(6) as i32);
     let Some(t) = c.item_arg(4) else { return 0 };
-    let pid = c.vm.spawn_external(actor, PATHFINDER);
+    let pid = c.vm.spawn_external(actor, crate::usecode::vm::PATHFINDER);
     c.vm.requests.push(Request::Walk { pid, actor, to: (t.x, t.y, t.z), range });
     pid as u32
 }
@@ -79,13 +85,10 @@ pub fn pathfind_to_item(c: &mut Ctx) -> u32 {
 /// pathfindToPoint(x, y, z, _): walk there; returns a process that ends on arrival.
 pub fn pathfind_to_point(c: &mut Ctx) -> u32 {
     let (actor, to) = (c.this(), (c.arg2(4) as i32, c.arg2(6) as i32, c.arg1(8) as i32));
-    let pid = c.vm.spawn_external(actor, PATHFINDER);
+    let pid = c.vm.spawn_external(actor, crate::usecode::vm::PATHFINDER);
     c.vm.requests.push(Request::Walk { pid, actor, to, range: 0 });
     pid as u32
 }
-
-/// Process type of walking (NPC routines reset it before giving new orders).
-const PATHFINDER: u16 = 0x204;
 
 /// isInCombat: in combat stance (the Avatar's comes from the player).
 pub fn is_in_combat(c: &mut Ctx) -> u32 {

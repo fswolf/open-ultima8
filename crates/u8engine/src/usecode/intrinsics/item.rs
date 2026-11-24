@@ -297,7 +297,8 @@ pub(super) fn event_on(c: &mut Ctx, id: ObjId, ev: usize, args: &[u8]) -> u32 {
     let Some(it) = c.host.item(id) else { return 0 };
     let family = c.host.typeflag(it.shape)[1] >> 4;
     let class = crate::usecode::vm::event_class(c.usecode, id, &it, family, ev);
-    c.vm.call_event(c.usecode, class, ev, id, args).unwrap_or(0) as u32
+    let pid = c.vm.call_event(c.usecode, class, ev, id, args);
+    event_now(c, pid)
 }
 
 /// move(x, y, z): z is a byte.
@@ -425,7 +426,15 @@ pub fn dir_from_item(c: &mut Ctx) -> u32 {
 /// Run one of `this`'s event handlers; returns the new process.
 fn trigger(c: &mut Ctx, ev: usize) -> u32 {
     let id = c.this();
-    c.vm.item_event(c.usecode, &*c.host, id, ev).unwrap_or(0) as u32
+    let pid = c.vm.item_event(c.usecode, &*c.host, id, ev);
+    event_now(c, pid)
+}
+
+/// A handler just started runs at once, till it first waits (the original's UnkProcess).
+fn event_now(c: &mut Ctx, pid: Option<crate::usecode::Pid>) -> u32 {
+    let Some(pid) = pid else { return 0 };
+    c.vm.run_now(pid, c.usecode, c.host);
+    pid as u32
 }
 pub fn look(c: &mut Ctx) -> u32 {
     trigger(c, event::LOOK)
@@ -435,8 +444,14 @@ pub fn use_item(c: &mut Ctx) -> u32 {
 }
 /// enterFastArea: brings it into the fast area now (its event, unless it's there already).
 pub fn enter_fast_area(c: &mut Ctx) -> u32 {
-    match c.host.enter_fast(c.this()) {
-        Some(true) => trigger(c, event::ENTER_FAST_AREA),
+    let id = c.this();
+    enter_fast(c, id)
+}
+
+/// `id` into the fast area, its event run at once (not for the dead, nor twice).
+pub(super) fn enter_fast(c: &mut Ctx, id: crate::world::ObjId) -> u32 {
+    match c.host.enter_fast(id) {
+        Some(true) => event_on(c, id, event::ENTER_FAST_AREA, &[]),
         _ => 0,
     }
 }

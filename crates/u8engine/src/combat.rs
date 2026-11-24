@@ -92,6 +92,9 @@ impl Game {
         if s.dead {
             return;
         }
+        // (Already acting something out, they don't stagger: the original's doAnim won't queue
+        // the stumble behind it. Bentic reading in his chair stays in it.)
+        let busy = self.world.is_acting(target);
         let damage = if damage == 0 && self.is_person(by) { self.damage_by(by) } else { damage };
         let kind = if kind == 0 { self.damage_type(by) } else { kind };
         if by == AVATAR && self.world.last_anim(AVATAR) != action::KICK {
@@ -153,9 +156,15 @@ impl Game {
                 AVATAR => {
                     self.avatar.as_mut().map(Avatar::hurt);
                 }
-                _ => {
+                _ if !busy => {
+                    // Then back to standing (in stance if fighting) the way they faced before: a
+                    // reader thrown back in his chair is soon reading again.
+                    let facing = self.world.facing(&self.data, target).unwrap_or((dir + 4) % 8);
                     self.world.play(&self.data, target, action::STUMBLE, (dir + 4) % 8);
+                    let stand = if self.world.in_combat(target) { action::COMBAT_STAND } else { action::STAND };
+                    self.world.then_play(target, stand, facing);
                 }
+                _ => {}
             }
         }
     }
@@ -168,9 +177,11 @@ impl Game {
     /// Orlok cries out when Jenna is struck and the other way round; peasant 66 (1/2) stays out
     /// when guard 65 (1/e) is struck, 640 away.
     pub(crate) fn call_for_help(&mut self, struck: ObjId) {
+        /// (Measured in DOS: guard 47 came from 1024 away, nobody from 1152.)
+        const CALL_RANGE: i32 = 1024;
         let Some(side) = self.stats.get(struck).map(|s| (s.alignment, s.enemies)) else { return };
         let Some(a) = self.world.get(AVATAR) else { return };
-        let near = |it: &u8data::map::Item| (it.x - a.x).abs().max((it.y - a.y).abs()) <= crate::fast_area::RANGE;
+        let near = |it: &u8data::map::Item| (it.x - a.x).abs().max((it.y - a.y).abs()) <= CALL_RANGE;
         let helpers: Vec<ObjId> = (2..256)
             .filter(|&id| id != struck && !self.world.in_combat(id) && !self.world.is_void(id))
             .filter(|&id| self.world.get(id).is_some_and(|it| near(&it)))

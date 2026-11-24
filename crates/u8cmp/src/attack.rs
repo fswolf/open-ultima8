@@ -3,6 +3,7 @@ use super::*;
 
 /// Attack one person and watch what follows.
 /// attack <root> <slot> map=M npc=N hour=H [swings=6] [watch=1200] [out=dir] [kill] [move=x,y,z]
+/// [shots=PREFIX,EVERY] [frames=ID,..]
 /// With out=dir the state just before the first blow is written there as a GAMEDAT folder
 /// (the same start for the original).
 pub(super) fn attack(root: &Path, slot: Option<u32>, args: &[String]) {
@@ -58,6 +59,7 @@ pub(super) fn attack(root: &Path, slot: Option<u32>, args: &[String]) {
         .filter_map(|i| g.world.get(i).map(|it| (i, (it.x, it.y))))
         .collect();
     let hp0 = g.stats.get(id).map_or(0, |s| s.hp);
+    let mut eye = Watch::new(args);
     input.combat = true;
     d.run(&mut g, 1, &mut input);
     d.run(&mut g, 30, &mut Input::default());
@@ -88,6 +90,7 @@ pub(super) fn attack(root: &Path, slot: Option<u32>, args: &[String]) {
             }
         }
         d.run(&mut g, 1, &mut i);
+        eye.tick(&mut g, d.t);
         let now = g.stats.get(id).unwrap_or_default();
         if now.hp < st.hp || (now.dead && !st.dead) || (g.world.target(id).now == AVATAR && landed == 0) {
             landed += 1;
@@ -104,6 +107,7 @@ pub(super) fn attack(root: &Path, slot: Option<u32>, args: &[String]) {
     let mut died_at = None;
     for _ in 0..watch {
         d.run(&mut g, 1, &mut Input::default());
+        eye.tick(&mut g, d.t);
         if g.avatar_dead() && died_at.is_none() {
             died_at = Some(d.t - t_hit);
         }

@@ -40,6 +40,13 @@ impl App {
                 self.painter = Painter::new();
                 self.held.clear();
                 self.on_map_loaded();
+                // The diary's first entry, the beginning: a new game, as at the start.
+                if self.game.needs_name() {
+                    if !self.start_film(films::Which::Intro, films::After::Name) {
+                        self.open_menu(menu::Page::Name);
+                    }
+                    return;
+                }
                 self.notice("Game loaded.");
             }
             Err(e) => {

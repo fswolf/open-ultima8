@@ -37,19 +37,20 @@ const USAGE: &str = "usage: u8cmp <cmd> …
   play <root> <slot|g> steps…           play headless. steps:
        wait=T  walk=DIR,T  run=DIR,T  at=x,y,z[,map]  use=ID  useshape=SHAPE  look=ID
        answer=N|last  shot=out.png  state=out.txt  gamedat=dir  log  mins=M  jump  combat
-       bark=T (ticks a line of speech stays up; default by length)
+       bark=T (ticks a line of speech stays up; default by length)  restored[=0]  flag=BIT[,0|1]
   fuzz <root> <slot> seed=N steps=N [at=x,y,z,map] [nojump] [verbose]
                                         random play, looking for errors and stuck states
   soak <root> <slot> ticks=N seed=N [every=3000] [saveslot=30]
                                         a long session: wander, talk, use things, save and load
-  talk <root> <slot> map=M policy=first|last|cycle|silent [npc=N] [out=dir]
+  talk <root> <slot> map=M policy=first|last|cycle|silent [npc=N] [out=dir] [flag=HEX,..]
                                         talk to everyone on a map
   magic <root> <slot> out=dir [at=x,y,z,map] [secs=10] [every=3] [only=shape[,frame[,q]]]
        [target=self|near|floor:dx,dy|ID] [trace=1] [dump=T shapes=..] [state=dir]
                                         cast the kit's spells; spell pictures against the world
   people <root> <slot> hour=H           everyone on every map at an hour
   attack <root> <slot> map=M npc=N [hour=H] [swings=N] [watch=T] [hp=N] [side=dx,dy] [move=x,y,z]
-       [cast] [kill] [procs] [out=dir]  strike someone and watch what follows (procs: live processes)
+       [cast] [kill] [procs] [out=dir] [shots=PREFIX,EVERY] [frames=ID,..]
+                                        strike someone and watch what follows (procs: live processes)
   steal <root> <slot> map=M npc=N [hour=H] [list] [r=600] [shape=S,..] [item=ID,..] [times=K] [how=take|floor]
        [gap=T] [watch=T] [stand=x,y,z] [answer=N] [move=x,y,z] [out=dir] [shots=PREFIX,EVERY] [frames=ID,..]
                                         take things near someone and watch what follows";
@@ -114,6 +115,52 @@ fn shot(g: &mut Game, painter: &mut Painter, cache: &mut SpriteCache, path: &str
     let mut canvas = Canvas::new(&mut buf, w, h);
     painter.draw(&g.data, &mut g.world, cache, cam, &mut canvas, DrawOpts { max_z, ..Default::default() });
     image::RgbaImage::from_raw(w, h, buf).unwrap().save(path).unwrap();
+}
+
+/// Shape, frame, flags and place of something watched.
+type Look = (u32, u32, u16, (i32, i32, i32));
+
+/// What `shots=PREFIX,EVERY` (a picture every EVERY ticks) and `frames=ID,..` (each one's look as
+/// it changes) ask to see of a run.
+struct Watch {
+    shots: Option<(String, u32)>,
+    frames: Vec<u16>,
+    painter: Painter,
+    cache: SpriteCache,
+    seen: std::collections::HashMap<u16, Option<Look>>,
+}
+
+impl Watch {
+    fn new(args: &[String]) -> Watch {
+        let shots =
+            arg(args, "shots").and_then(|v| v.rsplit_once(',')).map(|(p, e)| (p.to_string(), e.parse().unwrap_or(0)));
+        let frames = arg(args, "frames").map_or(vec![], |v| v.split(',').filter_map(|x| x.parse().ok()).collect());
+        Watch { shots, frames, painter: Painter::new(), cache: SpriteCache::unscaled(), seen: Default::default() }
+    }
+
+    /// After tick `t`.
+    fn tick(&mut self, g: &mut Game, t: u32) {
+        if let Some((pre, _)) = self.shots.as_ref().filter(|s| s.1 > 0 && t.is_multiple_of(s.1)) {
+            shot(g, &mut self.painter, &mut self.cache, &format!("{pre}{t:05}.png"));
+        }
+        for &w in &self.frames {
+            let now = g
+                .world
+                .get(w)
+                .filter(|_| !g.world.is_void(w))
+                .map(|it| (it.shape, it.frame, it.flags, (it.x, it.y, it.z)));
+            if self.seen.get(&w) != Some(&now) {
+                let shown = g.world.index(w).is_some_and(|i| g.world.entry(i).shown());
+                println!(
+                    "  [t{t}] {w}: {now:?} shown {shown} acting {:?} last {} camera {:?}",
+                    g.world.acting(w),
+                    g.world.last_anim(w),
+                    g.camera()
+                );
+                self.seen.insert(w, now);
+            }
+        }
+    }
 }
 
 /// A game with its scripts, named if it's new.

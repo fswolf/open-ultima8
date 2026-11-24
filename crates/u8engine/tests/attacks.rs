@@ -55,6 +55,41 @@ fn struck_townsfolk_bring_beren() {
     }
 }
 
+/// Bentic struck as he reads in his chair (DOS, a frame every tenth of a second): thrown back in
+/// it, then reading again the way he faced; no standing up, no talking hands (only someone
+/// standing gestures as they speak). Beren arrives in a flash beside him and stays there for the
+/// questioning: his arriving starts his walk back to his post, which the script stops at once.
+/// The Avatar, burnt to pieces, is left unseen as an empty frame (BODYPART cuts the death fall
+/// short), not drawn falling as a pale outline.
+#[test]
+#[ignore]
+fn bentic_keeps_his_seat_and_beren_his_place() {
+    use u8data::anim::action;
+    let Some(mut g) = beside(41, 12) else { return };
+    g.receive_hit(12, AVATAR, 0, 5, dmg::NORMAL);
+    assert_eq!(g.world.acting(12).map(|a| a.0), Some(action::STUMBLE), "thrown back in his chair");
+    let mut beren = None;
+    let said = play_with(&mut g, 60, |g| {
+        assert!(!matches!(g.world.last_anim(12), action::STAND | action::TALK), "Bentic stood up");
+        let shown = |id| g.world.index(id).is_some_and(|i| g.world.entry(i).shown());
+        let (b, a) = (g.world.get(32).filter(|_| shown(32)), g.world.get(12).unwrap());
+        if let Some(b) = b.filter(|b| (b.x - a.x).abs().max((b.y - a.y).abs()) < 512 && !g.avatar_dead()) {
+            let was = *beren.get_or_insert((b.x, b.y));
+            assert!(
+                (b.x - was.0).abs().max((b.y - was.1).abs()) < 16,
+                "Beren walked off from {was:?} to {:?}",
+                (b.x, b.y)
+            );
+        }
+    });
+    assert_eq!(g.world.facing(&g.data, 12), Some(2), "back to his book, east (his readBook)");
+    assert!(said.iter().any(|(i, t)| *i == 32 && t.contains("guilty of assault")), "{said:?}");
+    assert!(beren.is_some(), "Beren came");
+    assert!(g.avatar_dead(), "burnt");
+    let a = g.world.get(AVATAR).unwrap();
+    assert!(a.frame == 8 && !g.world.is_acting(AVATAR), "the dead Avatar shows frame {}", a.frame);
+}
+
 /// A guard struck shouts "Guardsmen, to arms!" and fights; a hatched peasant 640 off, on the
 /// guards' side but with other enemies (1/2 against the guard's 1/e), isn't called in (DOS: no
 /// scene, the guard fights on alone).

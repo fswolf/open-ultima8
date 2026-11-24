@@ -99,6 +99,7 @@ impl Game {
                     self.start_sprite(pid, shape, (first, last), repeats, delay, at)
                 }
                 Request::Created(id) => self.made_actor(id),
+                Request::StopActing(id) => self.world.stop_acting(&self.data, id),
                 Request::Teleported { id, by } => self.redraw_sleepers(id, by),
                 Request::Fetch { id, at, pid } => {
                     self.fetch(id, at);
@@ -158,15 +159,23 @@ impl Game {
                 self.world.set_last_anim(id, action::TALK);
             }
         }
+        // (As the original's BarkFidget: only someone standing or already talking gestures,
+        // so a reader in his chair stays in it; a gesture, then a rest of one to three seconds.)
         let quiet: Vec<ObjId> = self.talkers.iter().map(|&(_, id)| id).collect();
+        self.talk_rest.retain(|id, _| quiet.contains(id));
         for id in quiet {
-            let busy = self.world.is_acting(id) || self.walks.iter().any(|w| w.actor == id);
+            let busy = self.world.is_acting(id)
+                || self.walks.iter().any(|w| w.actor == id)
+                || self.talk_rest.get(&id).is_some_and(|&t| self.tick < t);
             let able = self.world.get(id).is_some_and(|it| self.data.anims.get(it.shape, action::TALK).is_some())
+                && matches!(self.world.last_anim(id), action::STAND | action::TALK)
                 && !self.world.in_combat(id)
                 && self.stats.get(id).is_none_or(|s| !s.dead);
             if !busy && able {
                 let dir = facing(&self.world, &self.data, id);
-                self.world.play(&self.data, id, action::TALK, dir);
+                let ticks = self.world.play(&self.data, id, action::TALK, dir).unwrap_or(0);
+                let rest = (1 + self.world.roll(3)) * 30;
+                self.talk_rest.insert(id, self.tick + ticks + rest);
             }
         }
     }

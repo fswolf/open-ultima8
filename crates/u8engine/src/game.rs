@@ -57,6 +57,8 @@ pub struct Game {
     pub(crate) loiters: HashMap<ObjId, crate::spawn::Loiter>,
     /// People speaking: the speech or question's process, and who (see [`Game::gesture`]).
     pub(crate) talkers: Vec<(crate::usecode::Pid, ObjId)>,
+    /// The tick each talker may gesture again (a rest of one to three seconds between).
+    pub(crate) talk_rest: HashMap<ObjId, u32>,
     /// The dead who'll rise again, and ticks till they do.
     pub(crate) rising: Vec<(ObjId, u32)>,
     /// The Avatar's healing and hunger (see [`heal`](crate::heal)).
@@ -97,6 +99,8 @@ pub struct Game {
     tick: u32,
     tick_clock: f32,
     map_changed: bool,
+    /// The "Restored content" option and what it has done (see [`restore`](crate::restore)).
+    pub restored: crate::restore::Restore,
 }
 
 /// What an update did, so the host knows whether to redraw and keep the frames coming.
@@ -143,11 +147,12 @@ impl Game {
             maps,
             visited: HashMap::new(),
             hatcher: Hatcher::default(),
-            fast: FastArea,
+            fast: FastArea::default(),
             walks: vec![],
             fights: HashMap::new(),
             loiters: HashMap::new(),
             talkers: vec![],
+            talk_rest: HashMap::new(),
             rising: vec![],
             recovery: Default::default(),
             peace: None,
@@ -165,6 +170,7 @@ impl Game {
             tick: 0,
             tick_clock: 0.0,
             map_changed: false,
+            restored: Default::default(),
         };
         g.new_game = g.data.clock.is_none(); // no kernel state: the start of a new game
         g.resume_fights(true);
@@ -339,6 +345,9 @@ impl Game {
             for id in ids {
                 self.trigger(id, event::CACHED_IN);
             }
+            self.restore();
+        } else if self.tick.is_multiple_of(30) {
+            self.restore();
         }
         self.clock += CLOCK_HZ / TICK_HZ as u32;
         for id in self.world.tick_acting(&self.data) {
@@ -446,6 +455,12 @@ impl Game {
     fn fresh_roof(&self) -> Option<Option<i32>> {
         let a = self.world.get(AVATAR).filter(|_| self.camera_on_avatar())?;
         (self.roof.1 != Some((a.x, a.y, a.z))).then(|| self.world.ceiling(AVATAR))
+    }
+
+    /// How much of the world the player sees (game pixels): the fast area grows to cover it
+    /// (see [`crate::fast_area`]); never less than the original's 320×200.
+    pub fn set_view(&mut self, w: f32, h: f32) {
+        self.fast.view = (w, h);
     }
 
     /// Is the camera following the Avatar (rather than a scene's glide, or something else)?

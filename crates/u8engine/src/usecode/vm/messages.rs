@@ -90,6 +90,9 @@ pub enum Request {
     /// Item::receiveHit: `target` is struck by `by` from direction `dir` (0 damage: the
     /// striker's usual).
     Hit { target: ObjId, by: ObjId, dir: usize, damage: i32, kind: u16 },
+    /// resetRef of an actor's animations (process type 0xF0): stop what it's acting out, behind
+    /// whatever blow just started one (a death the scripts cut short, as BODYPART's).
+    StopActing(ObjId),
     /// Actor::setDead / clrDead behind a blow on the same one still to land (see `set_dead`).
     SetDead(ObjId, bool),
     /// hurl(xs, ys, zs, gravity): send a thing flying; `pid` ends when it comes to rest.

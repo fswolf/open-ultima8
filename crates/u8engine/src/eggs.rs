@@ -22,16 +22,14 @@ pub fn is_teleporter(it: &Item) -> bool {
     it.frame != 1
 }
 
-/// Is the point (x, y, z) — the Avatar's footprint centre — inside the egg's trigger box?
-/// Ranges are in 32-unit cells around the egg's anchor (x from the npc byte's high nibble, y low).
-pub fn in_range(egg: &Item, (x, y, z): (i32, i32, i32)) -> bool {
+/// Is the Avatar, its footprint running from (x0, y0) (open) to its anchor (x, y) at height z,
+/// in the egg's trigger box? Ranges are in 32-unit cells either side of the egg's anchor (x from
+/// the npc byte's high nibble, y low); the footprint has only to reach into the box, ends
+/// included, and the feet be within 48 up or down (EGG.C EggHatcher::process). A range of 0 is
+/// the egg's own line: stood across, it fires.
+pub fn in_range(egg: &Item, (x0, y0): (i32, i32), (x, y, z): (i32, i32, i32)) -> bool {
     let (rx, ry) = ((egg.npcnum >> 4) as i32 * 32, (egg.npcnum & 0xF) as i32 * 32);
-    egg.x - rx <= x
-        && x < egg.x + rx
-        && egg.y - ry <= y
-        && y < egg.y + ry
-        && egg.z - Z_RANGE < z
-        && z <= egg.z + Z_RANGE
+    x >= egg.x - rx && x0 < egg.x + rx && y >= egg.y - ry && y0 < egg.y + ry && (z - egg.z).abs() <= Z_RANGE
 }
 
 /// Watches the Avatar against every egg on the map. Each egg fires once per visit to its range.
@@ -48,12 +46,12 @@ impl Hatcher {
 
     pub fn check(&mut self, world: &mut World) -> Vec<Hatch> {
         let Some(av) = world.index(AVATAR).map(|i| *world.entry(i)) else { return vec![] };
-        let centre = (av.it.x - (av.it.x - av.x0) / 2, av.it.y - (av.it.y - av.y0) / 2, av.it.z);
+        let (low, at) = ((av.x0, av.y0), (av.it.x, av.it.y, av.it.z));
         let (mut fired, mut near_teleporter) = (vec![], false);
         for k in 0..world.eggs().len() {
             let idx = world.eggs()[k];
             let e = *world.entry(idx);
-            if !e.present() || !in_range(&e.it, centre) {
+            if !e.present() || !in_range(&e.it, low, at) {
                 world.set_hatched(idx, false);
                 continue;
             }
@@ -85,11 +83,15 @@ mod tests {
     #[test]
     fn range_box() {
         let egg = Item { x: 1000, y: 2000, z: 48, npcnum: 0x21, ..Default::default() };
-        assert!(in_range(&egg, (1000, 2000, 48)));
-        assert!(in_range(&egg, (936, 1968, 48))); // x - 64, y - 32: inclusive
-        assert!(!in_range(&egg, (1064, 2000, 48))); // x + 64: exclusive
-        assert!(!in_range(&egg, (1000, 2032, 48)));
-        assert!(!in_range(&egg, (1000, 2000, 0))); // 48 below
-        assert!(!in_range(&Item { npcnum: 0, ..egg }, (1000, 2000, 48))); // no range: never
+        // (A 64-square footprint, anchored at its far corner.)
+        let at = |x: i32, y: i32, z: i32| in_range(&egg, (x - 64, y - 64), (x, y, z));
+        assert!(at(1000, 2000, 48));
+        assert!(at(936, 1968, 48), "just reaching the near edges");
+        assert!(!at(935, 2000, 48) && !at(1000, 1967, 48));
+        assert!(at(1127, 2000, 48) && !at(1128, 2000, 48), "the far edge, from beyond");
+        assert!(at(1000, 2000, 96) && !at(1000, 2000, 97) && !at(1000, 2000, -1), "48 up or down");
+        let line = Item { npcnum: 0, ..egg };
+        assert!(in_range(&line, (960, 1960), (1024, 2024, 48)), "no range: its own point");
+        assert!(!in_range(&line, (1000, 1960), (1064, 2024, 48)));
     }
 }

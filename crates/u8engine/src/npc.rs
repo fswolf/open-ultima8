@@ -12,7 +12,7 @@ const REPLANS: u32 = 3;
 /// Give up after this long whatever happens.
 const MAX_TICKS: u32 = 30 * 60;
 /// Arrival slack for the two footprints.
-const SLACK: i32 = 48;
+pub(crate) const SLACK: i32 = 48;
 
 #[derive(Clone, Debug)]
 pub struct Walk {

@@ -28,9 +28,10 @@ const BAG: u32 = 637;
 /// (shape, frame, quality) of everything in the bag.
 fn contents() -> Vec<(u32, u32, u16)> {
     let mut v = vec![];
-    // Necromancy: the Keys of the Caretaker, Scion and Necromancer (the last makes spells
-    // from the reagents in a bag), the reagents, and the ten spells ready made.
-    v.extend((0..3).map(|f| (232, f, 0)));
+    // Necromancy: the Keys of the Caretaker, Scion and Necromancer (frames 0, 3, 4; 1 and 2
+    // are empty pictures; the Caretaker's and the Necromancer's make spells from the reagents
+    // in a bag), the reagents, and the ten spells ready made.
+    v.extend([0, 3, 4].map(|f| (232, f, 0)));
     v.extend([0, 6, 8, 9, 10, 13, 14, 16].map(|f| (395, f, 10)));
     v.extend((0..10).map(|f| (746, f, 0)));
     // Theurgy: the enchanted foci (frames 8–17: Divination … Reveal).

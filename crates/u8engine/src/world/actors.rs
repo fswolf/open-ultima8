@@ -20,6 +20,11 @@ pub(super) struct Acting {
     pub(super) backwards: bool,
     /// A two-step action (walking): finishing it switches which step comes next.
     pub(super) two_step: bool,
+    /// How `id` looked before the first frame, until a tick has passed: the original shows an
+    /// action's first frame on its first run, so one stopped at once never showed.
+    pub(super) before: Option<Item>,
+    /// What to play when this ends (action, facing).
+    pub(super) then: Option<(usize, usize)>,
 }
 
 /// The frames an action of `size` frames plays (ScummVM's AnimAction::getAnimRange and
@@ -143,6 +148,7 @@ impl World {
     /// cut short doesn't count as a step taken (the same foot leads next time).
     pub fn play_part(&mut self, gd: &GameData, id: ObjId, action: usize, dir: usize, steps: usize) -> Option<u32> {
         let mut it = self.get(id)?;
+        let before = Some(it);
         let a = gd.anims.get(it.shape, action)?;
         let mut frames = self.frames_to_play(id, action, dir, a.flags, a.frames.get(dir)?.len());
         let cut = steps > 0 && steps < frames.len();
@@ -157,7 +163,19 @@ impl World {
         self.act_move(gd, id, action, dir, frames[0]);
         let (per, two_step) = (per_frame(a), a.flags & TWO_STEP != 0 && !cut);
         let ticks = frames.len() as u32 * per;
-        self.acting.push(Acting { id, action, dir, step: 0, frames, wait: per, per, backwards: false, two_step });
+        self.acting.push(Acting {
+            id,
+            action,
+            dir,
+            step: 0,
+            frames,
+            wait: per,
+            per,
+            backwards: false,
+            two_step,
+            before,
+            then: None,
+        });
         self.last_anim.insert(id, action);
         self.last_dir.insert(id, dir);
         Some(ticks)
@@ -223,6 +241,7 @@ impl World {
         as_action: usize,
     ) -> Option<u32> {
         let mut it = self.get(id)?;
+        let before = Some(it);
         let a = gd.anims.get(it.shape, action)?;
         let (len, per) = (a.frames.get(dir)?.len(), per_frame(a));
         let (frame, flip) = crate::avatar::anim_frame(gd, it.shape, action, dir, len.checked_sub(1)?)?;
@@ -231,7 +250,19 @@ impl World {
         self.set(gd, id, it);
         self.acting.retain(|a| a.id != id);
         let frames = (0..len).rev().collect();
-        self.acting.push(Acting { id, action, dir, step: 0, frames, wait: per, per, backwards: true, two_step: false });
+        self.acting.push(Acting {
+            id,
+            action,
+            dir,
+            step: 0,
+            frames,
+            wait: per,
+            per,
+            backwards: true,
+            two_step: false,
+            before,
+            then: None,
+        });
         self.last_anim.insert(id, as_action);
         Some(len as u32 * per)
     }
@@ -282,8 +313,9 @@ impl World {
     /// a ledge): they fall, as ScummVM's ActorAnimProcess has them.
     pub fn tick_acting(&mut self, gd: &GameData) -> Vec<ObjId> {
         let mut playing = std::mem::take(&mut self.acting);
-        let mut aloft = vec![];
+        let (mut aloft, mut next) = (vec![], vec![]);
         playing.retain_mut(|a| {
+            a.before = None;
             a.wait -= 1;
             if a.wait > 0 {
                 return true;
@@ -293,6 +325,9 @@ impl World {
             if a.step >= a.frames.len() {
                 if a.two_step && !self.first_step.remove(&a.id) {
                     self.first_step.insert(a.id); // (the other foot next time)
+                }
+                if let Some((action, dir)) = a.then {
+                    next.push((a.id, action, dir));
                 }
                 let z = self.get(a.id).map_or(0, |it| it.z);
                 if !a.backwards && self.floor_under(a.id).is_none_or(|f| f < z) {
@@ -312,9 +347,28 @@ impl World {
             }
             true
         });
-        playing.append(&mut self.acting); // any started meanwhile
+        for (id, action, dir) in next {
+            self.play(gd, id, action, dir);
+        }
+        playing.append(&mut self.acting); // any started meanwhile (or next)
         self.acting = playing;
         aloft
+    }
+
+    /// When what `id` is acting out ends, play `action` facing `dir`.
+    pub fn then_play(&mut self, id: ObjId, action: usize, dir: usize) {
+        if let Some(a) = self.acting.iter_mut().find(|a| a.id == id) {
+            a.then = Some((action, dir));
+        }
+    }
+
+    /// Stop what `id` is acting out (the scripts' resetRef of its animations), where it is; one
+    /// begun this tick is undone, never having shown.
+    pub fn stop_acting(&mut self, gd: &GameData, id: ObjId) {
+        let Some(i) = self.acting.iter().position(|a| a.id == id) else { return };
+        if let Some(it) = self.acting.remove(i).before.filter(|_| self.get(id).is_some()) {
+            self.set(gd, id, it);
+        }
     }
 
     pub fn overlay(&self, id: ObjId) -> Option<Overlay> {

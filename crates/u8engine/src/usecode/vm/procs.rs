@@ -147,7 +147,7 @@ impl Vm {
 
     /// A process that finishes by itself after `ticks` (stand-in for an animation).
     pub(crate) fn spawn_timer(&mut self, item: ObjId, ticks: u32) -> Pid {
-        self.add_proc(None, Body::Timer(ticks), item, 0xF0)
+        self.add_proc(None, Body::Timer(ticks), item, ANIM_PROC)
     }
 
     /// Start `class`'s handler for `ev` on item `id`. None if the class has no such handler.
@@ -220,7 +220,14 @@ impl Vm {
             .filter(|p| ptype == PROC_TYPE_ALL || p.ptype == ptype)
             .map(|p| p.pid)
             .collect();
-        victims.into_iter().for_each(|v| self.terminate(v, 0));
+        // (A routine stopped while it waits on a walk stops the walk too: Corinth, robbed, stays
+        // to cry thief as in DOS rather than strolling on to his evening spot.)
+        let walks: Vec<Pid> = victims
+            .iter()
+            .filter_map(|&v| self.procs.iter().find(|p| p.pid == v)?.wait_for)
+            .filter(|&w| self.procs.iter().any(|p| p.pid == w && p.ptype == PATHFINDER && !p.done))
+            .collect();
+        victims.into_iter().chain(walks).for_each(|v| self.terminate(v, 0));
     }
 
     /// How many processes run for `item` (0: any) of type `ptype` ([`PROC_TYPE_ALL`]: any).

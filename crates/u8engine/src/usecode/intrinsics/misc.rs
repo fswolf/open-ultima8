@@ -58,10 +58,22 @@ pub fn family_of_type(c: &mut Ctx) -> u32 {
 }
 
 /// resetRef(item, type): stop the item's processes of that type (scripts restarting a routine).
+/// The original's animations are processes too (type 0xF0): those stop where they are, at once
+/// (realDoAnim stops the last before starting the next), or behind a blow on the same one the
+/// script dealt just before, which the game lands after the script's turn (BODYPART cuts the
+/// Avatar's death short so its burnt remains, unseen, aren't drawn falling).
 pub fn reset_ref(c: &mut Ctx) -> u32 {
     let (item, ty) = (c.arg2(0), c.arg2(2));
     let pid = c.pid;
     c.vm.kill_item_procs(item, ty, pid);
+    if ty == crate::usecode::vm::ANIM_PROC && item != 0 {
+        let behind = |r: &Request| matches!(r, Request::Hit { target, .. } if *target == item);
+        if c.vm.requests.iter().any(behind) {
+            c.vm.requests.push(Request::StopActing(item));
+        } else {
+            c.host.stop_acting(item);
+        }
+    }
     0
 }
 

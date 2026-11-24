@@ -2,6 +2,7 @@
 use super::*;
 
 /// Talk to everyone on a map: talk <root> <slot> map=M policy=first|last|cycle|silent [npc=N] [out=dir]
+/// [flag=BIT,..] (story flags set first)
 pub(super) fn talk(root: &Path, slot: Option<u32>, args: &[String]) {
     let map: u16 = arg(args, "map").and_then(|v| v.parse().ok()).unwrap_or(40);
     let policy = arg(args, "policy").unwrap_or("last").to_string();
@@ -40,6 +41,15 @@ pub(super) fn talk(root: &Path, slot: Option<u32>, args: &[String]) {
             continue;
         };
         g.put_avatar(map, at);
+        for f in arg(args, "flag")
+            .unwrap_or("")
+            .split(',')
+            .filter_map(|f| usize::from_str_radix(f.trim_start_matches("0x"), 16).ok())
+        {
+            if let Some(vm) = g.vm() {
+                vm.set_global_bits(f, 1, 1);
+            }
+        }
         let mut d = Drv { keep: true, bark_ticks: Some(25), cap: 40, ..Default::default() };
         match policy.as_str() {
             "first" => d.answer = Some(0),

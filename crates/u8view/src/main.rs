@@ -166,6 +166,8 @@ struct App {
     fullscreen: bool,
     /// The original's cheats (Settings): the Avatar's developers' menu.
     cheats: bool,
+    /// Restored content (Settings; `u8engine::restore`).
+    restored: bool,
     /// Discord Rich Presence (Settings), and the link to Discord.
     discord: bool,
     presence: presence::Presence,
@@ -303,6 +305,7 @@ impl App {
             swapped: false,
             fullscreen: false,
             cheats: false,
+            restored: false,
             discord: true,
             presence: presence::Presence::start(),
             mods: input::Mods::default(),
@@ -378,7 +381,7 @@ impl App {
 
     fn on_map_loaded(&mut self) {
         self.view.eye = None; // (a new place: the view starts at the Avatar's height)
-        self.apply_cheats();
+        self.apply_game_options();
         if let Some(ui) = &mut self.ui {
             ui.clear();
         }

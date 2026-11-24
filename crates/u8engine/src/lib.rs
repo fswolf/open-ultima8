@@ -8,6 +8,7 @@
 //! - [`stats`]: people's strength, hit points and the rest (NPCDATA); [`combat`]: hitting them.
 //! - [`usecode`]: the VM that runs the game's own scripts, and its intrinsics.
 //! - [`film`]: the intro and ending films (SKF).
+//! - [`restore`]: the "Restored content" option (off by default).
 //! - [`game`]: a session tying them together, advanced with [`game::Game::update`].
 pub mod avatar;
 pub mod camera;
@@ -30,6 +31,7 @@ pub mod npc;
 pub mod path;
 mod peace;
 pub mod persist;
+pub mod restore;
 pub(crate) mod spawn;
 mod sprites;
 pub mod stats;

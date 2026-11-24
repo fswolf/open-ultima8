@@ -245,6 +245,9 @@ pub struct World {
     /// Next places at the front and the back of a chunk's list (see `Entry::seq`).
     seq_front: i32,
     seq_back: i32,
+    /// How far the fast area reaches round the Avatar (regions in x + y and x - y; see
+    /// [`fast_area`](crate::fast_area)), as of its last update.
+    pub(crate) fast_reach: (i32, i32),
 }
 
 impl World {
@@ -302,6 +305,7 @@ impl World {
             first_step: Default::default(),
             seq_front: -1,
             seq_back: 0,
+            fast_reach: crate::fast_area::DOS_REACH,
         };
         // Loaded in order: fixed, then movable, then people (ScummVM's loadMap).
         for (i, e) in w.entries.iter_mut().enumerate() {
@@ -437,6 +441,10 @@ impl World {
     /// Has `id` entered the fast area (had its enterFastArea)?
     pub fn is_fast(&self, id: ObjId) -> bool {
         self.index(id).is_some_and(|i| self.entries[i].fast)
+    }
+    /// Would a spot be in the fast area (round where the Avatar is now)?
+    pub fn in_fast_area(&self, x: i32, y: i32) -> bool {
+        self.get(AVATAR).is_some_and(|a| crate::fast_area::holds(self.fast_reach, (a.x, a.y), x, y))
     }
     pub fn set_fast(&mut self, id: ObjId, on: bool) {
         if let Some(i) = self.index(id) {

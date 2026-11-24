@@ -3,7 +3,6 @@
 //! the nearest enemy (by alignment) about; close in, turn to face it, swing when it's within the
 //! attack's reach, and get one's breath back (longer the clumsier) before the next swing.
 use crate::avatar::facing;
-use crate::fast_area;
 use crate::game::Game;
 use crate::geom::dir_towards;
 use crate::npc::Walk;
@@ -12,6 +11,8 @@ use crate::usecode::{event, Pid};
 use crate::world::{ObjId, AVATAR};
 use u8data::anim::action;
 
+/// How near (beyond touching) a fighter closing in walks to its quarry.
+const CLOSE: i32 = 16;
 /// How far (world units, either axis) someone in combat looks for an enemy.
 const SEEK: i32 = 768;
 /// Nobody to fight: look again after this many ticks.
@@ -52,7 +53,9 @@ impl Game {
     pub(crate) fn fight(&mut self) {
         let fighters = self.world.fighters();
         self.fights.retain(|id, _| fighters.contains(id));
-        let Some(av) = self.world.get(AVATAR) else { return };
+        if self.world.get(AVATAR).is_none() {
+            return;
+        }
         for id in fighters.into_iter().filter(|&id| id != AVATAR) {
             if self.stats.get(id).is_some_and(|s| s.dead) || self.world.is_void(id) {
                 continue;
@@ -60,9 +63,8 @@ impl Game {
             if !self.fights.contains_key(&id) {
                 self.join_fight(id);
             }
-            let near =
-                self.world.get(id).is_some_and(|it| (it.x - av.x).abs().max((it.y - av.y).abs()) <= fast_area::RANGE);
-            if near {
+            // (Only in the fast area, as the original's isInFastArea.)
+            if self.world.is_fast(id) {
                 let mut f = self.fights.remove(&id).unwrap_or_default();
                 self.fight_tick(id, &mut f);
                 self.fights.insert(id, f);
@@ -179,7 +181,13 @@ impl Game {
         f.walked += 1;
         if f.walk.is_none() || f.walked >= REPLAN_TICKS {
             let Some(to) = self.world.get(t).map(|it| (it.x, it.y, it.z)) else { return };
-            (f.walk, f.walked) = (Some(Walk::new(0, id, to, 0)), 0);
+            // (Up to it, not onto its spot: big people's anchors can't come within a walk's
+            // slack of each other, and a goal out of reach is no route at all.)
+            let size = |i| {
+                self.world.index(i).map(|e| self.world.entry(e).bounds()).map_or(0, |b| (b.x1 - b.x0).max(b.y1 - b.y0))
+            };
+            let range = size(id).max(size(t)) - crate::npc::SLACK + CLOSE;
+            (f.walk, f.walked) = (Some(Walk::new(0, id, to, range)), 0);
         }
         let Some(w) = f.walk.as_mut() else { return };
         let done = w.step(&self.data, &mut self.world);
@@ -201,13 +209,13 @@ impl Game {
         t
     }
 
-    /// Can `id` fight `t`: someone else, alive (and not fooling the undead), near the Avatar?
+    /// Can `id` fight `t`: someone else, alive (and not fooling the undead), in the fast area?
     fn fair_game(&self, id: ObjId, t: ObjId) -> bool {
-        let (Some(it), Some(av)) = (self.world.get(t), self.world.get(AVATAR)) else { return false };
+        let Some(it) = self.world.get(t) else { return false };
         let Some(s) = self.stats.get(t).filter(|_| it.npc != 0 && t != id) else { return false };
         let sees_through = self.defence_type(id) & crate::combat::dmg::UNDEAD != 0
             || self.world.get(id).is_some_and(|a| a.shape == DEMON);
-        !s.dead && !(s.feigning > 0 && sees_through) && (it.x - av.x).abs().max((it.y - av.y).abs()) <= fast_area::RANGE
+        !s.dead && !(s.feigning > 0 && sees_through) && self.world.is_fast(t)
     }
 
     /// The nearest enemy of `id` about.

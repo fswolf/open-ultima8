@@ -26,6 +26,8 @@ pub struct Settings {
     pub colour_fix: bool,
     /// The original's cheats: clicking the Avatar opens its developers' menu.
     pub cheats: bool,
+    /// Restored content: pieces the original has but never links up (not the original game).
+    pub restored: bool,
     /// Show where the Avatar is and what's going on on the player's Discord profile.
     pub discord: bool,
     /// Where the game's files are, once the player has picked the folder (empty: look for them).
@@ -63,6 +65,7 @@ impl Default for Settings {
             gamma: 1.0,
             colour_fix: false,
             cheats: false,
+            restored: false,
             discord: true,
             data: String::new(),
             finished: false,
@@ -121,6 +124,7 @@ impl Settings {
                 "gamma" => s.gamma = v.parse::<f32>().map_or(s.gamma, |x| x.clamp(0.3, 3.0)),
                 "colour_fix" => s.colour_fix = on,
                 "cheats" => s.cheats = on,
+                "restored" => s.restored = on,
                 "discord" => s.discord = on,
                 "data" => s.data = v.to_string(),
                 "language" => s.language = v.chars().take(1).collect::<String>().to_ascii_uppercase(),
@@ -147,7 +151,7 @@ impl Settings {
         format!(
             "# Open Ultima8 settings (written by the game; edit while it isn't running)\n\
              version = 2\nupscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nvolume = {:.1}\nambience = {:.1}\n\
-             cutaway = {}\nsmooth_camera = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\n\
+             cutaway = {}\nsmooth_camera = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\nrestored = {}\n\
              discord = {}\ndata = {}\nfinished = {}\npad = {}\npad_speed = {:.1}\npad_deadzone = {:.2}\nswap_sticks = {}\ntouch_buttons = {}\nlanguage = {}\n",
             self.upscaler,
             self.scale,
@@ -164,6 +168,7 @@ impl Settings {
             self.gamma,
             self.colour_fix,
             self.cheats,
+            self.restored,
             self.discord,
             self.data,
             self.finished,
@@ -228,6 +233,7 @@ mod tests {
             swap_sticks: true,
             touch_buttons: false,
             language: "G".into(),
+            restored: true,
             ..Default::default()
         };
         assert_eq!(Settings::parse(&s.to_text()), s);

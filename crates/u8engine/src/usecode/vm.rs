@@ -116,6 +116,10 @@ pub struct Vm {
 
 /// Process type meaning "any" (Kernel::PROC_TYPE_ALL).
 pub const PROC_TYPE_ALL: u16 = 6;
+/// Process type of an actor's animations (the original's AnimPrimitive; the scripts' PT_ANIM).
+pub const ANIM_PROC: u16 = 0xF0;
+/// Process type of a walk (the original's PathFinder).
+pub const PATHFINDER: u16 = 0x204;
 
 /// How long the original waits on an unanswered question (measured: 30.8 and 30.9 s in DOS).
 pub const ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(30_800);
@@ -200,8 +204,10 @@ impl Vm {
     }
 
     /// A process just spawned runs once, now, before its parent goes on (ScummVM's
-    /// addProcessExec): until it first waits or ends. (It still gets its turn this tick.)
-    fn run_now(&mut self, pid: Pid, uc: &Usecode, host: &mut dyn Host) {
+    /// addProcessExec; the original's UnkProcess runs from its constructor, events started by
+    /// the engine's own calls too): until it first waits or ends. (It still gets its turn this
+    /// tick.)
+    pub(crate) fn run_now(&mut self, pid: Pid, uc: &Usecode, host: &mut dyn Host) {
         if self.nesting >= MAX_NESTING {
             return; // (a script spawning itself over and over runs in turn instead)
         }

@@ -1,6 +1,7 @@
 //! What the original's saves have no room for, kept beside them in SAVEGAME/U8SAVE.nnn.ou8:
 //! use built up towards the Avatar's next STR/DEX/INT point, the healing clock and hunger, whom
-//! fighters on the current map are after, and the Avatar hanging from a ledge or knocked flat. It carries a fingerprint of the save it goes
+//! fighters on the current map are after, the Avatar hanging from a ledge or knocked flat, and
+//! which pieces of restored content have been put in. It carries a fingerprint of the save it goes
 //! with, so a save written since by the original game (DOSBox) isn't paired with stale numbers.
 use crate::avatar::Plight;
 use crate::game::Game;
@@ -21,7 +22,7 @@ pub fn fingerprint(d: &[u8]) -> u64 {
 
 impl Game {
     /// The side file's text for a save whose bytes have `print`.
-    pub(crate) fn extra(&self, print: u64) -> String {
+    pub fn extra(&self, print: u64) -> String {
         let g = self.growth;
         let (ticks, hunger) = self.recovery.parts();
         let mut s =
@@ -37,18 +38,32 @@ impl Game {
             let t = self.world.target(id);
             s += &format!("target {id} {} {}\n", t.now, t.fixed);
         }
+        for (name, at) in &self.restored.done {
+            s += &format!("restored {name} {at}\n");
+        }
         s
     }
 
     /// Take the side file's numbers, if it goes with a save of `print`. False if it doesn't.
-    pub(crate) fn apply_extra(&mut self, text: &str, print: u64) -> bool {
+    /// Which restored pieces were put in is taken either way: a save written over since by the
+    /// original is the same game played on, and they'd be put in a second time.
+    pub fn apply_extra(&mut self, text: &str, print: u64) -> bool {
         let mut lines = text.lines();
-        if lines.next() != Some(HEADER) || lines.next() != Some(&format!("save {print:016x}")[..]) {
+        if lines.next() != Some(HEADER) {
             return false;
         }
+        let ours = lines.next() == Some(&format!("save {print:016x}")[..]);
         for line in lines {
             let mut w = line.split_whitespace();
             let key = w.next().unwrap_or_default();
+            if key == "restored" {
+                let (name, at) = (w.next(), w.next().and_then(|m| m.parse().ok()).unwrap_or(0));
+                self.restored.done.extend(name.map(|n| (n.to_string(), at)));
+                continue;
+            }
+            if !ours {
+                continue;
+            }
             if key == "avatar" {
                 let (dir, p) = (w.next().and_then(|d| d.parse().ok()), w.next());
                 let p = match p {
@@ -72,7 +87,7 @@ impl Game {
                 _ => {}
             }
         }
-        true
+        ours
     }
 }
 

@@ -149,10 +149,14 @@ pub trait Host {
         let (a, b) = (self.item(id)?, self.item(other)?);
         Some((a.x - b.x).abs().max((a.y - b.y).abs()))
     }
-    /// Item::enterFastArea from a script: None if it's in already; else it is now, and whether
-    /// its event runs (not for the dead). Someone (not the Avatar) stops fighting and stands.
+    /// Item::enterFastArea: None if it's in already; else it is now, and whether its event runs
+    /// (not for the dead).
     fn enter_fast(&mut self, _id: ObjId) -> Option<bool> {
         Some(true)
+    }
+    /// Is a spot in the fast area?
+    fn in_fast_area(&self, _x: i32, _y: i32) -> bool {
+        false
     }
     /// Actor::setEquip: `who` wears `id` (if it's wearable and the slot is free).
     fn set_equip(&mut self, _who: ObjId, _id: ObjId) -> bool {
@@ -166,6 +170,8 @@ pub trait Host {
         }
     }
     /// Play an actor animation; returns how many ticks it takes.
+    /// Stop what an actor is acting out, where it is.
+    fn stop_acting(&mut self, _id: ObjId) {}
     fn play(&mut self, _id: ObjId, _action: usize, _dir: usize) -> Option<u32> {
         None
     }
@@ -269,20 +275,12 @@ impl Host for WorldHost<'_> {
         self.world.range_between(id, other)
     }
     fn enter_fast(&mut self, id: ObjId) -> Option<bool> {
-        let it = self.world.get(id).filter(|_| !self.world.is_fast(id))?;
+        self.world.get(id).filter(|_| !self.world.is_fast(id))?;
         self.world.set_fast(id, true);
-        if it.npc == 0 {
-            return Some(true);
-        }
-        if self.stats.get(id).is_some_and(|s| s.dead) {
-            return Some(false);
-        }
-        if id != crate::world::AVATAR {
-            self.world.set_in_combat(id, false);
-            let dir = crate::avatar::facing(self.data, &it).unwrap_or(0);
-            self.world.play(self.data, id, u8data::anim::action::STAND, dir);
-        }
-        Some(true)
+        Some(self.stats.get(id).is_none_or(|s| !s.dead))
+    }
+    fn in_fast_area(&self, x: i32, y: i32) -> bool {
+        self.world.in_fast_area(x, y)
     }
     fn set_equip(&mut self, who: ObjId, id: ObjId) -> bool {
         use crate::equip::{self, Slot};
@@ -446,6 +444,9 @@ impl Host for WorldHost<'_> {
         if let Some(n) = self.stats.get_mut(id) {
             *n = s;
         }
+    }
+    fn stop_acting(&mut self, id: ObjId) {
+        self.world.stop_acting(self.data, id);
     }
     fn play(&mut self, id: ObjId, action: usize, dir: usize) -> Option<u32> {
         self.world.play(self.data, id, action, dir)

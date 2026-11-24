@@ -145,9 +145,8 @@ impl Game {
         self.loiters.insert(id, Loiter::default());
     }
 
-    /// One tick of everyone loitering near the Avatar.
+    /// One tick of everyone loitering in the fast area.
     pub(crate) fn loiter(&mut self) {
-        let Some(av) = self.world.get(AVATAR) else { return };
         let ids: Vec<ObjId> = self.loiters.keys().copied().collect();
         for id in ids {
             let still = self.world.get(id).filter(|_| !self.world.is_void(id) && !self.world.in_combat(id));
@@ -155,8 +154,7 @@ impl Game {
                 self.loiters.remove(&id);
                 continue;
             };
-            let near = (it.x - av.x).abs().max((it.y - av.y).abs()) <= crate::fast_area::RANGE;
-            if !near || self.world.is_acting(id) {
+            if !self.world.is_fast(id) || self.world.is_acting(id) {
                 continue;
             }
             let Some(mut l) = self.loiters.remove(&id) else { continue };

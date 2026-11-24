@@ -48,6 +48,9 @@ it look and handle as if it were made this decade.
 - **Readable.** Books and scrolls in a clean book typeface at your screen's full resolution;
   speech placed over whoever's speaking, and hidden when they're on another floor.
 - **Quieter.** Fireplaces, dripping water and other background sounds well below other effects, fading fast with distance, with their own "Background sounds" level in the settings.
+- **Lost content, if you want it.** An option (off by default) puts back pieces the original has
+  every word and picture for but never links up: the Key of the Necromancer, the walking dead,
+  lines for Mordea's death. See [Restored content](#restored-content).
 - **Every setting in one place.** F1 opens a settings panel with tabs for video, sound,
   controls and the game, plus a list of every control; keys, mouse, pad or touch work it.
 - **Little extras.** Discord status (where you are, what you're doing), quick save/load,
@@ -99,7 +102,7 @@ start).
 ### Steam Deck and ROG Ally
 
 > [!TIP]
-> **New in 0.5: controller and touch screen support.** Play Pagan on a handheld, or with any Xbox-style pad.
+> **Since 0.5: controller and touch screen support.** Play Pagan on a handheld, or with any Xbox-style pad.
 > Tell us how it plays on yours, on [Discord](https://discord.gg/zCP5wZm5VZ) or in [Issues](../../issues).
 
 **Steam Deck** (or any Linux handheld):
@@ -139,7 +142,7 @@ out, the faster you go.
 | **C** | weapon out / away |
 | **1-9** | pick a reply |
 | **I / Z** | backpack / paperdoll (equipment and stats) |
-| **J** | the diary: save and load |
+| **J** | the diary, to save (Esc → Read Diary loads) |
 | **Esc** | the game menu; first puts away pages and speech |
 | **Backspace** | put away pages and speech |
 | **Space or → / ←** | a book's next pages / the ones before (or click; the left page's turned-up corner goes back) |
@@ -208,11 +211,31 @@ B) and touch work it too. Settings are remembered in `open-ultima8/settings.cfg`
 
 ## Saves
 
-Saves use the original's format, in the game's own `SAVEGAME` folder, and the diary lists the
-original's saves too. Anything the engine doesn't model yet is kept exactly as it was loaded.
+Saves use the original's format, in the game's own `SAVEGAME` folder, and the diary is the
+original's: **Read Diary** loads and **Write Diary** saves (J opens it to write), twelve entries
+over two spreads (the page corners or the arrow keys turn them). Entry 1, "The Beginning...",
+starts a new game; the original's saves show under the same entries as in DOS. The quick save
+(F7/F8) sits outside it. Anything the engine doesn't model yet is kept exactly as it was loaded.
 The first time a slot made by the original is overwritten, a backup is kept as `U8SAVE.nnn.bak`.
 The few things the original's format has no room for (progress towards your next stat point,
 hunger, hanging from a ledge...) go in a small `U8SAVE.nnn.ou8` beside the save.
+
+## Restored content
+
+**Settings → Game → Restored content** (off by default) puts back a few things the original has
+every word and picture for but never links up. Turned on, it is no longer the original game;
+saves made with it still load in DOS. It adds:
+
+- The Key of the Necromancer on the altar of the Birthplace of Moriens.
+- A trowel by the Necromancer's tomb, *The Mysteries of Lithos* on his bookcase, and a hand torch
+  on Bentic's desk.
+- Mordea's death noted, so the lines people have for it are heard.
+- Taking up the glowing Heart of Earth wakes the dead: the town guard posts raise the original's
+  own ghouls, and some townsfolk and guards won't talk, for one game day.
+
+Each piece is put in once and remembered in the save's `.ou8` file. Turning it off stops new
+pieces (though the dead still go back at the day's end); what has already happened in a save
+stays.
 
 ## What works
 

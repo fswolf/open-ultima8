@@ -46,9 +46,15 @@ pub fn saved(slot: u32) -> Option<Game> {
 
 /// Run `secs`, showing each line of speech for as long as the client would. Returns what was said.
 pub fn play(g: &mut Game, secs: u32) -> Vec<(u16, String)> {
+    play_with(g, secs, |_| {})
+}
+
+/// [`play`], looking at the game after every tick.
+pub fn play_with(g: &mut Game, secs: u32, mut each: impl FnMut(&Game)) -> Vec<(u16, String)> {
     let (mut said, mut up) = (vec![], vec![]);
     for _ in 0..secs * 30 {
         g.update(1.0 / 30.0, &Input::default());
+        each(g);
         for e in g.take_events() {
             if let u8engine::usecode::UiEvent::Bark { pid, item, text } = e {
                 up.push((pid, 60 + 2 * text.len() as u32));

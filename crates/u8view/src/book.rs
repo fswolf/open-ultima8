@@ -22,8 +22,8 @@ impl App {
         v.gamma = s.gamma;
         v.colour_fix |= s.colour_fix;
         self.swapped = s.left_handed;
-        self.cheats = s.cheats;
-        self.apply_cheats();
+        (self.cheats, self.restored) = (s.cheats, s.restored);
+        self.apply_game_options();
         self.discord = s.discord;
         self.touch.buttons = s.touch_buttons;
         (self.pad.on, self.pad.speed, self.pad.deadzone, self.pad.swap) =
@@ -60,6 +60,7 @@ impl App {
             fullscreen: self.fullscreen,
             left_handed: self.swapped,
             cheats: self.cheats,
+            restored: self.restored,
             discord: self.discord,
             pad: self.pad.on,
             pad_speed: self.pad.speed,
@@ -81,14 +82,15 @@ impl App {
         s
     }
 
-    /// Write the settings file if anything changed.
-    /// The game's scripts know whether cheats are on (a loaded game is told again).
-    pub(super) fn apply_cheats(&mut self) {
+    /// The game knows whether cheats and restored content are on (a loaded game is told again).
+    pub(super) fn apply_game_options(&mut self) {
         if let Some(s) = &mut self.game.scripts {
             s.vm.cheats = self.cheats;
         }
+        self.game.restored.on = self.restored;
     }
 
+    /// Write the settings file if anything changed.
     pub(super) fn keep_settings(&mut self) {
         let s = self.current_settings();
         if s != self.settings {
@@ -262,6 +264,7 @@ impl App {
             Roofs => ("Roofs", if v.opts.roofs { "shown" } else { "hidden" }.into()),
             Follow => ("Camera", if v.follow { "on the Avatar" } else { "free" }.into()),
             Cheats => ("Cheats", on(self.cheats)),
+            Restored => ("Restored content", on(self.restored)),
             Discord => ("Discord status", on(self.discord)),
             Editor => ("Editor view", on(v.opts.editor)),
             Language => {
@@ -335,8 +338,17 @@ impl App {
             Editor => self.command(Command::ToggleEditor),
             Cheats => {
                 self.cheats = !self.cheats;
-                self.apply_cheats();
+                self.apply_game_options();
                 self.notice(if self.cheats { "Cheats on: click the Avatar." } else { "Cheats off." });
+            }
+            Restored => {
+                self.restored = !self.restored;
+                self.apply_game_options();
+                self.notice(if self.restored {
+                    "Restored content on: no longer the original game."
+                } else {
+                    "Restored content off."
+                });
             }
             Discord => flip(&mut self.discord),
             Language => {

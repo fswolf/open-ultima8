@@ -100,6 +100,10 @@ pub(super) fn play(root: &Path, slot: Option<u32>, steps: &[String]) {
             "goto" => println!("[t{t}] go to {v} -> {}", g.go_to(v)),
             "kit" => println!("[t{t}] kit bag {:?}", g.give_test_kit()),
             "mins" => g.set_minutes(nums[0] as u32),
+            "restored" => g.restored.on = v != "0",
+            "flag" => {
+                _ = g.vm().map(|vm| vm.set_global_bits(nums[0] as usize, 1, nums.get(1).map_or(1, |&b| b as u32)))
+            }
             "use" => {
                 let can = g.can_use(nums[0] as u16);
                 let ok = g.use_item(nums[0] as u16);

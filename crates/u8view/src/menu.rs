@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use u8data::{
     font::{Fonts, TextImage},
     palette::Palette,
-    save::{self, QUICK_SLOT},
+    save,
 };
 use u8render::{text, Canvas};
 use winit::keyboard::KeyCode;
@@ -25,11 +25,27 @@ const RIGHT: [i32; 4] = [158, 8, 110, 132];
 /// DOS at 320×200).
 const BOOK_LIFT: i32 = 11;
 const BOOK_RIGHT: i32 = 4;
-const TEXT_FONT: usize = 9;
 const LIT_FONT: usize = 6;
-/// Diary slots: the eleven the original's diary has descriptions for, and the quick save.
-const SLOTS: [u32; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, QUICK_SLOT];
-const SLOT_H: i32 = 19;
+/// The diary, as DOS's (Read Diary loads, Write Diary saves): twelve entries, Entry n for save
+/// slot n - 1 (Entry 1, slot 0, is "The Beginning...": loading it starts a new game; it can't be
+/// written over), six to a spread, three to a page. The quick save (F7/F8) isn't in it.
+const DIARY_ENTRIES: u32 = 12;
+/// "Entry" (frame 0 English, 1 French, 2 German), the numbers 1 to 12 (frame n - 1), and the
+/// page corners that turn the spreads (frame 0 back, at the top left; 1 on, at the top right).
+const ENTRY_WORD: u32 = 46;
+const ENTRY_NUMBERS: u32 = 36;
+const TURN: u32 = 34;
+/// Where they sit in the book (measured in DOS): each page's first heading, the rows; the
+/// description under its heading ("The Beginning..." a little lower); the corners.
+const ENTRY_AT: [(i32, i32); 2] = [(46, 10), (166, 10)];
+const ENTRY_ROW: i32 = 40;
+const DESC_DOWN: i32 = 15;
+const BEGINNING_DOWN: i32 = 22;
+const TURN_AT: [(i32, i32); 2] = [(34, 3), (245, 3)];
+/// The descriptions' font (black, small), how wide one can be, and its colour pointed at.
+const DESC_FONT: usize = 4;
+const DESC_W: i32 = 95;
+const DESC_LIT: [u8; 3] = [170, 30, 30];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Diary {
@@ -77,7 +93,8 @@ pub enum Action {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Hit {
     Entry(u32),
-    Tab(Diary),
+    /// A page corner: back or on a spread.
+    Turn(i32),
     Slot(u32),
     Yes,
     No,
@@ -86,7 +103,6 @@ enum Hit {
 struct SlotInfo {
     slot: u32,
     desc: String,
-    when: String,
     exists: bool,
 }
 
@@ -97,6 +113,10 @@ pub struct Menu {
     hits: Vec<([i32; 4], Hit)>,
     hover: Option<Hit>,
     slots: Vec<SlotInfo>,
+    /// The diary's spread shown (0: entries 1 to 6).
+    spread: u32,
+    /// "Entry" in the language played (ENTRY_WORD's frame).
+    entry_word: u32,
     /// Typing a description for this slot (Write Diary).
     edit: Option<(u32, String)>,
     root: PathBuf,
@@ -122,6 +142,12 @@ impl Menu {
             hits: vec![],
             hover: None,
             slots: vec![],
+            spread: 0,
+            entry_word: match u8data::lang::of(root) {
+                'F' => 1,
+                'G' => 2,
+                _ => 0,
+            },
             edit: None,
             root: root.to_path_buf(),
             quit_from_menu: false,
@@ -138,6 +164,7 @@ impl Menu {
     pub fn open(&mut self, page: Page) {
         if let Page::Diary(_) = page {
             self.read_slots();
+            self.spread = 0;
         }
         if page == Page::Quit {
             self.quit_from_menu = self.page == Some(Page::Main);
@@ -166,22 +193,14 @@ impl Menu {
 
     fn read_slots(&mut self) {
         let listed: HashMap<u32, String> = save::list(&self.root).into_iter().collect();
-        self.slots = SLOTS
-            .iter()
-            .map(|&slot| {
-                let exists = listed.contains_key(&slot);
-                let ticks = exists.then(|| save::Save::load(&self.root, slot).ok()?.clock()).flatten();
-                let when = ticks.map_or(String::new(), |t| {
-                    let m = t / 450; // 450 ticks a game minute
-                    format!("day {}, {:02}:{:02}", m / 1440 + 1, m / 60 % 24, m % 60)
-                });
+        self.slots = (0..DIARY_ENTRIES)
+            .map(|slot| {
                 let desc = match (slot, listed.get(&slot)) {
-                    (QUICK_SLOT, _) => "Quick save (F7)".to_string(),
-                    (_, Some(d)) if !d.is_empty() => d.clone(),
-                    (_, Some(_)) => "(no name)".to_string(),
+                    (0, _) => "The Beginning...".to_string(),
+                    (_, Some(d)) => d.clone(),
                     _ => String::new(),
                 };
-                SlotInfo { slot, desc, when, exists }
+                SlotInfo { slot, desc, exists: listed.contains_key(&slot) }
             })
             .collect();
     }
@@ -236,7 +255,7 @@ impl Menu {
         if self.page == Some(Page::Name) {
             (LIT_FONT, RIGHT[2] - 8)
         } else {
-            (TEXT_FONT, LEFT[2] - 14)
+            (DESC_FONT, DESC_W)
         }
     }
 
@@ -244,19 +263,17 @@ impl Menu {
         let page = self.page?;
         match (h, page) {
             (Hit::Entry(k), _) => self.entry(k),
-            (Hit::Tab(d), _) => {
-                self.open(Page::Diary(d));
+            (Hit::Turn(d), _) => {
+                self.turn(d);
                 None
             }
             (Hit::Slot(slot), Page::Diary(Diary::Read)) => {
                 self.slots.iter().any(|s| s.slot == slot && s.exists).then_some(Action::Load(slot))
             }
+            (Hit::Slot(0), Page::Diary(Diary::Write)) => None, // (the beginning stays)
             (Hit::Slot(slot), Page::Diary(Diary::Write)) => {
-                if slot == QUICK_SLOT {
-                    return Some(Action::Save { slot, desc: String::new() });
-                }
                 let old = self.slots.iter().find(|s| s.slot == slot && s.exists).map(|s| s.desc.clone());
-                self.edit = Some((slot, old.filter(|d| d != "(no name)").unwrap_or_default()));
+                self.edit = Some((slot, old.unwrap_or_default()));
                 None
             }
             (Hit::Yes, _) => Some(Action::Quit),
@@ -281,6 +298,13 @@ impl Menu {
             _ => return Some(Action::Film(crate::films::Which::Endgame)),
         }
         None
+    }
+
+    /// The diary's other spread (round: there are two).
+    fn turn(&mut self, d: i32) {
+        let n = DIARY_ENTRIES.div_ceil(6) as i32;
+        self.spread = (self.spread as i32 + d).rem_euclid(n) as u32;
+        self.hover = None;
     }
 
     /// How many main menu entries show: six, eight once the game's been finished.
@@ -330,6 +354,14 @@ impl Menu {
             (KeyCode::KeyN, Some(Page::Quit)) | (KeyCode::Escape, _) => {
                 self.back();
                 (!self.is_open()).then_some(Action::Close)
+            }
+            (KeyCode::ArrowLeft | KeyCode::PageUp, Some(Page::Diary(_))) => {
+                self.turn(-1);
+                None
+            }
+            (KeyCode::ArrowRight | KeyCode::PageDown, Some(Page::Diary(_))) => {
+                self.turn(1);
+                None
             }
             (_, Some(Page::Main)) => {
                 use KeyCode::*;
@@ -395,34 +427,36 @@ impl Menu {
                 }
             }
             Page::Diary(mode) => {
-                for (d, at, k) in [(Diary::Read, l, 1), (Diary::Write, r, 2)] {
-                    let h = Hit::Tab(d);
-                    let on = mode == d || lit(h);
-                    let rect = art.draw(canvas, ENTRIES, 2 * k + on as u32, at[0] + 4, at[1]);
-                    hits.push((rect, h));
-                }
+                // Headings and descriptions, then the corners over them (the back one covers the
+                // first "E", as in DOS), which are found first.
                 let edit = self.edit.clone();
-                for (i, s) in self.slots.iter().enumerate() {
-                    let at = if i < 6 { l } else { r };
-                    let (x, y) = (at[0] + 4, at[1] + 17 + (i % 6) as i32 * SLOT_H);
-                    let h = Hit::Slot(s.slot);
-                    let number = if s.slot == QUICK_SLOT { String::new() } else { format!("{}.", s.slot) };
-                    let (desc, font) = match &edit {
-                        Some((slot, d)) if *slot == s.slot => (format!("{d}-"), LIT_FONT),
-                        _ if lit(h) && (mode == Diary::Write || s.exists) => (s.desc.clone(), LIT_FONT),
-                        _ => (s.desc.clone(), TEXT_FONT),
+                let shown = (self.spread * 6..(self.spread * 6 + 6).min(DIARY_ENTRIES)).enumerate();
+                for (i, slot) in shown {
+                    let (at, row) = (ENTRY_AT[i / 3], (i % 3) as i32);
+                    let (x, y) = (bx + at.0, by + at.1 + row * ENTRY_ROW);
+                    let word = art.draw(canvas, ENTRY_WORD, self.entry_word, x, y);
+                    art.draw(canvas, ENTRY_NUMBERS, slot, x + word[2] + 2, y);
+                    let h = Hit::Slot(slot);
+                    let s = &self.slots[slot as usize];
+                    let can = if mode == Diary::Write { slot != 0 } else { s.exists };
+                    let (desc, tint) = match &edit {
+                        Some((e, d)) if *e == slot => (format!("{d}-"), Some(DESC_LIT)),
+                        _ => (s.desc.clone(), (can && lit(h)).then_some(DESC_LIT)),
                     };
-                    if !number.is_empty() {
-                        let a = self.label(font, &number);
-                        text::draw_plain(canvas, ss, &a, x, y);
+                    if !desc.is_empty() {
+                        let mut img = self.fonts.render(DESC_FONT, &[desc], &self.pal, None);
+                        if let Some(c) = tint {
+                            // (Its letters are black: all of them take the colour.)
+                            img.rgba.chunks_exact_mut(4).filter(|p| p[3] > 0).for_each(|p| p[..3].copy_from_slice(&c));
+                        }
+                        let down = if slot == 0 { BEGINNING_DOWN } else { DESC_DOWN };
+                        text::draw_plain(canvas, ss, &img, x, y + down);
                     }
-                    let b = self.label(font, if desc.is_empty() { "-" } else { &desc });
-                    text::draw_plain(canvas, ss, &b, x + 14, y);
-                    if !s.when.is_empty() {
-                        let c = self.label(4, &s.when);
-                        text::draw_plain(canvas, ss, &c, x + 14, y + b.h as i32 - 1);
-                    }
-                    hits.push(([x, y, LEFT[2] - 4, SLOT_H], h));
+                    hits.push(([x, y, DESC_W + 10, ENTRY_ROW - 2], h));
+                }
+                for (f, (d, at)) in [(-1, TURN_AT[0]), (1, TURN_AT[1])].into_iter().enumerate() {
+                    let rect = art.draw(canvas, TURN, f as u32, bx + at.0, by + at.1);
+                    hits.insert(0, (rect, Hit::Turn(d)));
                 }
             }
             Page::Name => {
@@ -511,6 +545,52 @@ mod tests {
         let mut m = Menu::load(&root, &pal).unwrap();
         m.open(Page::Main);
         assert_eq!(m.key(KeyCode::Digit4, None), Some(Action::Settings));
+    }
+
+    /// The diary as DOS's: Read loads and Write saves; Entry 1 is the beginning (slot 0: a new
+    /// game when read, never written), Entry n slot n - 1, six to a spread; the corners (and the
+    /// arrow keys) turn to entries 7 to 12 and back.
+    #[test]
+    #[ignore]
+    fn the_diary_is_the_originals() {
+        let Ok(dir) = std::env::var("U8_DATA") else { return };
+        let root = PathBuf::from(dir);
+        let pal =
+            Palette::parse(&std::fs::read(u8data::find_file(&root, "STATIC/U8PAL.PAL").unwrap()).unwrap()).unwrap();
+        let (mut m, mut art) = (Menu::load(&root, &pal).unwrap(), GumpArt::load(&root, &pal).unwrap());
+        let mut px = vec![0u8; 320 * 200 * 4];
+        let mut draw = |m: &mut Menu| m.draw(&mut Canvas::new(&mut px, 320, 200), &mut art, (320, 200));
+        let slots = |m: &Menu| {
+            m.hits.iter().filter_map(|h| if let Hit::Slot(s) = h.1 { Some(s) } else { None }).collect::<Vec<_>>()
+        };
+        m.open(Page::Diary(Diary::Read));
+        draw(&mut m);
+        assert_eq!(slots(&m), [0, 1, 2, 3, 4, 5]);
+        assert!(matches!(m.hits[0].1, Hit::Turn(_)) && matches!(m.hits[1].1, Hit::Turn(_)), "corners first");
+        assert_eq!(m.slots[0].desc, "The Beginning...");
+        let at = |m: &Menu, slot| m.hits.iter().find(|h| h.1 == Hit::Slot(slot)).unwrap().0;
+        let entry = |m: &Menu, slot| {
+            let r = at(m, slot);
+            (r[0] + 20, r[1] + 30) // (below the corner over Entry 1's heading)
+        };
+        let (x, y) = entry(&m, 0);
+        assert_eq!(m.click(x, y), m.slots[0].exists.then_some(Action::Load(0)), "the beginning: a new game");
+        // Entry 4 heads the right page, 120 across; rows 40 apart.
+        assert_eq!((at(&m, 3)[0] - at(&m, 0)[0], at(&m, 1)[1] - at(&m, 0)[1]), (120, 40));
+        assert_eq!(m.key(KeyCode::ArrowRight, None), None);
+        draw(&mut m);
+        assert_eq!(slots(&m), [6, 7, 8, 9, 10, 11], "entries 7 to 12");
+        let turn = m.hits.iter().find(|h| h.1 == Hit::Turn(1)).unwrap().0;
+        m.click(turn[0] + 5, turn[1] + 5);
+        draw(&mut m);
+        assert_eq!(slots(&m), [0, 1, 2, 3, 4, 5], "round");
+        m.open(Page::Diary(Diary::Write));
+        draw(&mut m);
+        let (x, y) = entry(&m, 0);
+        assert_eq!((m.click(x, y), m.typing()), (None, false), "the beginning isn't written over");
+        let (x, y) = entry(&m, 4);
+        m.click(x, y);
+        assert_eq!(m.edit.as_ref().map(|e| e.0), Some(4), "Entry 5 writes slot 4");
     }
 
     /// A pad can't type: the name and a save's description come ready made, and A takes them.

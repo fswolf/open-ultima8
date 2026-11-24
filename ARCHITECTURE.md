@@ -61,6 +61,8 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
 - **`eggs::Hatcher`**: fires eggs the Avatar walks into (once per visit): usecode eggs run their
   `hatch` event (class = quality + 0x47F), teleporters (frame ≠ 1) move the Avatar to the
   destination egg (frame 1) with the same id on the egg's target map. Monster eggs are left to scripts.
+  An egg fires when the Avatar's footprint meets its box, egg ± range x 32 with both ends in, and
+  z within 48 (`eggs::in_range`, as EGG.C); a range of 0 is the egg's own line.
 - **`npc::Walk`**: an NPC walking where a script sent it (`pathfindToItem` queues a
   `usecode::Request::Walk`; the game steps it each tick and finishes the script's process on
   arrival or when it gets stuck). Routes come from **`path::find`**: A* over whole and part steps
@@ -89,18 +91,33 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   the Avatar, unless the thing is OWNED, which carrying makes it; told when the player lets go,
   before the drop is tried or the pile slider asks how many), `justMoved`, and things on top
   falling. `game/travel.rs`'s `arrivals` brings people scripts teleported to the map you enter.
-  `extra` is the `.ou8` side file beside saves (also the Avatar's `Plight`: hanging, down).
+  `extra` is the `.ou8` side file beside saves (also the Avatar's `Plight`: hanging, down, and
+  `restored name minutes` for each piece of restored content put in).
+  `restore` is the Restored content option (`Game::restored`, off by default): one table,
+  `ENTRIES`, each a `Hook` (a map, holding a thing, a death, minutes after another entry) and an
+  `Act` (set or clear a story flag, place a thing); each runs once, on a map change or load and
+  once a second. Turning it off stops new entries (a follow-up, `Hook::After`, still finishes
+  its entry); what has happened stays. A thing isn't placed where one like it already lies, and
+  the side file's `restored` lines are read even when its save was written over since.
   `kit` is a tester's kit (`Game::give_test_kit`: stats, a bag of every school's magic, the story
   flags it needs; `go_to` the recall item's places); `u8tool kit` saves it. `vm.cheats` answers
   the scripts' `avatarCanCheat` (the Avatar's look then opens the original's developers' menu).
 - **`fast_area::FastArea`**: the live neighbourhood of the Avatar: items entering it get
-  `enterFastArea` (NPC routines, ambient sounds, many eggs), leaving it `leaveFastArea`.
+  `enterFastArea` (NPC routines, ambient sounds, many eggs), leaving it `leaveFastArea`. It is
+  the original's diamond of 512-unit regions, sized for a 320x200 view and widened by what a
+  bigger window or zoom shows (`Game::set_view`), so people are live before they come into sight.
+  Fights and loitering run only inside it, as in DOS. Someone a script teleports into it gets
+  their `enterFastArea` at once, before the script goes on (`World::in_fast_area`).
 - **`usecode`**: the VM.
   - `vm.rs` the `Vm` and its scheduler; in `vm/`: `procs.rs` spawning and killing processes,
     `memory.rs` pointers (segment:offset) and global bits, `exec.rs` the opcode interpreter,
     `messages.rs` the `UiEvent`s and `Request`s scripts send out. As in ScummVM, a spawned process
-    runs at once (until it first waits) before its parent goes on, and a `loop` passes over
-    things that no longer fit its search (the original searched as it went).
+    runs at once (until it first waits) before its parent goes on, and so does an event a script
+    starts (the original's UnkProcess runs from its constructor); a `loop` passes over things
+    that no longer fit its search (the original searched as it went). Stopping an actor's
+    animation processes (resetRef with type 0xF0) stops what it's acting out
+    (`World::stop_acting`; one begun this tick never shows); stopping a routine that waits on a
+    walk stops the walk.
   - `stack.rs` (per-process 4 KB stack, checked push/pop), `heap.rs` (strings and lists by handle),
     `search.rs` (`loop` searches).
   - `intrinsics/`: **one table** (`TABLE`) of number → name → handler, used for dispatch,
@@ -125,12 +142,15 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   (in-combat from the worlds).
 - **`combat`**: `impl Game`: a swing's reach (the attack frame's range × 32 units ahead),
   `receive_hit` (ScummVM's rules: defences, armour, a DEX roll, damage; death; the struck turn
-  on the striker and go into combat at once; things get `gotHit` or break); `call_for_help`: a
+  on the striker and go into combat at once, and stagger unless already acting something out,
+  then stand (in stance if fighting) as they faced; things get `gotHit` or break); `call_for_help`: a
   blow from the Avatar brings in everyone with the struck one's alignment within 1024 (as DOS
   does; claude/attack-compare.md). Scripts' `Item::receiveHit` arrives as a `Request::Hit`
   (a setDead/clrDead after it in the same turn waits behind it). The Avatar's numbers come
   from its gear, everyone else's from `monsters`.
-  `World::play` runs actor animations for scripts' `doAnim`, deaths and the like.
+  `World::play` runs actor animations for scripts' `doAnim`, deaths and the like
+  (`then_play` queues the next). `Game::gesture`: someone standing (or already talking) as
+  they speak gestures, a rest of one to three seconds between (the original's BarkFidget).
 - **`monsters`**: fighting numbers by shape (hit points, dexterity, damage, armour, damage and
   defence types, sides), ScummVM's u8monsters table.
 - **`fight`**: `impl Game`: everyone in combat but the Avatar (ScummVM's CombatProcess): the
@@ -234,7 +254,8 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   menus. `ui.rs` shows barks, conversation choices (numbered panel or the original's bulleted style)
   and notices, and `ui/readable.rs` books, scrolls, graves and plaques; book and scroll text is in `pagefont.rs`, and `cover.rs` adds a book's
   leather cover and turned-up page corners to the original's art. `menu.rs` is the original's book menus drawn with its own art (U8GUMPS.FLX
-  35 book, 32 logo, 37 menu entries): main menu, diary (save/load), the quit question
+  35 book, 32 logo, 37 menu entries): main menu, the diary (Read loads, Write saves: Entry n is slot n - 1, Entry 1 the
+  beginning, six to a spread, gumps 46 "Entry", 36 numbers, 34 page corners), the quit question
   (17 window, 18 question, 47/50 Yes/No); it returns `menu::Action`s for `App::menu_action`; the
   game is paused while it's open; its Options entry opens `panel.rs`, the settings panel (F1):
   tabs of `panel::Setting` rows whose labels and values come from `App::setting_row` and change
@@ -248,10 +269,12 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   makes `kit` saves, `uc`, `music`); `cli.rs` has the argument and image helpers.
 - **u8cmp** (the harness for comparisons with DOS): `main.rs` dispatches to one module per
   command (`dump`, `play`, `fuzz` with `soak`, `talk`, `people`, `attack`, `steal`, `magic`) and
-  keeps the helpers they share (`open`, `shot`, `arg`, `write_dir`); `drive.rs` plays the engine
+  keeps the helpers they share (`open`, `shot`, `arg`, `write_dir`, `Watch` for pictures and
+  frame logs along a run); `drive.rs` plays the engine
   headless for all of them (`Drv`), `scene.rs` sets up scenes as in the original (where to stand,
   what's loose, where to point in the 320 by 200 view), `magic.rs` casts the kit's spells and
-  compares their pictures with the world.
+  compares their pictures with the world. `play` takes `restored=1` and `flag=N` (a global bit,
+  decimal) steps; `talk` takes `flag=HEX,..` to set story flags before talking.
 
 ## Adding things
 
