@@ -222,20 +222,43 @@ hunger, hanging from a ledge...) go in a small `U8SAVE.nnn.ou8` beside the save.
 
 ## Restored content
 
-**Settings → Game → Restored content** (off by default) puts back a few things the original has
-every word and picture for but never links up. Turned on, it is no longer the original game;
-saves made with it still load in DOS. It adds:
+<p align="center"><img src="docs/screenshots/restored.png" width="640" alt="The settings panel's Game tab with Restored content turned on"></p>
 
-- The Key of the Necromancer on the altar of the Birthplace of Moriens.
-- A trowel by the Necromancer's tomb, *The Mysteries of Lithos* on his bookcase, and a hand torch
-  on Bentic's desk.
-- Mordea's death noted, so the lines people have for it are heard.
-- Taking up the glowing Heart of Earth wakes the dead: the town guard posts raise the original's
-  own ghouls, and some townsfolk and guards won't talk, for one game day.
+Ultima VIII shipped in a hurry, and its data files hold pieces that were written, drawn and
+scripted but never connected: lines nobody ever gets to hear, a key that is never handed out,
+items with scripts that are never put in the world. **Restored content** connects them.
 
-Each piece is put in once and remembered in the save's `.ou8` file. Turning it off stops new
-pieces (though the dead still go back at the day's end); what has already happened in a save
-stays.
+**Turning it on:** press **F1** (or open the book menu and choose Options), go to the **Game**
+tab and set **Restored content** to **on**. It is off by default, and with it off the game plays
+exactly as the original. It can be turned on mid-game; pieces for the map you're on appear at once.
+
+### How it was done
+
+- **Nothing new is added.** Every word, picture and script used is already in your own game files.
+  We only supply the missing link: setting one of the game's own story flags, or putting one of
+  its own items somewhere. No dialogue was written.
+- **Your saves stay ordinary.** Only the game's own flags and shapes are used, so a save made with
+  it on still loads in the original under DOSBox.
+- **Each piece happens once.** What has been put in is noted in the save's small `.ou8` file, so
+  loading a save never puts an item down twice, even after playing on in DOS.
+- **Every branch was read first.** Before a story flag was switched on, every conversation behind
+  it was walked through to make sure no talk the main story needs is cut off.
+- **Turning it off** stops anything new from happening. What already happened in that save stays,
+  and the walking dead (below) still go back at the end of their day.
+
+### What was restored
+
+| What | Where, and how it's triggered | What it brings back |
+|---|---|---|
+| **Key of the Necromancer** | Lies on the altar in the Birthplace of Moriens (the tomb in the Catacombs the Scion's key opens) | A reward for the pilgrimage. It works like the Caretaker's key: put reagents in a bag and use the key on it to make Necromancy spells |
+| **Mordea's death** | Noted when Mordea dies | Lines Aramina, Gwillim, Kilandra, Torwin and Vividos have for it. Aramina will trade the key to Mordea's chest for the dagger |
+| **The dead walk** | When you pick up the glowing Heart of Earth | The town guard posts raise the original's own ghouls instead of guards, 17 people have lines about the dead in the streets, and some (Tarna, Aramina, Shaana, Jenna, Darion, the city guards) are too frightened to talk. After one game day the dead go back and everyone talks again |
+| **Trowel** | On the ground by the Necromancer's tomb door in the cemetery | Dig dirt (a Necromancy reagent) out of the ground |
+| ***The Mysteries of Lithos*** | On the Necromancer's bookcase, beside the Grim Book | A whole book that was in the game but nowhere to be found |
+| **Hand torch** | On Bentic's desk in the library | Only the torch: its script was meant to light wood into a campfire, but a bug in the original's own script stops it ever working |
+
+The original never clears the "dead walk" flag once set, so the game day limit is ours: without it
+those people would never speak again.
 
 ## What works
 
