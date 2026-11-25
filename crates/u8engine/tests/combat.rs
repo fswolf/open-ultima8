@@ -498,6 +498,7 @@ fn spiders_and_insects_squash_too() {
             g.put_avatar(3, (at.0 + 16, at.1 + 16, at.2 + 60));
             g.fall(AVATAR);
         }
+        g.avatar.as_mut().unwrap().dir = 2;
         for _ in 0..60 {
             let dir = walk.then_some(2);
             g.update(1.0 / 30.0, &Input { dir, ..Input::default() });

@@ -48,6 +48,13 @@ pub enum UiEvent {
         item: ObjId,
         looping: bool,
     },
+    /// A footstep (`sfx`, by what `item` stands on), walking or running (ANIMCALL.C): the host
+    /// plays it quieter, or not at all if the player turned them off.
+    Step {
+        sfx: u16,
+        item: ObjId,
+        run: bool,
+    },
     /// Stop an effect (only the one at `item`, if given).
     StopSfx {
         sfx: u16,

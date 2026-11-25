@@ -42,8 +42,9 @@ const BLOOD: u32 = 620;
 /// World units a swing reaches for each step of its frame's attack range (ANIM.DAT).
 pub const REACH_STEP: i32 = 32;
 
-/// A fall that hurts the Avatar this much knocks it flat (ScummVM: 6).
-const KNOCKED_DOWN_BY: i32 = 6;
+/// A blow this heavy doesn't stagger the Avatar, only stops him; a fall this hard doesn't daze
+/// him (ITEM.C).
+const HEAVY: i32 = 6;
 
 impl Game {
     /// `who` swings facing `dir`, reaching `range` steps: strike the first person there, else
@@ -120,20 +121,30 @@ impl Game {
                 n.hp -= damage as i16;
             }
         }
-        if target == AVATAR && kind & dmg::FALLING != 0 && damage >= KNOCKED_DOWN_BY {
-            // A hard fall: flat on its back, then up shaking its head.
-            self.avatar.as_mut().map(Avatar::knock_down);
+        if target == AVATAR && kind & dmg::FALLING != 0 && damage > 0 {
+            // Hurt by a fall (ITEM.C): flat on his back, then up (a light fall: dazed).
+            if let Some(a) = self.avatar.as_mut() {
+                a.knock_down(damage < HEAVY);
+            }
             return;
         }
         if target != AVATAR && kind & dmg::FALLING == 0 {
-            // Fight back: after whoever struck (a thing falling on them: the Avatar did it; a
-            // fall of its own: nobody). Only a blow from the Avatar's own hand calls for help.
-            let at = if self.is_person(by) { by } else { AVATAR };
+            // Fight back (ITEM.C receiveHit): after whoever struck; struck by nothing (a blast,
+            // the water): the Avatar did it; by a thing (a campfire walked into): nobody in
+            // particular. A fall of its own: no fight. Only the Avatar's own blow calls for help.
+            let at = match by {
+                0 => AVATAR,
+                _ if self.is_person(by) => by,
+                _ => 0,
+            };
             // (A stray blow from a friend in the melee, someone it's no enemy of: no quarrel.)
             let friend =
-                at != AVATAR && self.stats.get(target).zip(self.stats.get(at)).is_some_and(|(t, a)| !t.is_enemy(&a));
+                at > AVATAR && self.stats.get(target).zip(self.stats.get(at)).is_some_and(|(t, a)| !t.is_enemy(&a));
             if !friend {
-                self.world.set_target(target, at);
+                match at {
+                    0 => self.world.set_in_combat(target, true),
+                    _ => self.world.set_target(target, at),
+                }
                 // In at once (the original's receiveHit): its script starts before those it
                 // calls in, so a struck townsperson's scene is the one Beren comes to.
                 if !self.fights.contains_key(&target) {
@@ -154,7 +165,9 @@ impl Game {
         } else if damage > 0 {
             match target {
                 AVATAR => {
-                    self.avatar.as_mut().map(Avatar::hurt);
+                    if let Some(a) = self.avatar.as_mut() {
+                        a.hurt(damage >= HEAVY);
+                    }
                 }
                 _ if !busy => {
                     // Then back to standing (in stance if fighting) the way they faced before: a
@@ -239,8 +252,7 @@ impl Game {
             if matches!(self.world.last_anim(target), action::START_BLOCK | action::STOP_BLOCK) {
                 damage -= self.stats.get(target).map_or(0, |s| s.str as i32) / 5;
             }
-            let stunned = target == AVATAR && self.avatar.as_ref().is_some_and(Avatar::stunned);
-            let ac = 3 * self.armour(target).max(0) / if stunned { 2 } else { 1 };
+            let ac = 3 * self.armour(target).max(0);
             let ac = if kind & dmg::FIRE != 0 { ac / 2 } else { ac }.min(100);
             damage = ((100 - ac) * damage / 100).max(0);
         }
@@ -248,8 +260,7 @@ impl Game {
             let attack = self.dex(by) + self.avatar_weapon(by).map_or(0, |w| w.dex_attack as i32);
             let defend = (self.dex(target) + self.avatar_weapon(target).map_or(0, |w| w.dex_defend as i32)).max(1);
             let attack = attack.max(0);
-            let down = target == AVATAR && self.avatar.as_ref().is_some_and(Avatar::stunned);
-            let hit = self.world.roll(attack as u32 + 3) > self.world.roll(defend as u32) || down;
+            let hit = self.world.roll(attack as u32 + 3) > self.world.roll(defend as u32);
             if hit && by == AVATAR {
                 self.grow(1, if attack > defend { 2 * (attack - defend) as u32 } else { 2 });
             }

@@ -505,3 +505,107 @@ fn a_spell_pose_keeps_its_facing() {
     assert_eq!(u8engine::avatar::facing(&g.data, &it), None, "(a frame the guess doesn't know)");
     assert_eq!(g.world.facing(&g.data, 7), Some(2));
 }
+
+/// After the execution Tarna questions the newcomer, and her talk's end (NPC's exitConvo:
+/// enterFastArea, which runs the event even for someone in the fast area already, ITEM.C) sets
+/// her going again: she doesn't stand in her ready pose on the bridge for good.
+#[test]
+#[ignore]
+fn tarna_goes_about_her_business_after_the_execution() {
+    use u8data::anim::action;
+    let Some(mut g) = saved(0) else { return };
+    let egg = g.world.objects().find(|&id| g.world.get(id).is_some_and(|it| it.shape == 73 && it.quality == 4));
+    g.put_avatar(3, (11732, 5900, 48));
+    g.trigger(egg.expect("the execution's egg"), u8engine::usecode::event::HATCH);
+    let mut talked = false;
+    for _ in 0..90 * 30 {
+        g.update(1.0 / 30.0, &Input::default());
+        for e in g.take_events() {
+            use u8engine::usecode::UiEvent;
+            match e {
+                UiEvent::Bark { pid, .. } => g.vm().unwrap().finish(pid, 0),
+                UiEvent::Ask { pid, options, item } => {
+                    talked |= item == 8;
+                    g.vm().unwrap().answer(pid, &options, options.len() - 1);
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(talked, "she questioned the newcomer");
+    let at = |g: &Game| g.world.get(8).map(|it| (it.x, it.y));
+    let (was, mut moved) = (at(&g), false);
+    for _ in 0..30 * 30 {
+        g.update(1.0 / 30.0, &Input::default());
+        answer(&mut g);
+        moved |= at(&g) != was;
+    }
+    assert!(moved && g.world.last_anim(8) != action::READY_WEAPON, "she moves on");
+}
+
+/// Devon wandering into his campfire is burnt (its gotHit strikes him) and goes into combat, but
+/// after nobody: a blow from a thing names no one to fight (ITEM.C receiveHit). He doesn't go
+/// for the Avatar. Struck by nothing at all, he does (the Avatar did it).
+#[test]
+#[ignore]
+fn devon_burnt_by_his_campfire_doesnt_go_for_the_avatar() {
+    let Some(mut g) = saved(0) else { return };
+    g.set_view(640.0, 400.0);
+    g.put_avatar(3, (14527, 5600, 8));
+    for _ in 0..30 {
+        g.update(1.0 / 30.0, &Input::default());
+    }
+    let fire = g.world.objects().find(|&id| g.world.get(id).is_some_and(|it| it.shape == 0x10B)).expect("the campfire");
+    let (Some(mut devon), Some(c)) = (g.world.get(2), g.world.get(fire)) else { return };
+    (devon.x, devon.y, devon.z) = (c.x, c.y + 40, c.z);
+    g.world.set(&g.data, 2, devon);
+    let mine = g.stats.get(AVATAR).unwrap().hp;
+    g.trigger_with(fire, u8engine::usecode::event::GOT_HIT, &[2u16.to_le_bytes(), 4i16.to_le_bytes()].concat());
+    for _ in 0..30 * 30 {
+        g.update(1.0 / 30.0, &Input::default());
+        answer(&mut g);
+    }
+    assert!(g.world.in_combat(2), "burnt: into combat");
+    assert_eq!(g.world.target(2), Default::default(), "after nobody");
+    assert_eq!(g.stats.get(AVATAR).unwrap().hp, mine, "unharmed");
+    g.receive_hit(2, 0, 0, 1, u8engine::combat::dmg::PIERCE);
+    assert_eq!(g.world.target(2).now, AVATAR);
+}
+
+/// The gate guard (NPC 4, GUARD1) stops the newcomer (GUARDEGG), and every way the talk ends
+/// (exitConvo: enterFastArea, ITEM.C) sends him back to his patrol between his two markers.
+#[test]
+#[ignore]
+fn the_gate_guard_goes_back_to_his_patrol() {
+    for replies in [&["I am the", "The Lurker"][..], &["I am the", "Open"], &["What is your", "I am the", "Bye"]] {
+        let Some(mut g) = saved(0) else { return };
+        g.set_view(640.0, 400.0);
+        let egg = g.world.objects().find(|&id| g.world.get(id).is_some_and(|it| it.shape == 73 && it.quality == 34));
+        let e = g.world.get(egg.expect("the guard's egg")).unwrap();
+        g.put_avatar(3, (e.x, e.y + 200, e.z));
+        g.trigger(egg.unwrap(), u8engine::usecode::event::HATCH);
+        let (mut said, mut done, mut spots) = (0, None, std::collections::BTreeSet::new());
+        for t in 0..60 * 30 {
+            g.update(1.0 / 30.0, &Input::default());
+            for ev in g.take_events() {
+                use u8engine::usecode::UiEvent;
+                match ev {
+                    UiEvent::Bark { pid, .. } => g.vm().unwrap().finish(pid, 0),
+                    UiEvent::Ask { pid, options, item } => {
+                        let want = if item == 4 { replies.get(said).copied().unwrap_or("Bye") } else { "Goodbye" };
+                        said += (item == 4) as usize;
+                        let k = options.iter().position(|o| o.starts_with(want)).unwrap_or(options.len() - 1);
+                        g.vm().unwrap().answer(pid, &options, k);
+                        done = Some(t);
+                    }
+                    _ => {}
+                }
+            }
+            if done.is_some_and(|d| t > d + 90) {
+                let n = g.world.get(4).unwrap();
+                spots.insert((n.x / 50, n.y / 50));
+            }
+        }
+        assert!(said > 0 && spots.len() > 5, "{replies:?}: patrolling ({} spots)", spots.len());
+    }
+}

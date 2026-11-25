@@ -137,7 +137,8 @@ impl Game {
         let Some(s) = &self.scripts else { return };
         for e in &s.vm.events {
             if let UiEvent::Bark { pid, item, .. } | UiEvent::Ask { pid, item, .. } = *e {
-                if (2..256).contains(&item) {
+                // (Each once, while it's up: the events stay queued till the host takes them.)
+                if (2..256).contains(&item) && s.vm.alive(pid) && !self.talkers.contains(&(pid, item)) {
                     self.talkers.push((pid, item));
                 }
             }

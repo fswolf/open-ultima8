@@ -188,8 +188,10 @@ fn jumps_dont_land_on_nothing() {
 #[ignore]
 fn a_running_jump_at_a_high_wall_ends_on_the_ground() {
     let Some(mut g) = saved(10) else { return };
-    for run_up in [0, 3, 6, 9, 12] {
-        g.put_avatar(8, (2541, 2827, 0));
+    // (From standing, or once running: a walk's first step is no run, and a jump then nothing.)
+    for run_up in [0, 10, 14, 18] {
+        g.put_avatar(8, (2541, 3327, 0)); // (room to get running: the wall's at 2711)
+        g.avatar.as_mut().unwrap().dir = 0;
         let run = Input { dir: Some(0), run: true, ..Input::default() };
         for _ in 0..run_up {
             g.update(1.0 / 30.0, &run);
@@ -208,13 +210,15 @@ fn a_running_jump_at_a_high_wall_ends_on_the_ground() {
 }
 
 /// A running jump is one hop, as the original's (ANIM 10 is two-step like the run: one half a
-/// jump, off whichever foot is next), with the keys held through it as the keyboard does.
+/// jump, off whichever foot is next), with the keys held through it as the keyboard does. (Only
+/// once running: the first step is a walk.)
 #[test]
 #[ignore]
 fn a_running_jump_is_one_hop() {
     let Some(mut g) = saved(10) else { return };
-    for run_up in 4..14 {
+    for run_up in 10..20 {
         g.put_avatar(8, (2541, 2827, 0));
+        g.avatar.as_mut().unwrap().dir = 4;
         let run = Input { dir: Some(4), run: true, ..Input::default() };
         for _ in 0..run_up {
             g.update(1.0 / 30.0, &run);
@@ -243,6 +247,7 @@ fn a_jump_into_a_teleporter_arrives_standing() {
     use u8data::anim::action;
     let Some(mut g) = saved(2) else { return };
     g.put_avatar(4, (4319, 2815, 0));
+    g.avatar.as_mut().unwrap().dir = 3;
     hold(&mut g, Input { dir: Some(3), jump: true, ..Input::default() }, 1);
     let (x, y, z) = hold(&mut g, Input::default(), 120);
     assert_eq!((x, y, z), (13634, 2614, 64));

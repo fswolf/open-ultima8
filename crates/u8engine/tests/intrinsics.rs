@@ -380,13 +380,14 @@ fn reach_range_surfaces_and_the_fast_area() {
         g.update(1.0 / 30.0, &Input::default());
     }
     assert!(g.world.get(c2).unwrap().z < top, "the chest on it fell");
-    // enterFastArea: once, and then it's in.
+    // enterFastArea: it's in, and its event runs, again too if it was in already (ITEM.C; NPC's
+    // exitConvo sets people going so after a talk).
     let shape = (1..1024).find(|&s| g.scripts.as_ref().unwrap().usecode.event(s, 15).is_some()).unwrap();
     let far = put(&mut g, shape, av.x + 4000, av.y + 4000, av.z, 0);
     assert!(!g.world.is_fast(far));
     assert_ne!(call(&mut g, 0x67, "Item::enterFastArea", &this(far)), 0, "its event runs");
     assert!(g.world.is_fast(far));
-    assert_eq!(call(&mut g, 0x67, "Item::enterFastArea", &this(far)), 0, "only once");
+    assert_ne!(call(&mut g, 0x67, "Item::enterFastArea", &this(far)), 0, "and again");
 }
 
 /// ascend (ScummVM's): a lift (PLATFORM, map 54) rises with whoever stands on it, as far as

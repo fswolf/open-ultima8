@@ -13,6 +13,8 @@ pub struct Settings {
     pub classic_text: bool,
     pub music: bool,
     pub effects: bool,
+    /// Footsteps heard.
+    pub footsteps: bool,
     /// 0–1.
     pub volume: f32,
     /// Background sounds (fires, drips, fountains), 0–1.
@@ -56,6 +58,7 @@ impl Default for Settings {
             classic_text: false,
             music: true,
             effects: true,
+            footsteps: true,
             volume: 0.5,
             ambience: 0.5,
             cutaway: true,
@@ -115,6 +118,7 @@ impl Settings {
                 "classic_text" => s.classic_text = on,
                 "music" => s.music = on,
                 "effects" => s.effects = on,
+                "footsteps" => s.footsteps = on,
                 "volume" => s.volume = v.parse::<f32>().map_or(s.volume, |x| x.clamp(0.0, 1.0)),
                 "ambience" => s.ambience = v.parse::<f32>().map_or(s.ambience, |x| x.clamp(0.0, 1.0)),
                 "cutaway" => s.cutaway = on,
@@ -150,7 +154,7 @@ impl Settings {
     pub fn to_text(&self) -> String {
         format!(
             "# Open Ultima8 settings (written by the game; edit while it isn't running)\n\
-             version = 2\nupscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nvolume = {:.1}\nambience = {:.1}\n\
+             version = 2\nupscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nfootsteps = {}\nvolume = {:.1}\nambience = {:.1}\n\
              cutaway = {}\nsmooth_camera = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\nrestored = {}\n\
              discord = {}\ndata = {}\nfinished = {}\npad = {}\npad_speed = {:.1}\npad_deadzone = {:.2}\nswap_sticks = {}\ntouch_buttons = {}\nlanguage = {}\n",
             self.upscaler,
@@ -159,6 +163,7 @@ impl Settings {
             self.classic_text,
             self.music,
             self.effects,
+            self.footsteps,
             self.volume,
             self.ambience,
             self.cutaway,
@@ -234,6 +239,7 @@ mod tests {
             touch_buttons: false,
             language: "G".into(),
             restored: true,
+            footsteps: false,
             ..Default::default()
         };
         assert_eq!(Settings::parse(&s.to_text()), s);

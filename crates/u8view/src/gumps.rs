@@ -3,7 +3,7 @@
 use crate::art::GumpArt;
 use u8data::GameData;
 use u8engine::{
-    equip::{holds, paperdoll_look, UNSEEN_ARMOUR},
+    equip::{holds, paperdoll_look},
     world::World,
     ObjId,
 };
@@ -67,13 +67,15 @@ impl Win {
             |id| world.get(id).is_some_and(|it| gd.typeflags.get(it.shape).has(u8data::typeflag::flag::EDITOR));
         c.retain(|&id| editor || !marker(id));
         if self.gump == PAPERDOLL {
+            // Only what's worn: the original's paperdoll draws the slots, nothing else he holds.
+            c.retain(|&id| world.get(id).is_some_and(|it| it.flags & u8engine::world::item_flag::EQUIPPED != 0));
             c.sort_by_key(|&id| holds(gd, world, id));
         }
         c
     }
 
     /// How an item in the window shows: its origin (game pixels in the view) and frame, and
-    /// whether it's drawn (the paperdoll's figure stands in for the backpack, and hides one thing).
+    /// whether it's drawn (the paperdoll's figure stands in for the backpack).
     fn look(&self, gd: &GameData, art: &GumpArt, it: &u8data::map::Item) -> Look {
         if self.is_pack(gd, it) {
             let f = gd.shapes.frame(it.shape, it.frame).map_or((0, 0, 0, 0), |f| (f.xoff, f.yoff, f.width, f.height));
@@ -85,7 +87,7 @@ impl Win {
         let a = art.area(self.gump);
         let worn = if doll { paperdoll_look(gd, it) } else { None };
         let ((x, y), frame) = worn.unwrap_or(((it.x, it.y), it.frame));
-        Look { at: (self.at.0 + a[0] + x, self.at.1 + a[1] + y), frame, shown: !(doll && it.shape == UNSEEN_ARMOUR) }
+        Look { at: (self.at.0 + a[0] + x, self.at.1 + a[1] + y), frame, shown: true }
     }
 }
 

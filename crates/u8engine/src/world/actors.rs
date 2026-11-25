@@ -282,7 +282,7 @@ impl World {
         let (dx, dy, dz) = (crate::geom::DIRS[dir].0 * fwd, crate::geom::DIRS[dir].1 * fwd, f.dz as i32);
         let ground = f.flags & u8data::anim::AnimFrame::ON_GROUND != 0;
         let to = match (dx, dy, dz) {
-            (0, 0, 0) => return,
+            (0, 0, 0) => None,
             _ if ground => self.try_walk(id, dx, dy),
             _ => self.try_move_air(id, dx, dy, dz),
         };
@@ -291,6 +291,47 @@ impl World {
             (it.x, it.y, it.z) = (x, y, z);
             self.set(gd, id, it);
         }
+        // Its sound, and a footstep on what it now stands on.
+        if f.sfx != 0 {
+            self.sounds.push((f.sfx as u16, id, None));
+        }
+        let run = action == u8data::anim::action::RUN;
+        self.sounds.extend(self.footstep(id, action, f.flags).map(|s| (s, id, Some(run))));
+    }
+
+    /// How far from where `id` is it's drawn (world units): the Avatar on his way there.
+    pub fn lag(&self, id: ObjId) -> (i32, i32, i32) {
+        self.lag.filter(|l| l.0 == id).map_or((0, 0, 0), |l| l.1)
+    }
+    pub fn set_lag(&mut self, id: ObjId, d: (i32, i32, i32)) {
+        self.lag = (d != (0, 0, 0)).then_some((id, d));
+    }
+
+    /// The footstep a frame of `action` (its `flags`) makes, if it calls for one (ANIMCALL.C):
+    /// by what `id` stands on (stone, water, wood...), another running. Not the creatures whose
+    /// frames do other things, nor the Avatar's shape readying a weapon.
+    pub fn footstep(&self, id: ObjId, action: usize, flags: u16) -> Option<u16> {
+        use u8data::anim::action::{READY_WEAPON, RUN, UNREADY_WEAPON};
+        let shape = self.get(id)?.shape;
+        let other = matches!(shape, 411 | 413) || (shape == 1 && matches!(action, READY_WEAPON | UNREADY_WEAPON));
+        if flags & u8data::anim::AnimFrame::SPECIAL == 0 || other {
+            return None;
+        }
+        let floor = *self.search_surface(id, false, true, false).first()?;
+        let run = action == RUN;
+        Some(match self.get(floor)?.shape {
+            3 | 4 | 9 | 11 | 92 | 94 => 0x2b,
+            161..=164 if run => 0x91,
+            161..=164 => 0x99,
+            126 | 128 => 0xcd,
+            _ if run => 0x90,
+            _ => 0x97,
+        })
+    }
+
+    /// Sounds of animation frames shown since last asked: (sound, who, a footstep: running?).
+    pub fn take_sounds(&mut self) -> Vec<(u16, ObjId, Option<bool>)> {
+        std::mem::take(&mut self.sounds)
     }
 
     /// The action `id` last started (standing if nothing's known).

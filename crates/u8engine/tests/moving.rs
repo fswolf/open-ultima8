@@ -1,0 +1,205 @@
+//! The Avatar moved as the original moves him (WORLD.C, ANIM.C, ANIMPRIM.C): every move an
+//! animation at its own pace, so a walk covers about 390 units a second and a run about 680;
+//! turning about looks over the shoulder; running into a wall hurts one time in three; a running
+//! leap is long; a standing jump goes to the pointer when it can.
+//! Run against a real install: U8_DATA=/path/to/U8 cargo test -- --ignored
+mod common;
+use common::*;
+use u8data::anim::action;
+use u8data::{map::Item, typeflag::flag};
+use u8engine::avatar::Aim;
+
+const EAST: usize = 2;
+
+/// The plateau (map 8), with 1900 units clear to the east.
+fn plateau(facing: usize) -> Option<Game> {
+    let mut g = saved(10)?;
+    g.put_avatar(8, (109, 895, 0));
+    g.avatar.as_mut()?.dir = facing;
+    Some(g)
+}
+
+fn at(g: &Game) -> (i32, i32, i32) {
+    g.world.get(AVATAR).map(|a| (a.x, a.y, a.z)).unwrap()
+}
+
+/// Play `ticks` with `input`: the (action, facing) shown each tick.
+fn play(g: &mut Game, input: Input, ticks: usize) -> Vec<(usize, usize)> {
+    (0..ticks)
+        .map(|_| {
+            g.update(1.0 / 30.0, &input);
+            let a = g.avatar.as_ref().unwrap();
+            (a.action(), a.dir)
+        })
+        .collect()
+}
+
+/// The footsteps heard since last asked.
+/// (Footsteps come apart from other sounds: the host plays them quieter, or not at all.)
+fn steps(g: &mut Game) -> Vec<u16> {
+    let steps = g.take_events().into_iter().filter_map(|e| match e {
+        u8engine::usecode::UiEvent::Step { sfx, item: AVATAR, run } => Some((sfx, run)),
+        u8engine::usecode::UiEvent::Sfx { sfx, .. } if [0x90, 0x97].contains(&sfx) => panic!("a step as an effect"),
+        _ => None,
+    });
+    steps
+        .map(|(s, run)| {
+            assert_eq!(run, s == 0x90, "running or walking");
+            s
+        })
+        .collect()
+}
+
+#[test]
+#[ignore]
+fn walking_and_running_go_at_the_originals_pace() {
+    let Some(mut g) = plateau(EAST) else { return };
+    let x = at(&g).0;
+    play(&mut g, Input { dir: Some(EAST), ..Input::default() }, 60);
+    let walked = at(&g).0 - x;
+    assert!((740..=820).contains(&walked), "a walk: 208 every 16 ticks ({walked} in 2 s)");
+    // Footsteps (ANIMCALL.C): on the plateau's ground, a walk's; then a run's.
+    let walk = steps(&mut g);
+    assert!((7..=8).contains(&walk.len()) && walk.iter().all(|&s| s == 0x97), "two a cycle: {walk:?}");
+    // A run (after a walk's first step): 408 every 18 ticks.
+    let Some(mut g) = plateau(EAST) else { return };
+    let run = Input { dir: Some(EAST), run: true, ..Input::default() };
+    let acts = play(&mut g, run, 16);
+    assert_eq!((acts[0].0, acts[15].0), (action::WALK, action::RUN), "walks off, then runs");
+    let x = at(&g).0;
+    play(&mut g, run, 36);
+    let ran = at(&g).0 - x;
+    assert!((760..=870).contains(&ran), "two runs' cycles, 9 frames each: {ran} in 36 ticks");
+    assert!(steps(&mut g).ends_with(&[0x90; 4]));
+    // Let go: a walking step, then he stands.
+    let stop = play(&mut g, Input::default(), 30);
+    let first = stop.iter().find(|a| a.0 != action::RUN).unwrap().0;
+    assert_eq!((first, stop[29].0), (action::WALK, action::STAND));
+}
+
+#[test]
+#[ignore]
+fn turning_about_looks_over_the_shoulder() {
+    let Some(mut g) = plateau(6) else { return };
+    let here = at(&g);
+    let acts = play(&mut g, Input { dir: Some(EAST), ..Input::default() }, 40);
+    // West to east, clockwise: a look right facing 6, 7, 0 and 1 (3 ticks each), standing east.
+    let mut shown: Vec<_> = acts.clone();
+    shown.dedup();
+    assert_eq!(shown[..5], [(33, 6), (33, 7), (33, 0), (33, 1), (action::STAND, EAST)], "looking round: {shown:?}");
+    let moved = acts.iter().position(|a| a.0 == action::WALK).unwrap();
+    assert!(moved >= 15, "no step till turned ({moved})");
+    assert_ne!(at(&g), here);
+    // Moving, one way round is no turn: the step goes that way at once.
+    let acts = play(&mut g, Input { dir: Some(3), ..Input::default() }, 10);
+    assert!(acts.iter().all(|a| a.0 == action::WALK), "{acts:?}");
+    // The combat stance turns about in the stance.
+    g.world.set_in_combat(AVATAR, true);
+    play(&mut g, Input::default(), 30);
+    let facing = g.avatar.as_ref().unwrap().dir;
+    let acts = play(&mut g, Input { dir: Some((facing + 2) % 8), ..Input::default() }, 20);
+    assert!(acts[..6].iter().all(|a| a.0 == action::COMBAT_STAND), "{acts:?}");
+    assert_eq!(acts[19].0, action::ADVANCE);
+    // Pointing behind, fighting, he backs off.
+    let acts = play(&mut g, Input { dir: Some((facing + 6) % 8), ..Input::default() }, 10);
+    assert!(acts.iter().any(|a| a.0 == action::RETREAT), "{acts:?}");
+}
+
+#[test]
+#[ignore]
+fn running_into_a_wall_hurts_one_time_in_three() {
+    // Mythran's house, north of the plateau.
+    let Some(mut g) = saved(10) else { return };
+    let (mut hurt, trials) = (0, 18);
+    for _ in 0..trials {
+        g.put_avatar(8, (2541, 3327, 0));
+        g.avatar.as_mut().unwrap().dir = 0;
+        let hp = g.stats.get(AVATAR).unwrap().hp;
+        let acts = play(&mut g, Input { dir: Some(0), run: true, ..Input::default() }, 60);
+        assert!(at(&g).1 < 2800, "at the wall");
+        let lost = hp - g.stats.get(AVATAR).unwrap().hp;
+        assert!(lost <= 1, "{lost}");
+        if lost == 1 {
+            hurt += 1;
+            assert!(acts.iter().any(|a| a.0 == action::STUMBLE), "staggered back");
+        }
+        g.stats.get_mut(AVATAR).unwrap().hp = hp;
+        play(&mut g, Input::default(), 30);
+    }
+    assert!((2..=12).contains(&hurt), "{hurt} of {trials}");
+}
+
+/// Where a jump from the plateau lands (how far east, how high), `run_up` ticks of running before
+/// it (0: standing); from a box to the top of another `aim` units east if any, aimed at its
+/// middle. And whether he shrugged first.
+fn jump(run_up: usize, aim: Option<i32>, strength: Option<u8>) -> Option<(i32, i32, bool)> {
+    let mut g = plateau(EAST)?;
+    if let Some(s) = strength {
+        g.stats.get_mut(AVATAR)?.str = s;
+    }
+    let (x, y, _) = at(&g);
+    let aim = aim.map(|d| {
+        let shape = (0..2048)
+            .find(|&s| {
+                let t = g.data.typeflags.get(s);
+                t.has(flag::SOLID) && t.has(flag::LAND) && t.dims() == (64, 64, 24)
+            })
+            .expect("a box");
+        let put = |g: &mut Game, x| g.world.add(&g.data, Item { shape, x, y: y + 16, z: 0, ..Item::default() }, true);
+        put(&mut g, x + 16);
+        let on = put(&mut g, x + d + 32);
+        g.put_avatar(8, (x, y, 24));
+        Aim { at: (x + d, y - 16, 24), on }
+    });
+    let run = Input { dir: Some(EAST), run: true, ..Input::default() };
+    play(&mut g, run, run_up);
+    let (x, _, _) = at(&g);
+    let acts = play(&mut g, Input { jump: true, aim, ..run }, 1);
+    let acts = [acts, play(&mut g, Input::default(), 90)].concat();
+    let j = if run_up > 0 { action::RUNNING_JUMP } else { action::JUMP };
+    assert!(acts.iter().any(|a| a.0 == j), "jumped");
+    let (to, _, z) = at(&g);
+    Some((to - x, z, acts.iter().any(|a| a.0 == 32)))
+}
+
+#[test]
+#[ignore]
+fn a_running_leap_is_long_and_a_jump_goes_to_the_pointer() {
+    // A running leap: half of ANIM 10, 648 forward, on from the run's step it's queued behind.
+    let Some((leap, ..)) = jump(30, None, None) else { return };
+    assert!((648..=1100).contains(&leap), "{leap}");
+    // Standing: 384 forward; to the pointer, on something to land on, if he's strong enough (32
+    // a point of STR); else a shrug, and the jump as it goes.
+    assert_eq!(jump(0, None, None), Some((384, 0, false)));
+    // (Each frame's share rounded down, as the original's: a little short.)
+    let (to, z, shrug) = jump(0, Some(200), None).unwrap();
+    assert!((192..=200).contains(&to) && z == 24 && !shrug, "box to box: {to}, {z}");
+    let (to, _, shrug) = jump(0, Some(200), Some(3)).unwrap();
+    assert!(to == 384 && shrug, "too weak for it ({to})");
+}
+
+#[test]
+#[ignore]
+fn swings_queue_two_at_most_and_a_blow_in_the_air_brings_him_down() {
+    let Some(mut g) = plateau(EAST) else { return };
+    // Five clicks at once in the stance: the swing playing and one more (ANIM.C avatarSwing).
+    g.world.set_in_combat(AVATAR, true);
+    play(&mut g, Input::default(), 40);
+    let mut acts = vec![];
+    for _ in 0..5 {
+        acts.extend(play(&mut g, Input { attack: true, ..Input::default() }, 1));
+    }
+    acts.extend(play(&mut g, Input::default(), 120));
+    let mut runs: Vec<_> = acts.iter().map(|a| a.0).collect();
+    runs.dedup();
+    let swings = runs.iter().filter(|&&a| a == action::ATTACK).count();
+    assert_eq!(swings, 2, "{acts:?}");
+    // Struck hard at the top of a jump straight up: no stagger, and down he comes.
+    let Some(mut g) = plateau(EAST) else { return };
+    play(&mut g, Input { jump: true, ..Input::default() }, 1);
+    play(&mut g, Input::default(), 14);
+    assert!(at(&g).2 > 8, "up");
+    g.receive_hit(AVATAR, 0, 0, 8, 0x80);
+    play(&mut g, Input::default(), 60);
+    assert_eq!(at(&g).2, 0, "back down");
+}

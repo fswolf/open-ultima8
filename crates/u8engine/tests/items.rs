@@ -2,6 +2,7 @@
 //! Run against a real install: U8_DATA=/path/to/U8 cargo test -- --ignored
 mod common;
 use common::*;
+use u8data::map::Item;
 use u8engine::usecode::{event, ReadKind, UiEvent};
 
 #[test]
@@ -150,6 +151,32 @@ fn armour_adds_up() {
     assert_eq!((armour_value(523, 0), armour_value(523, 1), armour_value(539, 2), armour_value(841, 1)), (4, 4, 3, 8));
     let Ok(new) = Game::open(&PathBuf::from(std::env::var("U8_DATA").unwrap()), Some(0), None) else { return };
     assert_eq!(new.armour_class(), 0, "a new game shows ARMR 0");
+}
+
+/// A new game's Avatar wears nothing (DOS: ARMR 0, WGHT 1, nothing drawn) and his pack is his
+/// backpack: armour found in a chest goes on, with no magic armour turning up in the pack, and
+/// the magic armour is armour like any when found.
+#[test]
+#[ignore]
+fn a_new_games_avatar_wears_nothing_but_his_pack() {
+    use u8engine::world::item_flag::EQUIPPED;
+    let Some(mut g) = saved(0) else { return };
+    let mine = |g: &Game| {
+        let pack = g.backpack().unwrap();
+        let all = [g.world.contents(AVATAR), g.world.contents(pack)].concat();
+        all.into_iter()
+            .filter_map(|id| g.world.get(id))
+            .map(|it| (it.shape, it.flags & EQUIPPED != 0))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(mine(&g), [(529, true)]);
+    assert_eq!((g.armour_class(), g.load().0), (0, 1));
+    let a = g.world.get(AVATAR).unwrap();
+    let armour = g.world.add(&g.data, Item { shape: 523, x: a.x + 32, y: a.y, z: a.z, ..Default::default() }, true);
+    assert_eq!(g.equip(armour), Ok(()));
+    assert_eq!(mine(&g), [(529, true), (523, true)]);
+    assert_eq!(g.armour_class(), 4);
+    assert_eq!(u8engine::equip::armour_value(64, 0), 6, "the magic armour found later");
 }
 
 #[test]

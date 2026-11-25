@@ -237,6 +237,10 @@ pub struct World {
     overlays: HashMap<ObjId, Overlay>,
     /// People playing an animation (scripts' doAnim, being hurt, dying).
     acting: Vec<Acting>,
+    /// Someone drawn this far (world units) from where they are: the Avatar going there.
+    lag: Option<(ObjId, (i32, i32, i32))>,
+    /// Sounds of animation frames shown since last asked (the sound, who made it).
+    sounds: Vec<(u16, ObjId, Option<bool>)>,
     /// The action each actor last started (walking, standing, an animation).
     last_anim: HashMap<ObjId, usize>,
     /// The way they faced for it.
@@ -316,6 +320,8 @@ impl World {
             fighting: HashMap::new(),
             overlays: HashMap::new(),
             acting: vec![],
+            sounds: vec![],
+            lag: None,
             ethereal: vec![],
             last_anim: HashMap::new(),
             last_dir: HashMap::new(),

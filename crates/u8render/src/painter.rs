@@ -472,7 +472,8 @@ impl Painter {
             // People to the canvas's pixel (they walk by less than a game pixel); the scenery
             // to whole game pixels, as the original lays it out.
             let (px, py) = if e.traits.actor {
-                project_fine(it.x, it.y, it.z, s)
+                let (lx, ly, lz) = world.lag(world.id(i));
+                project_fine(it.x + lx, it.y + ly, it.z + lz, s)
             } else {
                 let (x, y) = project(it.x, it.y, it.z);
                 (x * s, y * s)

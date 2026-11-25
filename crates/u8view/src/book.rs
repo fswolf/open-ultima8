@@ -38,7 +38,7 @@ impl App {
         if let Some(a) = &mut self.audio {
             a.change_volume(s.volume - a.volume);
             a.set_ambience(s.ambience);
-            a.sfx_on = s.effects;
+            (a.sfx_on, a.steps_on) = (s.effects, s.footsteps);
             if !s.music {
                 a.music_off();
             }
@@ -77,7 +77,8 @@ impl App {
         };
         #[cfg(feature = "audio")]
         if let Some(a) = &self.audio {
-            (s.music, s.effects, s.volume, s.ambience) = (a.music_on(), a.sfx_on, a.volume, a.ambience);
+            (s.music, s.effects, s.footsteps, s.volume, s.ambience) =
+                (a.music_on(), a.sfx_on, a.steps_on, a.volume, a.ambience);
         }
         s
     }
@@ -244,9 +245,11 @@ impl App {
             #[cfg(feature = "audio")]
             Effects => ("Sound effects", on(audio?.sfx_on)),
             #[cfg(feature = "audio")]
+            Footsteps => ("Footsteps", on(audio?.steps_on)),
+            #[cfg(feature = "audio")]
             Ambience => ("Background sounds", tenths(audio?.ambience)),
             #[cfg(not(feature = "audio"))]
-            Music | Volume | Song | Effects | Ambience => {
+            Music | Volume | Song | Effects | Footsteps | Ambience => {
                 audio?;
                 return None;
             }
@@ -302,6 +305,13 @@ impl App {
             FrameTime => flip(&mut v.stats),
             Music => self.command(Command::MusicToggle),
             Effects => self.command(Command::SfxToggle),
+            Footsteps =>
+            {
+                #[cfg(feature = "audio")]
+                if let Some(a) = &mut self.audio {
+                    a.steps_on = !a.steps_on;
+                }
+            }
             Song => self.command(if d < 0 { Command::MusicPrev } else { Command::MusicNext }),
             Volume | Ambience =>
             {

@@ -149,8 +149,8 @@ pub trait Host {
         let (a, b) = (self.item(id)?, self.item(other)?);
         Some((a.x - b.x).abs().max((a.y - b.y).abs()))
     }
-    /// Item::enterFastArea: None if it's in already; else it is now, and whether its event runs
-    /// (not for the dead).
+    /// Item::enterFastArea: it's in the fast area now (None if it isn't there at all), and
+    /// whether its event runs: always but for the dead, in already or not (ITEM.C).
     fn enter_fast(&mut self, _id: ObjId) -> Option<bool> {
         Some(true)
     }
@@ -275,7 +275,7 @@ impl Host for WorldHost<'_> {
         self.world.range_between(id, other)
     }
     fn enter_fast(&mut self, id: ObjId) -> Option<bool> {
-        self.world.get(id).filter(|_| !self.world.is_fast(id))?;
+        self.world.get(id)?;
         self.world.set_fast(id, true);
         Some(self.stats.get(id).is_none_or(|s| !s.dead))
     }

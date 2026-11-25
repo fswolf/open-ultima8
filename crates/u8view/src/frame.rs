@@ -62,13 +62,14 @@ impl App {
             }
         }
         if input.jump && std::mem::take(&mut self.mouse_jump) {
-            // Short arrow: straight up; medium: forward; long while running: a running leap.
-            let aim = self.pointer().filter(|p| p.1 != mouse::Reach::Short);
-            input.dir = aim.map(|p| mouse::facing(p.0));
-            input.run = aim.is_some_and(|p| p.1 == mouse::Reach::Long);
-            input.careful = false;
+            // Both buttons (WORLD.C): the pointer's way and how far (close: straight up), and the
+            // point it's on, to leap to.
             if facing {
-                (input.dir, input.run) = (self.game.avatar.as_ref().map(|a| a.dir), false);
+                (input.dir, input.run, input.careful) = (self.game.avatar.as_ref().map(|a| a.dir), false, false);
+            } else if let Some((s, reach)) = self.pointer() {
+                input.dir = Some(mouse::facing(s));
+                (input.run, input.careful) = (reach == mouse::Reach::Long, reach == mouse::Reach::Short);
+                input.aim = self.aim_point();
             }
         }
         if self.pending_look.is_some_and(|(_, t)| now >= t) {
@@ -222,6 +223,10 @@ impl App {
                 let at = (*item != 0).then(|| sound_place(&self.game.world, self.view.cam, *item)).flatten();
                 a.sfx(*sfx, *item, *looping, at)
             }
+            UiEvent::Step { sfx, item, run } => {
+                let at = sound_place(&self.game.world, self.view.cam, *item);
+                a.step(*sfx, *item, *run, at)
+            }
             UiEvent::StopSfx { sfx, item } => a.stop_sfx(*sfx, *item),
             UiEvent::SfxVolume { sfx, volume } => a.set_sfx_volume(*sfx, *volume),
             UiEvent::Music(n) => a.play_track(*n as usize),
@@ -306,8 +311,13 @@ impl App {
 /// Where a sound at `id` is heard from the view centred on `cam`: (volume 0–1, pan −1…1), or
 /// None if it isn't anywhere. By its world position (emitters are often invisible markers),
 /// what it's in counts (something carried sounds from its carrier); nothing through a floor (a
-/// fire or a clock in the hall under the roof is silent up there); fading with the square of
-/// the distance left, so what's at the edge of a wide view is faint.
+/// fire or a clock in the hall under the roof is silent up there), but the original's sound
+/// markers (SFX, 712: wind, birds) are the whole place's and heard on every storey; fading with
+/// the square of the distance left, so what's at the edge of a wide view is faint.
+/// The original's sound marker (usecode class SFX): a place's own sounds, wind and the like.
+#[cfg(feature = "audio")]
+const SFX_MARKER: u32 = 712;
+
 #[cfg(feature = "audio")]
 fn sound_place(world: &u8engine::world::World, cam: (f32, f32), id: ObjId) -> Option<(f32, f32)> {
     let root = world.root(id);
@@ -315,7 +325,7 @@ fn sound_place(world: &u8engine::world::World, cam: (f32, f32), id: ObjId) -> Op
     let (sx, sy) = project(it.x, it.y, it.z);
     let (dx, dy) = (sx as f32 - cam.0, sy as f32 - cam.1);
     let pan = (dx / 320.0).clamp(-1.0, 1.0);
-    if !world.same_floor(AVATAR, root) {
+    if it.shape != SFX_MARKER && !world.same_floor(AVATAR, root) {
         return Some((0.0, pan));
     }
     let near = (1.0 - dx.hypot(dy) / HEARING).clamp(0.0, 1.0);
@@ -345,5 +355,18 @@ mod tests {
         assert!(far > 0.0 && far < 0.15, "faint across the view: {far}");
         let gone = (1..u16::MAX).rev().find(|&id| world.get(id).is_none()).unwrap();
         assert_eq!(sound_place(&world, cam, gone), None);
+        // The wind under the docks is heard up on them (as the original: no floor in the way).
+        let mut avatar = world.get(AVATAR).unwrap();
+        let mut world = u8engine::world::World::build(&gd, 3);
+        let wind = world
+            .objects()
+            .find(|&id| world.get(id).is_some_and(|it| it.shape == SFX_MARKER && it.x == 11679 && it.y == 6527));
+        let wind = wind.expect("the docks' wind");
+        (avatar.x, avatar.y, avatar.z) = (11732, 6300, 48);
+        world.put_actor(&gd, avatar);
+        let a = avatar;
+        assert!(!world.same_floor(AVATAR, wind), "the deck is over it");
+        let (sx, sy) = project(a.x, a.y, a.z);
+        assert!(sound_place(&world, (sx as f32, sy as f32), wind).unwrap().0 > 0.5);
     }
 }

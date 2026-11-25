@@ -42,9 +42,9 @@ impl Slot {
     }
 }
 
-/// MAGARMR2: a new game's Avatar wears it (NPCDATA lists it as body armour), but the original's
-/// paperdoll neither shows it nor counts its weight (WGHT 1: just the backpack).
-pub const UNSEEN_ARMOUR: u32 = 64;
+/// MAGARMR2, magic armour: the first save puts it on the Avatar, but the original's new game has
+/// him in nothing (ARMR 0, nothing drawn, WGHT 1: the backpack). Found later, it's armour like any.
+pub const STARTING_ARMOUR: u32 = 64;
 
 /// Where `it` is listed in NPCDATA's equipment (1–6 its slot, 7 the backpack), if it's worn.
 pub fn listed_as(gd: &GameData, it: &u8data::map::Item) -> Option<usize> {
@@ -73,7 +73,7 @@ const BARREL: u32 = 115;
 /// rounded up: castle game 34.4 → WGHT 35, new game 1): TYPEFLAG byte 6 × 10; coins and other quantities weigh that per hundred
 /// (rounded up), reagents per ten. Checked against the original's WGHT.
 pub fn weight(gd: &GameData, world: &World, id: ObjId) -> u32 {
-    let Some(it) = world.get(id).filter(|it| it.shape != UNSEEN_ARMOUR) else { return 0 };
+    let Some(it) = world.get(id) else { return 0 };
     let info = gd.typeflags.get(it.shape);
     let (w, q) = (info.weight as u32, it.quality as u32);
     let own = match info.family {
@@ -281,14 +281,13 @@ pub fn armour_defence(shape: u32) -> u16 {
     }
 }
 
-/// Armour class: what `who` wears adds up, with its weapon's armour bonus. (The new game's
-/// unseen armour doesn't count: the original shows ARMR 0 then.)
+/// Armour class: what `who` wears adds up, with its weapon's armour bonus.
 pub fn armour_class(gd: &GameData, world: &World, who: ObjId) -> i32 {
     world
         .contents(who)
         .into_iter()
         .filter_map(|id| world.get(id))
-        .filter(|it| it.flags & item_flag::EQUIPPED != 0 && it.shape != UNSEEN_ARMOUR)
+        .filter(|it| it.flags & item_flag::EQUIPPED != 0)
         .map(|it| match Slot::of(gd, it.shape) {
             Some(Slot::Weapon) => weapon(gd, it.shape).map_or(0, |w| w.armour as i32),
             Some(_) => armour_value(it.shape, it.frame),

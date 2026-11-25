@@ -65,7 +65,7 @@ impl Fonts {
     }
 
     /// Where lines' baselines are: the lowest character hotspot.
-    fn baseline(&self, font: usize) -> i32 {
+    pub fn baseline(&self, font: usize) -> i32 {
         self.0.get(font).map_or(0, |s| s.iter().map(|f| f.yoff).max().unwrap_or(0))
     }
 

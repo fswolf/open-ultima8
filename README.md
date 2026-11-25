@@ -47,7 +47,7 @@ it look and handle as if it were made this decade.
   button the mouse and keyboard have is on the pad. Plug it in or out while you play.
 - **Readable.** Books and scrolls in a clean book typeface at your screen's full resolution;
   speech placed over whoever's speaking, and hidden when they're on another floor.
-- **Quieter.** Fireplaces, dripping water and other background sounds well below other effects, fading fast with distance, with their own "Background sounds" level in the settings.
+- **Quieter.** Fireplaces, dripping water and other background sounds well below other effects, fading fast with distance, with their own "Background sounds" level in the settings. Footsteps (the original's) at half volume walking, and a switch to turn them off.
 - **Lost content, if you want it.** An option (off by default) puts back pieces the original has
   every word and picture for but never links up: the Key of the Necromancer, the walking dead,
   lines for Mordea's death. See [Restored content](#restored-content).
@@ -125,9 +125,10 @@ out, the faster you go.
 
 | Mouse | Does |
 |---|---|
-| hold **right** | move towards the pointer (measured from the Avatar's feet). Short arrow: careful steps (slow, and won't walk off ledges), medium: walk, long: run |
-| tap **right** | one careful step |
-| **both buttons** | jump. Short arrow: straight up, medium: forward, long while running: a running leap. Fall short of a ledge and you catch it: towards it pulls up, away lets go |
+| hold **right** | move towards the pointer (measured from the Avatar's feet), at the original's pace. Short arrow: careful steps (at an edge he teeters; the next step that way goes over), medium: walk, long: run (from the second step). Pointing well round, he turns about first, looking over his shoulder |
+| tap **right** | one step (careful with a short arrow), or turn to face the pointer |
+| **both buttons** | jump. Standing: onto what's in front if it's in reach; short arrow: straight up; else towards the pointer, landing on it if it's something to stand on and he's strong enough, otherwise with a shrug, an ordinary jump. Running: a running leap. Running or leaping into a wall can hurt |
+| keep **right** held as you fall | you may catch a ledge: **both buttons** pull up, letting go of **right** drops |
 | **left click** / **double-click** | look at / use (doors, levers, signs, people, a body to search it) |
 | **left click** in combat | swing towards the pointer; hold to block |
 | **double right-click** on the Avatar | draw or put away your weapon |
@@ -137,8 +138,8 @@ out, the faster you go.
 
 | Key | Does |
 |---|---|
-| **arrows / WASD** | walk (hold **Shift** to run) |
-| **Space** | jump |
+| **arrows / WASD** | walk (hold **Shift** to run); held as you fall, you may catch a ledge |
+| **Space** | jump (hanging from a ledge: pull up) |
 | **C** | weapon out / away |
 | **1-9** | pick a reply |
 | **I / Z** | backpack / paperdoll (equipment and stats) |
@@ -198,7 +199,7 @@ mana gauge.
 
 The **settings panel** (F1, or Esc → Options) sits over the game with tabs: Video (look,
 interface size, zoom, full screen, brightness, colour fix, smooth camera), Sound (music, volume,
-song, effects, background sounds), Controls (mouse hand, the controller's pointer speed, dead
+song, effects, footsteps on or off, background sounds), Controls (mouse hand, the controller's pointer speed, dead
 zone and walking stick, touch screen buttons), Game (reply style, see inside, roofs, camera,
 cheats, Discord status) and Keys (every control on keyboard, mouse, pad and touch). Up and down
 choose, left and right change, Tab or Q and E switch tabs; the mouse, a pad (D-pad, A, LB/RB,
@@ -280,7 +281,7 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 | wgpu viewer (scroll the world) | ✅ |
 | NONFIXED items + NPCs from your save (GAMEDAT) | ✅ |
 | Scenery animation (fire, waterfalls, the hourglass's script), TYPEFLAG types 1-6 as ScummVM runs them | ✅ |
-| ANIM.DAT actor animations; Avatar walk/run with basic collision, stairs, cutaway | ✅ |
+| ANIM.DAT actor animations; the Avatar moved by his animations as the original does (pace, turning, careful steps and teetering, jumps, leaps, bumps, ledges, falls, their sounds) | ✅ |
 | Usecode VM: look, use, doors, signs/books, conversations with choices | ✅ |
 | Jumping (ANIM.DAT height arcs); climbing onto ledges 16-72 high from a standing jump (strength and dexterity grow with the height) | ✅ |
 | Eggs: teleporters between maps, usecode triggers, NPC/egg "fast area" events; maps keep their state | ✅ |

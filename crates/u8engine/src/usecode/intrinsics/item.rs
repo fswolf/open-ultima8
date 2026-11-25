@@ -442,13 +442,14 @@ pub fn look(c: &mut Ctx) -> u32 {
 pub fn use_item(c: &mut Ctx) -> u32 {
     trigger(c, event::USE)
 }
-/// enterFastArea: brings it into the fast area now (its event, unless it's there already).
+/// enterFastArea: brings it into the fast area now, and runs its event even if it was in
+/// already (ITEM.C: NPC.C's exitConvo uses it to set people going again after a talk).
 pub fn enter_fast_area(c: &mut Ctx) -> u32 {
     let id = c.this();
     enter_fast(c, id)
 }
 
-/// `id` into the fast area, its event run at once (not for the dead, nor twice).
+/// `id` into the fast area, its event run at once (not for the dead).
 pub(super) fn enter_fast(c: &mut Ctx, id: crate::world::ObjId) -> u32 {
     match c.host.enter_fast(id) {
         Some(true) => event_on(c, id, event::ENTER_FAST_AREA, &[]),

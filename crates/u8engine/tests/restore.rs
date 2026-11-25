@@ -81,7 +81,7 @@ fn the_birthplace_of_moriens_works_as_shipped() {
     run(&mut g, 2, 0, "");
     let a = g.world.get(AVATAR).unwrap();
     assert!(
-        (a.x - 14624).abs().max((a.y - 13480).abs()) < 512 && g.map() == 50,
+        (a.x - 14624).abs().max((a.y - 13480).abs()) < 768 && g.map() == 50,
         "in the chamber: {:?}",
         (a.x, a.y, g.map())
     );

@@ -132,6 +132,9 @@ impl App {
             // (Only while the view is on the Avatar itself: not where it was left when the
             // Avatar's gone to the map's corner, drowned.)
             let on = self.game.world.get(AVATAR).is_some_and(|a| (a.x, a.y) == (x, y));
+            // (Following him as he's drawn: going on to where he is.)
+            let (lx, ly, lz) = if on { self.game.world.lag(AVATAR) } else { (0, 0, 0) };
+            let (x, y, z) = (x + lx, y + ly, z + lz);
             let smooth = self.view.smooth && self.game.camera_on_avatar() && on;
             let footing = self.game.world.floor_under(AVATAR).map(|f| f + u8engine::camera::EYE);
             let eye = eye_height(z, footing, self.view.eye, dt, smooth);

@@ -5,6 +5,8 @@ mod common;
 use common::*;
 use u8data::anim::action;
 use u8data::map::Item;
+use u8engine::avatar::Plight;
+use u8engine::usecode::UiEvent;
 
 #[test]
 #[ignore]
@@ -18,7 +20,7 @@ fn avatar_walks_and_collides() {
     let end = g.world.get(AVATAR).unwrap();
     assert_ne!((start.x, start.y), (end.x, end.y), "walking south-east should move");
     // Standing still settles back to the stand animation and stops moving.
-    let st = g.update(0.1, &Input::default());
+    let st = (0..15).map(|_| g.update(1.0 / 30.0, &Input::default())).last().unwrap();
     assert!(!st.moving);
 }
 
@@ -216,8 +218,9 @@ fn box_shape(g: &Game) -> u32 {
         .expect("a box")
 }
 
-/// On a box, a gap, then a tower two boxes higher: a jump across falls short and catches the
-/// ledge. The game, where the Avatar stood, and where it hangs.
+/// On a box, a gap, then a tower two boxes higher: a jump across falls short and, the move
+/// button held, catches the ledge (GRAVITY.C). The game, where the Avatar stood, and where it
+/// hangs.
 fn hanging_from_a_ledge() -> Option<(Game, Item, Item)> {
     let mut g = game(40)?;
     let (shape, a) = (box_shape(&g), g.world.get(AVATAR).unwrap());
@@ -235,7 +238,7 @@ fn hanging_from_a_ledge() -> Option<(Game, Item, Item)> {
     g.avatar.as_mut().unwrap().dir = 2;
     tick(&mut g, Input { jump: true, dir: Some(2), ..Default::default() });
     for _ in 0..60 {
-        tick(&mut g, Input::default());
+        tick(&mut g, HOLD);
         if g.avatar.as_ref().unwrap().hanging() {
             let h = g.world.get(AVATAR).unwrap();
             return Some((g, a, h));
@@ -243,6 +246,19 @@ fn hanging_from_a_ledge() -> Option<(Game, Item, Item)> {
     }
     panic!("didn't catch the ledge: {:?}", g.world.get(AVATAR).map(|i| (i.x - x, i.z - a.z)));
 }
+
+/// The move button held, towards the ledge.
+const HOLD: Input = Input {
+    dir: Some(2),
+    run: false,
+    careful: false,
+    jump: false,
+    aim: None,
+    combat: false,
+    attack: false,
+    kick: false,
+    block: false,
+};
 
 fn tick(g: &mut Game, input: Input) {
     g.update(1.0 / 30.0, &input);
@@ -254,13 +270,13 @@ fn the_avatar_hangs_from_a_ledge_and_pulls_up() {
     let Some((mut g, a, h)) = hanging_from_a_ledge() else { return };
     assert_eq!(h.z, a.z + 72 - 40, "hands at the top");
     for _ in 0..30 {
-        tick(&mut g, Input::default());
+        tick(&mut g, HOLD);
     }
     assert!(g.avatar.as_ref().unwrap().hanging(), "still hanging");
     assert_eq!(g.world.get(AVATAR).unwrap().z, h.z);
-    tick(&mut g, Input { dir: Some(2), ..Default::default() });
+    tick(&mut g, Input { jump: true, ..HOLD }); // (both buttons)
     for _ in 0..60 {
-        tick(&mut g, Input::default());
+        tick(&mut g, Input::default()); // (let go once climbing: he stands there)
     }
     let up = g.world.get(AVATAR).unwrap();
     assert_eq!(up.z, a.z + 72, "pulled up onto the top");
@@ -272,14 +288,107 @@ fn the_avatar_hangs_from_a_ledge_and_pulls_up() {
 fn letting_go_of_a_ledge_drops() {
     let Some((mut g, a, _)) = hanging_from_a_ledge() else { return };
     let hp = g.stats.get(AVATAR).unwrap().hp;
-    tick(&mut g, Input { dir: Some(6), ..Default::default() });
     for _ in 0..60 {
-        tick(&mut g, Input::default());
+        tick(&mut g, Input::default()); // (the button let go)
     }
     let down = g.world.get(AVATAR).unwrap();
     assert_eq!(down.z, a.z, "on the ground");
     assert!(!g.avatar.as_ref().unwrap().hanging());
     assert_eq!(g.stats.get(AVATAR).unwrap().hp, hp, "not far enough to hurt");
+}
+
+/// The same short jump with the move button let go: no catch; down he drops, and lands.
+#[test]
+#[ignore]
+fn without_the_button_held_a_short_jump_drops() {
+    let Some(mut g) = game(40) else { return };
+    let (shape, a) = (box_shape(&g), g.world.get(AVATAR).unwrap());
+    let (x, y) = open_spot(&mut g, 192, 200);
+    let put = |g: &mut Game, x: i32, z: i32| {
+        g.world.add(&g.data, u8data::map::Item { shape, x, y: y + 16, z, ..Default::default() }, true);
+    };
+    put(&mut g, x, a.z);
+    for k in 0..3 {
+        put(&mut g, x + 128, a.z + 24 * k);
+    }
+    g.world.set(&g.data, AVATAR, Item { x, y, z: a.z + 24, ..a });
+    g.avatar.as_mut().unwrap().dir = 2;
+    tick(&mut g, Input { jump: true, dir: Some(2), ..Default::default() });
+    let mut landed = false;
+    for _ in 0..90 {
+        tick(&mut g, Input::default());
+        assert!(!g.avatar.as_ref().unwrap().hanging());
+        landed |= g.world.last_anim(AVATAR) == action::LAND;
+    }
+    assert!(landed && g.world.get(AVATAR).unwrap().z == a.z, "dropped and landed");
+}
+
+/// The sounds of the Avatar's frames (ANIM.DAT): a grunt climbing anything 40 high or more,
+/// and the funny noise of teetering at an edge.
+fn sounds(g: &mut Game) -> Vec<u16> {
+    let e = g.take_events();
+    e.into_iter().filter_map(|e| if let UiEvent::Sfx { sfx, .. } = e { Some(sfx) } else { None }).collect()
+}
+
+/// A careful step off an edge teeters there (twice, with a yelp) and stays up; the next one that
+/// way goes over (ANIM.C's carefulStepAvatar).
+#[test]
+#[ignore]
+fn a_careful_step_at_an_edge_teeters_first() {
+    let Some(mut g) = game(40) else { return };
+    let (shape, a) = (box_shape(&g), g.world.get(AVATAR).unwrap());
+    let (x, y) = open_spot(&mut g, 192, 200);
+    g.world.add(&g.data, Item { shape, x, y: y + 16, z: a.z, ..Default::default() }, true);
+    let top = a.z + 24;
+    // As far east on the box as he still stands on it.
+    let edge = (0..64).rev().step_by(4).find(|k| {
+        g.world.set(&g.data, AVATAR, Item { x: x + k, y, z: top, ..a });
+        g.world.floor_under(AVATAR) == Some(top)
+    });
+    g.world.set(&g.data, AVATAR, Item { x: x + edge.unwrap(), y, z: top, ..a });
+    g.avatar.as_mut().unwrap().dir = 2;
+    sounds(&mut g);
+    let careful = Input { dir: Some(2), careful: true, ..Default::default() };
+    tick(&mut g, careful);
+    let mut seen = vec![];
+    for _ in 0..60 {
+        tick(&mut g, Input::default());
+        seen.push(g.world.last_anim(AVATAR));
+    }
+    seen.dedup();
+    assert_eq!(seen[..2], [action::EDGE_BALANCE, action::STAND], "teetered: {seen:?}");
+    assert_eq!(g.world.get(AVATAR).unwrap().z, top, "still up");
+    assert!(sounds(&mut g).contains(&147), "with its yelp");
+    tick(&mut g, careful);
+    for _ in 0..60 {
+        tick(&mut g, Input::default());
+    }
+    assert_eq!(g.world.get(AVATAR).unwrap().z, a.z, "over the edge");
+}
+
+#[test]
+#[ignore]
+fn climbing_high_grunts() {
+    let Some(mut g) = game(40) else { return };
+    let (shape, a) = (box_shape(&g), g.world.get(AVATAR).unwrap());
+    let (x, y) = open_spot(&mut g, 192, 200);
+    for k in 0..2 {
+        g.world.add(&g.data, Item { shape, x: x + 96, y: y + 16, z: a.z + 24 * k, ..Default::default() }, true);
+    }
+    // Close enough to climb onto the two boxes (48).
+    let near = (0..96).step_by(4).find(|k| {
+        g.world.set(&g.data, AVATAR, Item { x: x + k, y, z: a.z, ..a });
+        g.world.anim_fits(&g.data, AVATAR, action::CLIMB_16 + 4, 2).is_some()
+    });
+    assert!(near.is_some(), "in reach");
+    g.avatar.as_mut().unwrap().dir = 2;
+    sounds(&mut g);
+    tick(&mut g, Input { jump: true, dir: Some(2), ..Default::default() });
+    for _ in 0..60 {
+        tick(&mut g, Input::default());
+    }
+    assert_eq!(g.world.get(AVATAR).unwrap().z, a.z + 48, "up");
+    assert!(sounds(&mut g).contains(&51), "a grunt");
 }
 
 #[test]
@@ -293,21 +402,19 @@ fn a_long_fall_knocks_the_avatar_down() {
     g.world.set(&g.data, AVATAR, me);
     let hp = g.stats.get(AVATAR).unwrap().hp;
     g.fall(AVATAR);
-    let (mut flat, mut shook, mut seen) = (false, false, vec![]);
+    let (mut flat, mut seen) = (false, vec![]);
     for _ in 0..300 {
         tick(&mut g, Input { dir: Some(2), ..Default::default() });
         let act = g.world.last_anim(AVATAR);
         if seen.last() != Some(&act) {
             seen.push(act);
         }
-        flat |= g.avatar.as_ref().unwrap().stunned();
-        shook |= act == action::SHAKE_HEAD;
+        flat |= g.avatar.as_ref().unwrap().plight() == Some(Plight::Down);
     }
-    let order = [action::FALL_BACKWARDS, action::STAND_UP, action::SHAKE_HEAD];
-    let at: Vec<_> = order.iter().map(|a| seen.iter().position(|s| s == a)).collect();
-    assert!(at.iter().all(Option::is_some) && at.is_sorted(), "flat, up, shaking its head: {seen:?}");
-    assert!(flat && shook);
-    assert!(!g.avatar.as_ref().unwrap().stunned(), "up again");
+    let flat_up = seen.windows(3).any(|w| w == [action::FALL_BACKWARDS, action::STAND_UP, action::STAND]);
+    assert!(flat_up, "flat, up, standing: {seen:?}");
+    assert!(flat);
+    assert!(g.avatar.as_ref().unwrap().plight().is_none(), "up again");
     assert_eq!(g.stats.get(AVATAR).unwrap().hp, hp - 7, "(100 - 72) / 4");
     assert_eq!(g.world.get(AVATAR).unwrap().z, a.z);
 }
@@ -327,7 +434,7 @@ fn jumping_off_a_tower_falls_and_knocks_the_avatar_down() {
     let mut flat = false;
     for _ in 0..90 {
         tick(&mut g, Input::default());
-        flat |= g.avatar.as_ref().unwrap().stunned();
+        flat |= g.avatar.as_ref().unwrap().plight() == Some(Plight::Down);
     }
     let down = g.world.get(AVATAR).unwrap();
     assert_eq!(down.z, a.z, "came down off it ({})", down.x - x);

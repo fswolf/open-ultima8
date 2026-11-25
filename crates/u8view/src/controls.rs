@@ -17,6 +17,13 @@ impl App {
         Some(mouse::aim(mx - fx, my - fy, (w as u32, h as u32)))
     }
 
+    /// The point on the thing under the pointer (where a jump would leap to).
+    pub(super) fn aim_point(&mut self) -> Option<u8engine::avatar::Aim> {
+        let ((wx, wy), opts) = (self.mouse_world(), self.view.opts);
+        let on = self.painter.pick(&self.game.data, &mut self.game.world, wx, wy, opts)?;
+        Some(u8engine::avatar::Aim { at: self.game.world.point_on(on, wx, wy)?, on })
+    }
+
     /// Movement: (facing, run, careful) from the pad's sticks or D-pad, else from the pointer's
     /// arrow while the right button (or the pad's RT) walks.
     pub(super) fn steering(&mut self) -> Option<pad::Walk> {

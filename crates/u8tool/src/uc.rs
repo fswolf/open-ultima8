@@ -163,6 +163,7 @@ fn run_event(a: &Args, gd: &GameData, uc: &Usecode, flags: Option<&[u8]>) -> Res
                 UiEvent::Sfx { sfx, item, looping } => {
                     say!("[t{t}] sfx {sfx} at {item}{}", if *looping { " (loop)" } else { "" })
                 }
+                UiEvent::Step { .. } => {} // (footsteps: too many to list)
                 UiEvent::StopSfx { sfx, item } => say!("[t{t}] stop sfx {sfx} at {item:?}"),
                 UiEvent::SfxVolume { sfx, volume } => say!("[t{t}] sfx {sfx} volume {volume}"),
                 UiEvent::OpenGump { item, gump } => say!("[t{t}] open window {gump} for {item}"),

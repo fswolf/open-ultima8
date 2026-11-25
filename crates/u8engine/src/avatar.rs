@@ -1,38 +1,30 @@
-//! Player control of the Avatar: walking and running with collision, jumps that follow ANIM.DAT,
-//! climbing onto ledges, hanging from them, being knocked flat by a fall, and the combat stance (readying the weapon, advancing, retreating,
-//! swinging, kicking, blocking) with the wielded weapon drawn over the Avatar (WPNOVLAY.DAT).
+//! Player control of the Avatar, as the original drives him (WORLD.C, ANIM.C): every move is an
+//! animation from ANIM.DAT played at its own pace, walking, running and careful steps covering
+//! what their frames say; turning about with a look over the shoulder; teetering at an edge;
+//! jumps (up, onto things, forward, to the pointer), running leaps and bumping into walls; the
+//! combat stance (readying the weapon, advancing, retreating, swinging, kicking, blocking) with
+//! the wielded weapon drawn over him (WPNOVLAY.DAT); hanging from a ledge caught in a fall.
 use crate::equip::{self, Slot};
 use crate::geom::DIRS;
-use crate::world::{item_flag::FLIPPED, Overlay, World, AVATAR, STEP};
+use crate::world::{anim_range, item_flag::FLIPPED, ObjId, Overlay, World, AVATAR, STEP};
+use std::collections::VecDeque;
 use u8data::{anim::action, anim::AnimFrame, map::Item, GameData};
 
 mod acts;
-
-/// Movement speed in world units per second (a floor tile is 128).
-const WALK_SPEED: f32 = 160.0;
-/// Careful steps (the short arrow): DOS covers ~45 units a second (57 in 1.5 s, 141 in 3 s).
-const CAREFUL_SPEED: f32 = 45.0;
-const RUN_SPEED: f32 = 320.0;
-/// Seconds per animation frame.
-const WALK_FRAME: f32 = 0.066;
-const RUN_FRAME: f32 = 0.050;
-const JUMP_FRAME: f32 = 0.045;
-/// Readying, putting away and swinging a weapon.
-const ACT_FRAME: f32 = 0.06;
-/// Stepping in combat stance.
-const COMBAT_SPEED: f32 = 96.0;
 
 /// What the player wants this frame. The host clears it while the game is waiting on the player
 /// (a conversation, a book) so the Avatar doesn't wander off.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Input {
-    /// Facing 0–7 to move towards.
+    /// Facing 0–7 to move towards: the move button (the right one) is held.
     pub dir: Option<usize>,
+    /// The pointer far off (run) or close by (careful steps); else a walk.
     pub run: bool,
-    /// Walk without stepping off ledges (the original's short-arrow "careful step").
     pub careful: bool,
-    /// Start a jump (edge-triggered: set for one update).
+    /// Jump (both buttons; edge-triggered: set for one update).
     pub jump: bool,
+    /// Where the pointer is on the thing under it: a standing jump leaps there if it can.
+    pub aim: Option<Aim>,
     /// Draw or put away the weapon (edge-triggered).
     pub combat: bool,
     /// Swing, in combat stance (edge-triggered).
@@ -41,6 +33,13 @@ pub struct Input {
     pub kick: bool,
     /// Block, in combat stance (held).
     pub block: bool,
+}
+
+/// A point on a thing in the world (what the pointer is over).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Aim {
+    pub at: (i32, i32, i32),
+    pub on: ObjId,
 }
 
 /// Exertion that builds the Avatar's strength and dexterity (the game turns it into growth).
@@ -52,57 +51,55 @@ pub enum Effort {
     Strike,
 }
 
-/// A one-off animation played to its end: a jump, readying the weapon, a swing.
-#[derive(Clone, Copy, Debug)]
+/// ANIM.DAT action flags: stops for nothing (a standing jump); running into things with it
+/// hurts 1 time in 3 (running), or always.
+const UNSTOPPABLE: u16 = 0x08;
+const BUMPS: u16 = 0x10;
+const HURTS: u16 = 0x20;
+/// The last action, after one that ran into something (the original's 61).
+const FAILED: usize = 61;
+/// Climbing 40 up: a ledge caught in a fall has to be one this would take him onto.
+const CLIMB_40: usize = action::CLIMB_16 + 3;
+
+/// An action being played: its frames in order, each shown for its pace.
+#[derive(Clone, Debug)]
 struct Act {
     action: usize,
+    dir: usize,
+    flags: u16,
+    frames: Vec<usize>,
+    /// Frames shown so far.
     step: usize,
-    /// Forward world units per airborne frame.
-    fwd: i32,
+    /// Seconds till the next frame.
     wait: f32,
-    /// Seconds per frame.
     pace: f32,
     /// This swing already struck something (once per swing).
     struck: bool,
-    /// A leap stopped going forward: it ends with the hop it's in.
+    /// A standing jump met something: it goes on up and down where it is.
     stopped: bool,
-    /// How it carries the Avatar along.
-    moves: Moves,
-    /// The frames it plays: all, or one step of a two-step action (a running jump is one hop).
-    from: usize,
-    to: usize,
+    /// A careful step over the edge he teetered at (no sliding along it).
+    over: bool,
+    /// A jump aimed at a point (ANIMCLAS.C's StandingLeap).
+    leap: Option<Leap>,
 }
 
-/// How an action moves the Avatar.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Moves {
-    /// `fwd` units a frame while airborne (jumps), with collision.
-    Fixed,
-    /// As ANIM.DAT says (rise, and 4 × the forward step), the path checked before it began
-    /// (climbing).
-    Checked,
-    /// As ANIM.DAT says, on the ground, as far as the way is clear (knocked flat, getting up).
-    Ground,
+#[derive(Clone, Copy, Debug)]
+struct Leap {
+    from: (i32, i32),
+    to: (i32, i32),
+    /// Its rise or drop, and the forward amount of all its frames.
+    rise: i32,
+    total: i32,
 }
 
-impl Act {
-    fn new(action: usize, fwd: i32, pace: f32) -> Self {
-        Self {
-            action,
-            step: 0,
-            fwd,
-            wait: 0.0,
-            pace,
-            struck: false,
-            stopped: false,
-            moves: Moves::Fixed,
-            from: 0,
-            to: usize::MAX,
-        }
-    }
-    fn moving(action: usize, moves: Moves) -> Self {
-        Self { moves, ..Self::new(action, 0, ACT_FRAME) }
-    }
+/// A frame's move as it's drawn: he's there at once (as the original moves him), but drawn
+/// going there over the time the frame shows.
+#[derive(Clone, Copy, Debug)]
+struct Glide {
+    from: (i32, i32, i32),
+    to: (i32, i32, i32),
+    t: f32,
+    pace: f32,
 }
 
 /// What a save can't show of the Avatar (the side file keeps it): hanging from a ledge, or down
@@ -113,22 +110,24 @@ pub enum Plight {
     Down,
 }
 
-/// Hands reach this far above the feet for a ledge to hang from (the pull-up's rise), and it's
-/// looked for this far either side of where the falling Avatar is.
+/// Hands reach this far above the feet for a ledge to hang from (the pull-up's rise).
 const GRAB_SLACK: i32 = 8;
 
 #[derive(Clone, Debug)]
 pub struct Avatar {
     pub dir: usize,
-    step: usize,
-    moving: bool,
-    /// Fractional world units carried between updates.
-    carry: f32,
-    /// Seconds until the next walk-cycle frame.
-    wait: f32,
     act: Option<Act>,
+    /// Actions to play next (action, facing: None for whichever way he faces then).
+    then: VecDeque<(usize, Option<usize>)>,
+    /// The last action begun (the original's lastAnimSet), and the way it faced.
+    last: (usize, usize),
+    /// A two-step action plays its first half next.
+    first: bool,
+    glide: Option<Glide>,
     /// In combat stance (mirrors the world's flag, which scripts can change too).
     combat: bool,
+    /// Out of the stance to run, back in when he stops.
+    pending: bool,
     /// The action and step last shown (the weapon overlay follows it).
     pose: (usize, usize),
     /// A swing reaching out this update: (facing, range in steps), for the game to resolve.
@@ -137,14 +136,28 @@ pub struct Avatar {
     effort: Option<Effort>,
     /// Holding a block (the weapon up till the button's let go).
     blocking: bool,
-    /// Hanging from a ledge by the hands (jump or step towards it: pull up; away: let go).
+    /// Hanging from a ledge by the hands.
     hanging: bool,
-    /// Knocked flat by a fall, till it's up again (easier to hit meanwhile).
-    stunned: bool,
-    /// Actions to play when this one's done (getting up after a fall).
-    then: Vec<usize>,
+    /// Teetering at an edge: the next careful step that way goes over.
+    balancing: bool,
+    /// Knocked flat by a fall, till he's up.
+    down: bool,
+    /// The next careful step goes over the edge he teetered at.
+    over: bool,
+    /// Stopped by a blow: is he still on something?
+    stopped: bool,
+    /// The move button was held last update.
+    held: bool,
+    /// A jump at the pointer to make: where to.
+    aimed: Option<(i32, i32, i32)>,
     /// Over nothing (off an edge, let go, a jump into a pit): the game lets it fall.
     drop: bool,
+    /// Ran into something: hurt for sure, or 1 in 3 (the game decides).
+    bump: Option<bool>,
+    /// Sounds of the frames shown since last asked (a footstep: running?).
+    sounds: Vec<(u16, Option<bool>)>,
+    /// Strength, which limits how far a jump at the pointer goes (the game keeps it current).
+    pub strength: i32,
 }
 
 /// (frame, mirrored?) of an actor animation step.
@@ -175,29 +188,46 @@ fn show(it: &mut Item, (frame, flip): (u32, bool)) {
     it.flags = if flip { it.flags | FLIPPED } else { it.flags & !FLIPPED };
 }
 
+/// How far the pointer is (U8POINT.C): close (careful steps), mid (a walk), far (a run).
+fn erection(input: &Input) -> u8 {
+    match (input.careful, input.run) {
+        (true, _) => 1,
+        (_, true) => 3,
+        _ => 2,
+    }
+}
+
 impl Avatar {
     pub fn new(gd: &GameData, world: &World) -> Option<Self> {
         let it = world.get(world.avatar()?)?;
         let saved = gd.npcdata.as_deref().and_then(|d| u8data::map::npc_dir(d, AVATAR as usize));
         let dir = facing(gd, &it).or(saved).unwrap_or(3);
         let combat = world.in_combat(AVATAR);
-        let pose = (if combat { action::COMBAT_STAND } else { action::STAND }, 0);
+        let stand = if combat { action::COMBAT_STAND } else { action::STAND };
         Some(Self {
             dir,
-            step: 0,
-            moving: false,
-            carry: 0.0,
-            wait: 0.0,
             act: None,
+            then: VecDeque::new(),
+            last: (stand, dir),
+            first: false,
+            glide: None,
             combat,
-            pose,
+            pending: false,
+            pose: (stand, 0),
             swing: None,
             effort: None,
             blocking: false,
             hanging: false,
-            stunned: false,
-            then: vec![],
+            balancing: false,
+            down: false,
+            over: false,
+            stopped: false,
+            held: false,
+            aimed: None,
             drop: false,
+            bump: None,
+            sounds: vec![],
+            strength: 0,
         })
     }
 
@@ -206,9 +236,14 @@ impl Avatar {
         self.pose.0
     }
 
-    /// Walking or mid-animation: the host should keep frames coming.
+    /// The last action begun, as the original keeps it (61 after one that ran into something).
+    pub fn last_action(&self) -> usize {
+        self.last.0
+    }
+
+    /// Playing an action or with more to play: the host should keep frames coming.
     pub fn busy(&self) -> bool {
-        self.moving || self.act.is_some()
+        self.act.is_some() || !self.then.is_empty() || self.glide.is_some()
     }
 
     /// Holding a block.
@@ -221,17 +256,12 @@ impl Avatar {
         self.hanging
     }
 
-    /// Knocked flat, not up yet.
-    pub fn stunned(&self) -> bool {
-        self.stunned
-    }
-
     /// Hanging or down, if it is.
     pub fn plight(&self) -> Option<Plight> {
         if self.hanging {
             Some(Plight::Hanging)
         } else {
-            self.stunned.then_some(Plight::Down)
+            self.down.then_some(Plight::Down)
         }
     }
 
@@ -240,14 +270,10 @@ impl Avatar {
     pub fn restore(&mut self, gd: &GameData, world: &mut World, dir: usize, p: Plight) {
         self.dir = dir % 8;
         match p {
-            Plight::Hanging => {
-                self.hanging = true;
-                self.hold_frame(gd, world);
-            }
+            Plight::Hanging => self.hang(gd, world),
             Plight::Down => {
-                self.knock_down();
-                self.act = Some(Act::moving(action::STAND_UP, Moves::Ground));
-                self.then = vec![action::SHAKE_HEAD, action::SHAKE_HEAD];
+                self.knock_down(false);
+                self.then.pop_front(); // (already flat)
             }
         }
     }
@@ -257,12 +283,36 @@ impl Avatar {
         std::mem::take(&mut self.drop)
     }
 
-    /// A hard fall: flat on its back (sliding back as it goes), then up, shaking its head twice
-    /// (ScummVM: fallBackwards, then standUpIfNeeded).
-    pub fn knock_down(&mut self) {
-        (self.hanging, self.blocking, self.moving, self.stunned) = (false, false, false, true);
-        self.act = Some(Act::moving(action::FALL_BACKWARDS, Moves::Ground));
-        self.then = vec![action::STAND_UP, action::SHAKE_HEAD, action::SHAKE_HEAD];
+    /// Ran into something since last asked: (sure to hurt, else 1 in 3; the way he faced).
+    pub fn take_bump(&mut self) -> Option<(bool, usize)> {
+        self.bump.take().map(|b| (b, self.dir))
+    }
+
+    /// Sounds of the frames shown since last asked.
+    pub fn take_sounds(&mut self) -> Vec<(u16, Option<bool>)> {
+        std::mem::take(&mut self.sounds)
+    }
+
+    /// Hurt by a fall (ITEM.C): flat on his back, up again, and (a light fall, at ease) dazed,
+    /// looking about.
+    pub fn knock_down(&mut self, dazed: bool) {
+        self.stop();
+        (self.hanging, self.blocking, self.down) = (false, false, true);
+        let stand = self.stance();
+        self.then.extend([action::FALL_BACKWARDS, action::STAND_UP, stand].map(|a| (a, None)));
+        if dazed && !self.combat {
+            let look = [action::LOOK_LEFT, stand, action::LOOK_RIGHT, stand];
+            self.then.extend(look.iter().chain(&look).map(|&a| (a, None)));
+        }
+    }
+
+    /// Landed from a fall that didn't hurt (GRAVITY.C): down on his feet.
+    pub fn land(&mut self) {
+        self.stop();
+        self.queue(action::LAND, None);
+        if self.combat {
+            self.queue(action::COMBAT_STAND, None);
+        }
     }
 
     /// Exertion since last asked (climbing, swinging, kicking), if any.
@@ -275,18 +325,23 @@ impl Avatar {
         self.swing.take()
     }
 
-    /// Struck: stagger back (unless busy with something else, blocking or hanging on).
-    pub fn hurt(&mut self) {
-        if self.act.is_none() && !self.blocking && !self.hanging {
-            self.act = Some(Act::new(action::STUMBLE, 0, ACT_FRAME));
-            self.moving = false;
+    /// Struck (not while blocking, hanging on or down): a light blow staggers him back; a
+    /// heavy one only stops what he was doing (ITEM.C).
+    pub fn hurt(&mut self, heavy: bool) {
+        if self.blocking || self.hanging || self.down {
+            return;
+        }
+        self.stop();
+        self.stopped = true;
+        if !heavy {
+            self.then.extend([(action::STUMBLE, None), (self.stance(), None)]);
         }
     }
 
     /// A blow caught while blocking: the weapon jolts and comes back up.
     pub fn parry(&mut self) {
-        if self.blocking && self.act.is_none() {
-            self.act = Some(Act::new(action::START_BLOCK, 0, ACT_FRAME));
+        if self.blocking && !self.busy() {
+            self.queue(action::START_BLOCK, None);
         }
     }
 
@@ -306,100 +361,228 @@ impl Avatar {
         }
     }
 
+    /// Stop everything he's playing, where he is.
+    fn stop(&mut self) {
+        (self.act, self.glide, self.aimed, self.over) = (None, None, None, false);
+        self.then.clear();
+    }
+
+    /// Swings and kicks playing or to come.
+    fn strikes(&self) -> usize {
+        let a = self.act.iter().map(|j| j.action).chain(self.then.iter().map(|q| q.0));
+        a.filter(|&a| matches!(a, action::ATTACK | action::KICK)).count()
+    }
+
+    /// Play `action` next (`dir`: None for whichever way he faces then).
+    fn queue(&mut self, action: usize, dir: Option<usize>) {
+        self.then.push_back((action, dir));
+    }
+
+    /// Falling: only whether the move button is held (to catch a ledge) counts.
+    pub fn keep_holding(&mut self, world: &mut World, held: bool) -> bool {
+        self.held = held;
+        self.glide_by(world, 0.0)
+    }
+
     /// Advance by `dt` seconds. Returns true if the Avatar moved or changed frame.
     pub fn update(&mut self, gd: &GameData, world: &mut World, input: &Input, dt: f32) -> bool {
         let mut changed = false;
         if world.in_combat(AVATAR) != self.combat {
             // A script put the Avatar in or out of combat.
-            self.combat = !self.combat;
-            if self.act.is_none() {
+            (self.combat, self.pending) = (!self.combat, false);
+            if !self.busy() {
                 changed |= self.stand(gd, world);
             }
         }
-        if self.hanging && self.act.is_none() {
-            changed |= self.update_hanging(gd, world, input);
+        let held = input.dir.is_some();
+        let (pressed, released) = (held && !self.held, self.held && !held);
+        self.held = held;
+        if self.hanging && !self.busy() {
+            changed |= self.update_hanging(gd, world, input, released);
             if self.hanging {
-                changed |= self.hold_frame(gd, world);
+                changed |= self.hold_frame(gd, world) | self.glide_by(world, 0.0);
+                self.hold(gd, world);
+                return changed;
             }
-            self.hold(gd, world);
-            return changed;
+        } else if !self.down {
+            self.command(gd, world, input, pressed, released);
         }
-        if self.act.is_none() {
-            if self.blocking && !(input.block && self.combat && input.dir.is_none()) {
-                // Let go (or moving, or out of combat): the weapon comes down first.
-                self.blocking = false;
-                self.act = Some(Act::new(action::STOP_BLOCK, 0, ACT_FRAME));
-            } else if input.combat {
-                self.combat = !self.combat;
-                world.set_in_combat(AVATAR, self.combat);
-                let a = if self.combat { action::READY_WEAPON } else { action::UNREADY_WEAPON };
-                self.act = Some(Act::new(a, 0, ACT_FRAME));
-                self.moving = false;
-            } else if (input.attack || input.kick) && self.combat {
-                let a = if input.attack { action::ATTACK } else { action::KICK };
-                self.act = Some(Act::new(a, 0, ACT_FRAME));
-                self.moving = false;
-                self.effort = Some(Effort::Strike);
-            } else if input.block && self.combat && input.dir.is_none() {
-                self.blocking = true;
-                self.act = Some(Act::new(action::START_BLOCK, 0, ACT_FRAME));
-                self.moving = false;
-            } else if input.jump {
-                // Running leap if already running, forward jump if moving or aimed, otherwise straight up.
-                if let Some(d) = input.dir {
-                    self.dir = d;
-                }
-                // From a standstill, onto whatever is in front if it's in reach: the lowest climb
-                // that fits (ScummVM's reading of the original).
-                let climb = (!self.moving)
-                    .then(|| {
-                        (action::CLIMB_16..=action::CLIMB_72)
-                            .find(|&a| world.anim_fits(gd, AVATAR, a, self.dir).is_some())
-                    })
-                    .flatten();
-                if let Some(a) = climb {
-                    self.act = Some(Act::moving(a, Moves::Checked));
-                    self.effort = Some(Effort::Climb((a - action::CLIMB_16) as u32));
-                } else {
-                    let (a, fwd) = match (self.moving, input.dir.is_some(), input.run) {
-                        (true, _, true) => (action::RUNNING_JUMP, 24),
-                        (true, _, _) | (_, true, _) => (action::JUMP, 16),
-                        _ => (action::JUMP_UP, 0),
-                    };
-                    let mut act = Act::new(a, fwd, JUMP_FRAME);
-                    if a == action::RUNNING_JUMP {
-                        // A two-step action, as running: one hop, off the foot after the one the
-                        // run is on (ScummVM's AnimationTracker plays half of it each time).
-                        let len = |a| {
-                            world
-                                .get(AVATAR)
-                                .and_then(|it| gd.anims.get(it.shape, a))
-                                .map_or(1, |a| a.frames[0].len().max(1))
-                        };
-                        let (run, jump) = (len(action::RUN), len(a));
-                        let second = self.step % run < run / 2;
-                        (act.from, act.to) = if second { (jump / 2, jump) } else { (0, jump / 2) };
-                    }
-                    self.act = Some(act);
-                }
-                self.moving = false;
-            }
-        }
-        changed |= if self.act.is_some() {
-            self.update_act(gd, world, dt)
-        } else if input.dir.is_some() || self.moving {
-            self.update_walk(gd, world, input, dt)
-        } else {
-            false
-        };
+        changed |= self.update_act(gd, world, dt);
         self.hold(gd, world);
         changed
+    }
+
+    /// The player's wishes, as WORLD.C takes the mouse: the weapon, a jump, the move button
+    /// pressed, held and let go.
+    fn command(&mut self, gd: &GameData, world: &mut World, input: &Input, pressed: bool, released: bool) {
+        if self.blocking && !(input.block && self.combat && input.dir.is_none()) {
+            // Let go (or moving, or out of combat): the weapon comes down first.
+            self.blocking = false;
+            self.then.extend([(action::STOP_BLOCK, None), (self.stance(), None)]);
+        } else if input.combat {
+            (self.combat, self.pending) = (!self.combat, false);
+            world.set_in_combat(AVATAR, self.combat);
+            let a = if self.combat { action::READY_WEAPON } else { action::UNREADY_WEAPON };
+            self.then.extend([(a, None), (self.stance(), None)]);
+        } else if (input.attack || input.kick) && self.combat && self.strikes() < 2 {
+            // (One swing playing and one to come at most: ANIM.C's avatarSwing.)
+            let a = if input.attack { action::ATTACK } else { action::KICK };
+            self.then.extend([(a, None), (self.stance(), None)]);
+        } else if input.block && self.combat && input.dir.is_none() && !self.busy() {
+            self.blocking = true;
+            self.queue(action::START_BLOCK, None);
+        }
+        if released {
+            if self.pending {
+                // Back into the stance he ran out of.
+                (self.pending, self.combat) = (false, true);
+                world.set_in_combat(AVATAR, true);
+                self.queue(action::WALK, None);
+            } else if self.last.0 == action::RUN && !self.combat {
+                self.queue(action::WALK, None);
+            }
+            self.queue(self.stance(), None);
+        } else if input.jump && !self.combat {
+            match self.last.0 {
+                action::STAND if !self.busy() => {
+                    let (dir, how) = input.dir.map_or((self.dir, 1), |d| (d, erection(input)));
+                    self.jump(gd, world, dir, how, input.aim);
+                }
+                action::RUN | action::RUNNING_JUMP if self.then.is_empty() => self.queue(action::RUNNING_JUMP, None),
+                _ => {}
+            }
+        } else if let Some(dir) = input.dir.filter(|_| !self.blocking) {
+            if pressed && !self.combat {
+                if dir != self.dir {
+                    if !self.busy() {
+                        self.turn_to(dir, true);
+                    }
+                } else if input.careful {
+                    self.careful_step(gd, world, dir);
+                } else {
+                    self.queue(action::WALK, Some(dir));
+                }
+            } else if !self.busy() {
+                self.keep_going(gd, world, input, dir);
+            }
+        }
+        self.next(gd, world);
+    }
+
+    /// The move button held, nothing playing (WORLD.C's commandNoEvents): fighting, advance or
+    /// back off (running drops the stance); at ease, turn about if it's far round, else on at
+    /// the pace the pointer asks (a run only once moving).
+    fn keep_going(&mut self, gd: &GameData, world: &mut World, input: &Input, dir: usize) {
+        if self.combat {
+            let back = (dir + 4) % 8;
+            if input.run {
+                (self.combat, self.pending) = (false, true);
+                world.set_in_combat(AVATAR, false);
+            } else if self.dir == back {
+                self.queue(action::RETREAT, Some(back));
+            } else if !self.turn_to(dir, false) {
+                self.queue(action::ADVANCE, Some(dir));
+            }
+            return;
+        }
+        if self.turn_to(dir, false) {
+            return;
+        }
+        let a = match erection(input) {
+            1 => return self.careful_now(gd, world, dir),
+            3 if matches!(self.last.0, action::RUN | action::RUNNING_JUMP | action::WALK) => action::RUN,
+            _ => action::WALK,
+        };
+        self.queue(a, Some(dir));
+    }
+
+    /// Turn about to `to` (ANIM.C's turnToFace): a look over the shoulder for each way he turns
+    /// through (the stance, fighting), standing at the end. One way round, while moving, needs
+    /// none (unless `force`d). False if there was nothing to do.
+    fn turn_to(&mut self, to: usize, force: bool) -> bool {
+        let (dir, stand) = (self.dir, self.stance());
+        if to != dir && (force || (to != (dir + 7) % 8 && to != (dir + 1) % 8)) {
+            let clockwise = (1..=4).any(|k| (dir + k) % 8 == to);
+            let n = if clockwise { (to + 8 - dir) % 8 } else { (dir + 8 - to) % 8 };
+            if matches!(self.last.0, action::RUN | action::RUNNING_JUMP) {
+                self.queue(action::WALK, Some(dir));
+            }
+            let look = match (self.combat, clockwise) {
+                (true, _) => stand,
+                (_, true) => action::LOOK_RIGHT,
+                _ => action::LOOK_LEFT,
+            };
+            for k in 0..n {
+                self.queue(look, Some(if clockwise { (dir + k) % 8 } else { (dir + 8 - k) % 8 }));
+            }
+            self.queue(stand, Some(to));
+            return true;
+        }
+        if force && self.last.0 != stand {
+            self.queue(stand, Some(dir));
+            return true;
+        }
+        false
+    }
+
+    fn careful_step(&mut self, gd: &GameData, world: &mut World, dir: usize) {
+        if !self.busy() {
+            self.careful_now(gd, world, dir);
+            self.next(gd, world);
+        }
+    }
+
+    /// A careful step (ANIM.C): one that would go over an edge teeters there instead, twice;
+    /// trying again the same way, over he goes.
+    fn careful_now(&mut self, gd: &GameData, world: &World, dir: usize) {
+        if self.balancing && self.dir == dir {
+            self.balancing = false;
+            self.queue(action::STEP, Some(dir));
+            self.over = true;
+            return;
+        }
+        self.balancing = self.step_falls(gd, world, dir);
+        let a = if self.balancing { action::EDGE_BALANCE } else { action::STEP };
+        self.queue(a, Some(dir));
+        if self.balancing {
+            self.queue(a, Some(dir));
+        }
+    }
+
+    /// Both buttons, standing (ANIM.C's jumpAvatar): facing elsewhere, turn; else onto what's in
+    /// front if it's in reach, else straight up (the pointer close), else a jump forward: to the
+    /// pointer if that's on something to land on and he's strong enough to get there, otherwise
+    /// after a shrug, as far as the jump goes.
+    fn jump(&mut self, gd: &GameData, world: &World, dir: usize, how: u8, aim: Option<Aim>) {
+        if self.dir != dir {
+            self.turn_to(dir, true);
+            return;
+        }
+        let climb = (action::CLIMB_16..=action::CLIMB_72).find(|&a| world.anim_fits(gd, AVATAR, a, dir).is_some());
+        if let Some(a) = climb {
+            self.queue(a, None);
+        } else if how == 1 {
+            self.queue(action::JUMP_UP, None);
+        } else {
+            if let (Some(aim), Some(it)) = (aim, world.get(AVATAR)) {
+                let far = (aim.at.0 - it.x).abs().max((aim.at.1 - it.y).abs()) >> 5;
+                let land = world.index(aim.on).is_some_and(|i| world.entry(i).traits.land);
+                if self.strength >= far && land {
+                    self.aimed = Some(aim.at);
+                } else {
+                    let s = action::STAND;
+                    self.then.extend([action::LOOK_LEFT, s, action::LOOK_RIGHT, s].map(|a| (a, None)));
+                }
+            }
+            self.queue(action::JUMP, None);
+        }
+        self.queue(action::STAND, None);
     }
 
     /// Turn to `dir` where it stands (ScummVM's doAnim(stand, dir) on a throw; DOS on any drop),
     /// unless it's busy (mid-action, walking, blocking, hanging).
     pub fn turn(&mut self, gd: &GameData, world: &mut World, dir: usize) -> bool {
-        if self.act.is_some() || self.moving || self.blocking || self.hanging || self.dir == dir % 8 {
+        if self.busy() || self.blocking || self.hanging || self.dir == dir % 8 {
             return false;
         }
         self.dir = dir % 8;
@@ -411,6 +594,8 @@ impl Avatar {
     /// Just arrived somewhere (a teleport): standing, whatever it was doing (a jump into the
     /// teleporter stays no frozen leap), on the floor if that's within a step.
     pub(crate) fn arrive(&mut self, gd: &GameData, world: &mut World) {
+        self.stop();
+        (self.hanging, self.down, self.last) = (false, false, (self.stance(), self.dir));
         self.stand(gd, world);
         if let (Some(mut it), Some(z)) = (world.get(AVATAR), world.floor_under(AVATAR)) {
             if (z - it.z).abs() <= STEP {
@@ -453,122 +638,5 @@ impl Avatar {
             Some(Overlay { shape, frame: f.frame, dx: if flip { -f.dx } else { f.dx }, dy: f.dy, flip })
         });
         world.set_overlay(AVATAR, o);
-    }
-
-    fn update_walk(&mut self, gd: &GameData, world: &mut World, input: &Input, dt: f32) -> bool {
-        let Some(was) = world.get(AVATAR) else { return false };
-        let mut it = was;
-        let mut moving = false;
-        if self.combat && input.dir.is_some() {
-            if input.run {
-                // Running puts the weapon away.
-                self.combat = false;
-                world.set_in_combat(AVATAR, false);
-            } else {
-                return self.update_combat_step(gd, world, input, dt);
-            }
-        }
-        if let Some(d) = input.dir {
-            self.dir = d;
-            let speed = match (input.run, input.careful) {
-                (true, _) => RUN_SPEED,
-                (false, true) => CAREFUL_SPEED,
-                (false, false) => WALK_SPEED,
-            };
-            self.carry += dt * speed;
-            let n = self.carry as i32;
-            self.carry -= n as f32;
-            if n == 0 {
-                moving = self.moving; // sub-unit update: keep walking state
-            } else {
-                let (dx, dy) = (DIRS[d].0 * n, DIRS[d].1 * n);
-                // The full step, else slide along either axis.
-                if let Some((x, y, z)) =
-                    [(dx, dy), (dx, 0), (0, dy)].iter().filter(|t| **t != (0, 0)).find_map(|&(tx, ty)| {
-                        world.try_move(AVATAR, tx, ty).filter(|&(_, _, z)| !input.careful || z >= it.z - STEP)
-                    })
-                {
-                    // Off an edge, more than a step down: over it, to fall.
-                    let over = (z < it.z - STEP).then(|| world.try_move_air(AVATAR, x - it.x, y - it.y, 0)).flatten();
-                    self.drop = over.is_some();
-                    (it.x, it.y, it.z) = over.unwrap_or((x, y, z));
-                    moving = true;
-                }
-            }
-        } else {
-            self.carry = 0.0;
-        }
-        let act = match (moving, input.run) {
-            (false, _) => self.stance(),
-            (true, false) => action::WALK,
-            (true, true) => action::RUN,
-        };
-        if !moving {
-            self.step = 0;
-            self.wait = 0.0;
-        } else {
-            self.wait -= dt;
-            if self.wait <= 0.0 {
-                self.step += 1;
-                // (Careful steps animate as slowly as they go.)
-                self.wait = match (input.run, input.careful) {
-                    (true, _) => RUN_FRAME,
-                    (false, true) => WALK_FRAME * WALK_SPEED / CAREFUL_SPEED,
-                    (false, false) => WALK_FRAME,
-                };
-            }
-        }
-        self.pose(gd, &mut it, act, self.step);
-        self.moving = moving;
-        let changed = (was.x, was.y, was.z, was.frame, was.flags) != (it.x, it.y, it.z, it.frame, it.flags);
-        if changed {
-            world.set(gd, AVATAR, it);
-        }
-        changed
-    }
-
-    /// In combat stance: towards where it faces is an advance, away a retreat (still facing
-    /// forward); any other way turns to face it.
-    fn update_combat_step(&mut self, gd: &GameData, world: &mut World, input: &Input, dt: f32) -> bool {
-        let (Some(d), Some(was)) = (input.dir, world.get(AVATAR)) else { return false };
-        let mut it = was;
-        let back = (self.dir + 4) % 8;
-        let act = if d == self.dir {
-            action::ADVANCE
-        } else if d == back {
-            action::RETREAT
-        } else {
-            self.dir = d;
-            self.moving = false;
-            self.pose(gd, &mut it, action::COMBAT_STAND, 0);
-            let turned = (was.frame, was.flags) != (it.frame, it.flags);
-            if turned {
-                world.set(gd, AVATAR, it);
-            }
-            return turned;
-        };
-        self.carry += dt * COMBAT_SPEED;
-        let n = self.carry as i32;
-        self.carry -= n as f32;
-        if n > 0 {
-            let (dx, dy) = (DIRS[d].0 * n, DIRS[d].1 * n);
-            if let Some((x, y, z)) = world.try_move(AVATAR, dx, dy).filter(|&(_, _, z)| z >= it.z - STEP) {
-                (it.x, it.y, it.z) = (x, y, z);
-            }
-        }
-        if !self.moving || self.pose.0 != act {
-            self.step = 0;
-            self.wait = WALK_FRAME;
-        } else {
-            self.wait -= dt;
-            if self.wait <= 0.0 {
-                self.step += 1;
-                self.wait = WALK_FRAME;
-            }
-        }
-        self.moving = true;
-        self.pose(gd, &mut it, act, self.step);
-        world.set(gd, AVATAR, it);
-        (was.x, was.y, was.z, was.frame, was.flags) != (it.x, it.y, it.z, it.frame, it.flags)
     }
 }

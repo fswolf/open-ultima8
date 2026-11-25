@@ -20,6 +20,8 @@ pub enum Setting {
     Volume,
     Song,
     Effects,
+    /// Footsteps on or off.
+    Footsteps,
     /// Background sounds' level (fires, drips, fountains).
     Ambience,
     Buttons,
@@ -49,7 +51,7 @@ pub const ON_TAB: [&[Setting]; 4] = {
     use Setting::*;
     [
         &[Upscaler, Scale, Zoom, Fullscreen, Brightness, ColourFix, SmoothCamera, FrameTime],
-        &[Music, Volume, Song, Effects, Ambience],
+        &[Music, Volume, Song, Effects, Footsteps, Ambience],
         &[Buttons, Pad, PadSpeed, Deadzone, SwapSticks, TouchButtons],
         &[TextStyle, Cutaway, Roofs, Follow, Cheats, Restored, Discord, Editor, Language],
     ]
@@ -411,7 +413,7 @@ mod tests {
         for (i, s) in all.iter().enumerate() {
             assert!(!all[i + 1..].contains(s), "{s:?} twice");
         }
-        assert_eq!(all.len(), 28);
+        assert_eq!(all.len(), 29);
     }
 
     /// The keys: up and down choose, left and right change (stopping at the ends), Enter goes on

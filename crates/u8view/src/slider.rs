@@ -19,7 +19,7 @@ const KNOB: u32 = 45;
 const KNOB_Y: i32 = 17;
 const TRACK: (i32, i32) = (55, 140);
 const BUTTONS: [(u32, i32); 3] = [(OK, 158), (LESS, 36), (MORE, 141)];
-const LABEL: (i32, i32) = (18, 26);
+const LABEL: (i32, i32) = (17, 25);
 const LABEL_FONT: usize = 0;
 
 /// Where the part goes once the player says how much.
@@ -122,9 +122,9 @@ impl Slider {
         }
         art.draw(canvas, KNOB, 0, x + self.knob_x(), y + KNOB_Y);
         if let Some((f, pal)) = fonts {
-            let label = f.render(LABEL_FONT, &[self.value.to_string()], pal, None);
-            // (26 is the baseline, as the original's fonts draw)
-            text::draw_plain(canvas, ss, &label, x + LABEL.0, y + LABEL.1 - label.h as i32 + 2);
+            // Each letter's hotspot on the baseline from LABEL, as the original prints (SLIDER.C).
+            let label = f.render_set(LABEL_FONT, &[self.value.to_string()], pal, 0, false);
+            text::draw_plain(canvas, ss, &label, x + LABEL.0, y + LABEL.1 - f.baseline(LABEL_FONT));
         }
     }
 
@@ -224,6 +224,11 @@ mod tests {
         s.value = 25;
         let mut px = vec![0u8; 320 * 200 * 4];
         s.draw(&mut Canvas::new(&mut px, 320, 200), &mut art, Some((&fonts, &pal)), 1, (320, 200));
+        // The number sits in its box as the original prints it: letters' feet on y + 25.
+        let lit: Vec<i32> = (y + 12..y + 30)
+            .filter(|&r| (x + 12..x + 40).any(|c| px[((r * 320 + c) * 4) as usize..][..3].iter().all(|&v| v > 200)))
+            .collect();
+        assert_eq!((lit[0], lit[lit.len() - 1]), (y + 19, y + 24), "in the box");
         assert_eq!(s.press(&art, (x + 158 + 2, y + KNOB_Y + 2)), Some(Answer::Take(25)));
         assert_eq!(s.key(KeyCode::Escape), Some(Answer::Cancel));
         if let Ok(out) = std::env::var("U8_SHOTS") {

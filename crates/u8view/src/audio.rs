@@ -109,6 +109,10 @@ impl Bank {
 const AMBIENT: f32 = 0.25;
 
 /// Effects that repeat on their own and grate: background sounds too.
+/// Footsteps' levels against other effects, walking and running.
+const WALK_STEP: f32 = 0.5;
+const RUN_STEP: f32 = 0.8;
+
 const QUIETER: [u16; 2] = [
     0x7a, // the hourglass's tick (HOURGLAS, as it turns; nothing else plays it)
     0xa3, // dripping water (DRIPS, DRIPS2: each drip as it animates)
@@ -148,6 +152,8 @@ pub struct Audio {
     wanted: Option<usize>,
     effects: Option<Bank>,
     pub sfx_on: bool,
+    /// Footsteps heard (Settings: Footsteps).
+    pub steps_on: bool,
     /// A SoundFont was found (music can play).
     pub music_ready: bool,
     /// Fighting (or dead): the combat music holds, the game's songs wait.
@@ -215,6 +221,7 @@ impl Audio {
             combat: false,
             effects,
             sfx_on: true,
+            steps_on: true,
             sfx_volume: HashMap::new(),
             ambience: 1.0,
             speech: HashMap::new(),
@@ -344,11 +351,23 @@ impl Audio {
     /// Start effect `sfx` (placed at `item` unless 0, at `at`: (volume, pan) where it is now, if
     /// known); a looping one replaces itself.
     pub fn sfx(&mut self, sfx: u16, item: ObjId, looping: bool, at: Option<(f32, f32)>) {
+        self.play_sfx(sfx, item, looping, at, 1.0);
+    }
+
+    /// A footstep, quieter than other effects (the original's 128 walking, 200 running, of 255),
+    /// unless the player turned them off.
+    pub fn step(&mut self, sfx: u16, item: ObjId, run: bool, at: Option<(f32, f32)>) {
+        if self.steps_on {
+            self.play_sfx(sfx, item, false, at, if run { RUN_STEP } else { WALK_STEP });
+        }
+    }
+
+    fn play_sfx(&mut self, sfx: u16, item: ObjId, looping: bool, at: Option<(f32, f32)>, level: f32) {
         if !self.sfx_on {
             return;
         }
         let Some((pcm, rate)) = self.effects.as_mut().and_then(|b| b.clip(sfx as usize)) else { return };
-        let volume = sfx_level(sfx, self.sfx_volume.get(&sfx).copied(), looping, self.ambience);
+        let volume = level * sfx_level(sfx, self.sfx_volume.get(&sfx).copied(), looping, self.ambience);
         let step = rate as f64 / self.rate as f64;
         let mut mix = self.mixer();
         if looping {

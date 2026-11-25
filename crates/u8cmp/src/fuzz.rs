@@ -89,6 +89,10 @@ pub(super) fn fuzz(root: &Path, slot: Option<u32>, args: &[String]) {
             waited += 1;
         }
         d.run(&mut g, 20, &mut input); // falls start and end
+        while waited < 600 && g.avatar.as_ref().is_some_and(|a| a.busy()) && !g.avatar_dead() {
+            d.run(&mut g, 1, &mut input); // (and the landing after)
+            waited += 1;
+        }
         let mut hung = String::new();
         if g.avatar.as_ref().is_some_and(|a| a.hanging()) {
             let facing = g.avatar.as_ref().map_or(0, |a| a.dir);

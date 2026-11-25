@@ -15,6 +15,8 @@ impl AnimFrame {
     pub const FLIPPED: u16 = 0x0020;
     /// The step stays on the ground (climbing and dropping as walking does).
     pub const ON_GROUND: u16 = 0x0002;
+    /// The frame runs its shape's own code: a footstep, mostly (ANODE.H's special).
+    pub const SPECIAL: u16 = 0x0800;
     /// How far this frame of an attack reaches, in steps (0: it doesn't strike).
     pub fn attack_range(&self) -> i32 {
         ((self.flags >> 2) & 7) as i32
@@ -42,6 +44,12 @@ pub mod action {
     pub const ADVANCE: usize = 8;
     pub const RETREAT: usize = 9;
     pub const RUNNING_JUMP: usize = 10;
+    /// A careful step (the short arrow), and at an edge teetering instead.
+    pub const STEP: usize = 12;
+    pub const EDGE_BALANCE: usize = 42;
+    /// Turning the head while turning about.
+    pub const LOOK_LEFT: usize = 32;
+    pub const LOOK_RIGHT: usize = 33;
     pub const STUMBLE: usize = 13;
     pub const DIE: usize = 14;
     pub const COMBAT_STAND: usize = 15;

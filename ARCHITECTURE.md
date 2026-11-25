@@ -48,13 +48,21 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   Files: `world.rs` (entries, the grid, adding and removing), and in `world/`: `contents.rs` (containers and
   the void), `collision.rs`, `actors.rs` (combat state, targets, actions run for scripts,
   weapon overlays), `scenery.rs` (TYPEFLAG animation).
-- **`avatar::Avatar`** (`avatar/acts.rs` has the ANIM.DAT actions: jumps, climbs, hanging,
-  knockdowns): walking, running, jumping, climbing (the lowest ANIM.DAT climb that
-  `World::anim_fits`), hanging (on a jump's way down, wherever ANIM.DAT's `climbUp` would fit:
-  shown with `hang`; pull up or let go), being knocked flat (`knock_down`: `fallBackwards`, then
-  `standUp` and two `shakeHead`s, stunned till up), and the combat stance (ready/unready, advance, retreat, turn, swing, kick,
-  block) from an `Input` and `dt`; frames from ANIM.DAT. Exertion comes back as an `Effort` the
-  game turns into strength and dexterity. Whether someone is in
+- **`avatar::Avatar`**: the player's Avatar, moved as the original moves him (WORLD.C, ANIM.C,
+  ANIMPRIM.C): every move is an ANIM.DAT action played at its own pace ((repeat + 1) ticks a
+  frame), each frame carrying him 4 × its forward amount and its rise, so walking, running and
+  careful steps cover what their frames say. `avatar.rs` takes the `Input` as WORLD.C takes the
+  mouse (pressed, held, let go, both buttons) into a queue of actions: turning about with
+  `lookLeft`/`lookRight` (turnToFace), careful steps that teeter at an edge (`edgeBalance`),
+  jumps (a climb that `World::anim_fits`, else straight up, else `jump`, aimed at the pointer's
+  `Aim` if he's strong enough, as ANIMCLAS.C's StandingLeap), running leaps, advance and retreat,
+  swings, kicks, blocks; `avatar/acts.rs` plays them: a move blocked stops the action, a run or
+  leap into something is a bump (the game hurts him 1 in 3), a step over an edge drops him, the
+  frames' sounds go out (`take_sounds`), and a falling Avatar with the move button held may
+  catch a ledge (`cling`, GRAVITY.C) and hang (pull up or let go). He's moved at once, as the
+  original moves him; `World::lag` only draws him going there over the frame's time. Falls end
+  in `land`, or a hurt one in `knock_down` (fall back, up, dazed). Exertion comes back as an
+  `Effort` the game turns into strength and dexterity. Whether someone is in
   combat lives in the `World` (scripts set and clear it too); the wielded weapon is a
   `world::Overlay` placed per pose from WPNOVLAY.DAT (`u8data::overlay`), drawn by the painter
   over the actor.

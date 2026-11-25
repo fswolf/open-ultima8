@@ -19,6 +19,19 @@ impl World {
         !blocked && resting
     }
 
+    /// The point on top of `id` that shows at (`sx`, `sy`) on the screen (game pixels, as
+    /// `u8render::project` puts things), kept within its footprint.
+    pub fn point_on(&self, id: ObjId, sx: i32, sy: i32) -> Option<(i32, i32, i32)> {
+        let b = self.entries.get(self.index(id)?)?.bounds();
+        let (x, y) = (2 * sx + 4 * (sy + b.z1), 4 * (sy + b.z1) - 2 * sx);
+        Some((x.clamp(b.x0, b.x1), y.clamp(b.y0, b.y1), b.z1))
+    }
+
+    /// Is there room for `id` with its base at `at` (nothing solid in the way, resting or not)?
+    pub fn room_for(&self, gd: &GameData, id: ObjId, at: (i32, i32, i32)) -> bool {
+        self.index(id).is_some_and(|i| !self.room(gd, self.entries[i].it.shape, at, Some(i)).0)
+    }
+
     /// Could `id` play `action` facing `dir` from where it stands — every frame's move (ANIM.DAT:
     /// rise, and 4 × its forward step) clear, ending on something? Where it ends up, if so.
     /// (ScummVM's tryAnim; climbing checks each height this way.)

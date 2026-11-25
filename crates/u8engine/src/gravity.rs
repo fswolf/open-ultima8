@@ -78,6 +78,13 @@ impl Game {
             .filter(|f| f.id != crate::world::AVATAR && !self.world.is_void(f.id))
             .filter_map(|f| self.world.get(f.id).map(|it| (f.id, (it.x, it.y, it.z), self.world.contacts(f.id))))
             .collect();
+        // Falling with the move button held, the Avatar may catch a ledge (GRAVITY.C).
+        if let Some(i) = flights.iter().position(|f| f.id == crate::world::AVATAR).filter(|_| !self.avatar_dead) {
+            if self.avatar.as_mut().is_some_and(|a| a.cling(&self.data, &mut self.world)) {
+                let f = flights.remove(i);
+                self.finish_all(f.pids);
+            }
+        }
         let mut landed = vec![];
         flights.retain_mut(|f| {
             let Some(it) = self.world.get(f.id).filter(|_| !self.world.is_void(f.id)) else {
@@ -172,8 +179,10 @@ impl Game {
         if height >= HURT_FROM {
             let damage = if height < KILL_FROM { (height - 72) / 4 } else { s.hp as i32 };
             self.receive_hit(id, 0, dir, damage, dmg::FALLING | dmg::PIERCE);
-        }
-        if id != crate::world::AVATAR && self.stats.get(id).is_some_and(|s| !s.dead) {
+            self.sfx(51, 0);
+        } else if id == crate::world::AVATAR {
+            self.avatar.as_mut().map(crate::avatar::Avatar::land);
+        } else {
             self.world.play(&self.data, id, action::LAND, dir);
         }
     }

@@ -176,6 +176,9 @@ impl Game {
             shake: Default::default(),
         };
         g.new_game = g.data.clock.is_none(); // no kernel state: the start of a new game
+        if g.new_game {
+            g.dress_new_avatar();
+        }
         g.resume_fights(true);
         g.avatar_dead = g.stats.get(AVATAR).is_some_and(|s| s.dead);
         g.avatar = Avatar::new(&g.data, &g.world);
@@ -283,11 +286,23 @@ impl Game {
         let dt = dt.clamp(0.0, MAX_CATCH_UP);
         // (Not steered while falling.)
         let falling = self.flights.iter().any(|f| f.id == AVATAR);
-        let input = if self.in_stasis() || falling { Input::default() } else { *input };
+        let input = if self.in_stasis() { Input::default() } else { *input };
+        let strength = self.stats.get(AVATAR).map_or(0, |s| s.str as i32);
         let avatar_moved = match &mut self.avatar {
-            Some(a) if !self.avatar_dead => a.update(&self.data, &mut self.world, &input, dt),
+            // (Falling, only the move button counts: held, he may catch a ledge.)
+            Some(a) if !self.avatar_dead && falling => a.keep_holding(&mut self.world, input.dir.is_some()),
+            Some(a) if !self.avatar_dead => {
+                a.strength = strength;
+                a.update(&self.data, &mut self.world, &input, dt)
+            }
             _ => false,
         };
+        if let Some((sure, dir)) = self.avatar.as_mut().and_then(Avatar::take_bump) {
+            // Ran into something: it hurts, for sure or 1 time in 3 (ANIMPRIM.C).
+            if sure || self.world.roll(3) == 0 {
+                self.receive_hit(AVATAR, 0, dir, 1, crate::combat::dmg::PIERCE);
+            }
+        }
         if let Some(a) = &self.avatar {
             self.world.set_last_anim(AVATAR, a.action());
         }
@@ -318,6 +333,14 @@ impl Game {
             self.tick_clock -= 1.0 / TICK_HZ;
             self.tick();
         }
+        // The frames' sounds (the Avatar's, everyone else's).
+        let mine = self.avatar.as_mut().map(Avatar::take_sounds).unwrap_or_default();
+        for (sfx, who, step) in mine.into_iter().map(|(s, step)| (s, AVATAR, step)).chain(self.world.take_sounds()) {
+            match step {
+                Some(run) => self.ui_event(UiEvent::Step { sfx, item: who, run }),
+                None => self.sfx(sfx, who),
+            }
+        }
         if let Some(s) = &mut self.scripts {
             if s.vm.running() == 0 {
                 // Never leave the player frozen, or the camera looking elsewhere, if a script
@@ -335,6 +358,11 @@ impl Game {
             scripting: self.scripting(),
             map_changed: std::mem::take(&mut self.map_changed),
         }
+    }
+
+    /// Play sound `sfx` (from `item`, 0 for none).
+    pub(crate) fn sfx(&mut self, sfx: u16, item: ObjId) {
+        self.ui_event(UiEvent::Sfx { sfx, item, looping: false });
     }
 
     /// One game tick: eggs, the fast area (a few times a second), then scripts.
@@ -403,6 +431,30 @@ impl Game {
                 self.trigger(id, event::HATCH);
             }
             None => eprintln!("new game: no FIRST egg on map {}", self.map()),
+        }
+    }
+
+    /// The new game's Avatar as the original has him: the magic armour the first save puts on
+    /// him gone (DOS shows ARMR 0, no armour and WGHT 1), and the pack he carries worn as his
+    /// backpack (DOS gives him an empty one the first time it's opened).
+    fn dress_new_avatar(&mut self) {
+        let worn = |w: &World, id| w.get(id).is_some_and(|it| it.flags & item_flag::EQUIPPED != 0);
+        let mut packed = self
+            .world
+            .contents(AVATAR)
+            .iter()
+            .any(|&id| worn(&self.world, id) && equip::holds(&self.data, &self.world, id));
+        for id in self.world.contents(AVATAR) {
+            let Some(mut it) = self.world.get(id) else { continue };
+            if it.shape == equip::STARTING_ARMOUR {
+                self.world.destroy(&self.data, id);
+            } else if !packed && equip::holds(&self.data, &self.world, id) {
+                packed = true; // (one pack)
+                (it.x, it.y, it.z) =
+                    (equip::BACKPACK_SPOT.0, equip::BACKPACK_SPOT.1, equip::worn_z(&self.data, it.shape));
+                it.flags |= item_flag::EQUIPPED;
+                self.world.set(&self.data, id, it);
+            }
         }
     }
 
