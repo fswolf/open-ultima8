@@ -67,6 +67,9 @@ enum Panel {
         left: Duration,
         /// The pages still to come, each with its time (long speech, as the original pages it).
         more: VecDeque<(TextImage, Duration)>,
+        /// Where this page went, from the point over the speaker (see [`place_bark`]); it then
+        /// moves with the speaker. None: not placed yet.
+        off: Option<(i32, i32)>,
     },
     Ask {
         pid: Pid,
@@ -125,7 +128,7 @@ impl ScriptUi {
                 let (img, left) = pages
                     .pop_front()
                     .unwrap_or_else(|| (self.fonts.render_set(font, &[], pal, 0, false), Duration::ZERO));
-                self.panels.push(Panel::Bark { pid, item, img, left, more: pages });
+                self.panels.push(Panel::Bark { pid, item, img, left, more: pages, off: None });
             }
             UiEvent::Ask { pid, options, .. } => {
                 let choices = |fonts: &Fonts, (a, b): (usize, usize)| -> Vec<Choice> {
@@ -227,13 +230,13 @@ impl ScriptUi {
         let (now, step) = (Instant::now(), Duration::from_secs_f32(dt));
         let before = self.panels.len();
         self.panels.retain_mut(|p| match p {
-            Panel::Bark { pid, img, left, more, .. } => {
+            Panel::Bark { pid, img, left, more, off, .. } => {
                 *left = left.saturating_sub(step);
                 if !left.is_zero() {
                     return true;
                 }
                 match more.pop_front() {
-                    Some((next, t)) => (*img, *left) = (next, t),
+                    Some((next, t)) => (*img, *left, *off) = (next, t, None),
                     None => vm.finish(*pid, 0),
                 }
                 !left.is_zero()
@@ -352,8 +355,9 @@ impl ScriptUi {
         let mut used = false;
         self.panels.retain_mut(|p| match p {
             // Onto the next page, if there is one (ScummVM's BarkGump::onMouseDown).
-            Panel::Bark { img, left, more, .. } if !more.is_empty() => {
+            Panel::Bark { img, left, more, off, .. } if !more.is_empty() => {
                 (*img, *left) = more.pop_front().unwrap();
+                *off = None;
                 used = true;
                 true
             }
@@ -429,13 +433,26 @@ impl ScriptUi {
         let (vw, vh) = (vw as i32, vh as i32);
         // Keep a w×h box inside the view (left/top edge wins if it can't fit).
         let fit = |v: i32, size: i32, room: i32| v.min(room - size - 2).max(2);
+        // Speech: pages already placed keep their place by their speaker; new ones find theirs
+        // clear of those (BARK.C).
+        let mut taken: Vec<[i32; 4]> = self.panels.iter().filter_map(|p| bark_rect(p, &rect_of)).collect();
         for p in &mut self.panels {
+            let Panel::Bark { item, img, off: off @ None, .. } = p else { continue };
+            let Some(r) = rect_of(*item) else { continue };
+            let (w, h) = (img.w as i32, img.h as i32);
+            let at = if r[2] == 0 && r[3] == 0 {
+                (r[0] - w / 2, r[1] - h) // (nobody to stand over: the Guardian, low in the middle)
+            } else {
+                place_bark((r[0] + r[2] / 2, r[1]), r, (w, h), (vw, vh), &taken)
+            };
+            *off = Some((at.0 - r[0] - r[2] / 2, at.1 - r[1]));
+            taken.push([at.0, at.1, w, h]);
+        }
+        for p in &mut self.panels {
+            let spot = bark_rect(p, &rect_of);
             match p {
-                Panel::Bark { item, img, .. } => {
-                    let Some(r) = rect_of(*item) else { continue };
-                    let (w, h) = (img.w as i32, img.h as i32);
-                    let x = fit(r[0] + r[2] / 2 - w / 2, w, vw);
-                    let y = fit(r[1] - h, h, vh);
+                Panel::Bark { img, .. } => {
+                    let Some([x, y, ..]) = spot else { continue };
                     text::draw_plain(canvas, ss, img, x, y); // speech fonts carry their own outline
                 }
                 Panel::Ask { classic, rects, hover, .. } if self.style == Style::Classic => {
@@ -484,6 +501,39 @@ impl ScriptUi {
             }
         }
     }
+}
+
+/// Where a page of speech placed by [`place_bark`] is now: kept beside its speaker as they (or
+/// the view) move.
+fn bark_rect(p: &Panel, rect_of: &impl Fn(u16) -> Option<[i32; 4]>) -> Option<[i32; 4]> {
+    let Panel::Bark { item, img, off: Some(off), .. } = p else { return None };
+    let r = rect_of(*item)?;
+    Some([r[0] + r[2] / 2 + off.0, r[1] + off.1, img.w as i32, img.h as i32])
+}
+
+/// Where a page of speech `size` big goes, as the original places it (BARK.C findPlace): of
+/// every spot in the view 8 apart, the one whose middle is nearest `to` (over the speaker),
+/// clear of other speech (any spot clear beats one that isn't) and of the speaker (`item`).
+fn place_bark(
+    to: (i32, i32),
+    item: [i32; 4],
+    (w, h): (i32, i32),
+    (vw, vh): (i32, i32),
+    taken: &[[i32; 4]],
+) -> (i32, i32) {
+    let meets =
+        |a: [i32; 4], b: [i32; 4]| a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+    let mut best = ((true, i32::MAX), (0, 0));
+    for x in (0..(vw - w).max(1)).step_by(8) {
+        for y in (0..(vh - h).max(1)).step_by(8) {
+            let r = [x, y, w, h];
+            let mut score = (to.0 - (x + w / 2)).abs() + (to.1 - (y + h / 2)).abs();
+            score += if meets(r, item) { 500 } else { 0 };
+            let crowded = taken.iter().any(|&t| meets(r, t));
+            best = best.min(((crowded, score + if crowded { 3000 } else { 0 }), (x, y)));
+        }
+    }
+    best.1
 }
 
 /// A notice centred at the top of the view.

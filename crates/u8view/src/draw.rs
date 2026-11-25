@@ -38,11 +38,13 @@ fn paperdoll_stats(
 /// Where speech goes over something on the map (screen pixels, unzoomed): centred on where it
 /// stands, 16 above the top of its box — ScummVM's ItemRelativeGump, not the sprite, so a
 /// halberd's swing (or a speaker hidden behind a wall) doesn't push it aside.
-/// Also where its feet are (screen y), for what goes below it.
-fn speech_anchor(world: &u8engine::world::World, id: ObjId) -> Option<((i32, i32), i32)> {
+/// Also where its feet are (screen y), for what goes below it, and how wide its box shows.
+fn speech_anchor(world: &u8engine::world::World, id: ObjId) -> Option<((i32, i32), i32, i32)> {
     let e = world.entry(world.index(world.root(id))?); // (something carried: over its carrier)
     let (sx, sy) = u8render::project(e.it.x, e.it.y, e.z1);
-    Some(((sx, sy - 16), u8render::project(e.it.x, e.it.y, e.it.z).1))
+    let b = e.bounds();
+    let wide = (b.x1 - b.x0 + b.y1 - b.y0) / 4;
+    Some(((sx, sy - 16), u8render::project(e.it.x, e.it.y, e.it.z).1, wide))
 }
 
 /// How much bigger xBRZ makes things for a zoom (none below 1.5×; the GPU does the rest).
@@ -268,10 +270,10 @@ impl App {
                     return None; // (nor seen from another storey)
                 }
                 // (Over the head, down to the feet.)
-                let ((sx, sy), feet) = speech_anchor(world, id)?;
+                let ((sx, sy), feet, wide) = speech_anchor(world, id)?;
                 let (x, y) = ((sx as f32 - ox) * k, (sy as f32 - oy) * k);
-                let down = ((feet - sy) as f32 * k).round() as i32;
-                Some([x.round() as i32, y.round() as i32, 0, down])
+                let (down, w) = (((feet - sy) as f32 * k).round() as i32, (wide as f32 * k).round().max(1.0) as i32);
+                Some([x.round() as i32 - w / 2, y.round() as i32, w, down])
             };
             ui.draw(canvas, ui_ss, (vw, vh), rect_of);
             ui.draw_reading(canvas, self.art.as_mut(), ui_ss, (vw, vh));
@@ -376,6 +378,7 @@ mod tests {
         let it = world.get(guard).unwrap();
         let at = speech_anchor(&world, guard).unwrap();
         assert_eq!(at.0 .0, it.x / 4 - it.y / 4, "centred on where it stands");
+        assert!(at.2 > 0, "as wide as it shows");
         let e = world.entry(world.index(guard).unwrap());
         assert_eq!(at.0 .1, it.x / 8 + it.y / 8 - e.z1 - 16, "16 above its head");
         assert_eq!(at.1, it.x / 8 + it.y / 8 - it.z, "and its feet");

@@ -269,3 +269,42 @@ fn graves_and_plaques_centre_their_words() {
     assert!(ui.reading(), "clicks, even double, leave it");
     assert!(ui.read_key(PageKey::Other, &mut vm) && !ui.reading(), "a key puts it away");
 }
+
+/// Speech is placed as the original's (BARK.C): the spot in the view nearest over the speaker,
+/// clear of it and of other speech; off the view, the nearest spot in it. Then it keeps that
+/// place beside the speaker as they or the view move, until its next page.
+#[test]
+fn speech_finds_a_clear_place_and_keeps_by_the_speaker() {
+    let meets =
+        |a: [i32; 4], b: [i32; 4]| a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+    let (view, size) = ((320, 200), (60, 11));
+    let guard = [150, 100, 20, 50];
+    let (x, y) = place_bark((160, 100), guard, size, view, &[]);
+    let first = [x, y, size.0, size.1];
+    assert!(
+        !meets(first, guard) && y + size.1 <= 100 && y + size.1 > 84 && (x + 30 - 160).abs() <= 4,
+        "over him: {first:?}"
+    );
+    let other = [170, 104, 20, 50];
+    let (x, y) = place_bark((180, 104), other, size, view, &[first]);
+    assert!(!meets([x, y, size.0, size.1], first) && !meets([x, y, size.0, size.1], other), "clear of the first");
+    assert_eq!(place_bark((-200, -100), [-210, -100, 20, 50], size, view, &[]), (0, 0), "nearest spot in view");
+}
+
+#[test]
+#[ignore]
+fn speech_moves_with_its_speaker() {
+    let Some(Data { fonts, pal, .. }) = data() else { return };
+    let mut ui = ScriptUi::new(fonts);
+    ui.push(UiEvent::Bark { pid: 1, item: 2, text: "Please sir, I have no more money.".into() }, &pal, None, None);
+    let mut px = vec![0u8; 320 * 200 * 4];
+    let mut at = |r: [i32; 4]| {
+        ui.draw(&mut Canvas::new(&mut px, 320, 200), 1, (320, 200), |_| Some(r));
+        bark_rect(&ui.panels[0], &|_| Some(r)).unwrap()
+    };
+    let a = at([150, 100, 20, 50]);
+    let b = at([180, 110, 20, 50]);
+    assert_eq!((b[0] - a[0], b[1] - a[1]), (30, 10), "moved with him");
+    let c = at([-400, -300, 20, 50]);
+    assert_eq!((c[0] - a[0], c[1] - a[1]), (-550, -400), "off the view with him, not stuck at its edge");
+}
