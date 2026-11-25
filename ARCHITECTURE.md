@@ -248,8 +248,8 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   neighbourhood and cut at 45° or 2:1), CRT beams and shadow mask) and the overlay (windows,
   speech, menus, films; premultiplied alpha, its own `SpriteCache`, at the interface's whole
   `scale`). Mouse: `mouse_world` for the map, `mouse_game` for the overlay. The view follows the
-  game's camera (`App::follow_camera`); the smooth camera (an option) eases only its height, to
-  the Avatar's footing (`eye_height`). `App`'s work is split by concern: `window.rs` (winit
+  game's camera (`App::follow_camera`); the smooth camera (an option) eases its height to the
+  Avatar's footing (`eye_height`) and glides after him along the ground (`pan`). `App`'s work is split by concern: `window.rs` (winit
   events), `frame.rs` (advancing the game, script events, sounds, dying), `draw.rs` (drawing a
   frame: `redraw` → `draw_frame` → the world, then `draw_overlay` with `draw_windows` and
   `draw_speech`; `present`), `view.rs` (the camera, interface size, zoom and looks, picked for the

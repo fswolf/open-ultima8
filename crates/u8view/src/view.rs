@@ -77,6 +77,29 @@ pub(crate) const EYE_SNAP: f32 = 160.0;
 pub(crate) const EYE_LIFT: i32 = 32;
 pub(crate) const EYE_THERE: f32 = 0.01;
 
+/// The smooth camera along the ground: how fast it catches up with the Avatar (seconds to about
+/// two thirds of the way), and a jump too big to glide (game pixels: a teleport, a new place).
+pub(crate) const PAN_EASE: f32 = 0.1;
+pub(crate) const PAN_SNAP: f32 = 120.0;
+
+/// Where the view centres along the ground (screen, game pixels): `to`, or with the smooth
+/// camera eased over `dt` seconds from where it was (`at`), so the uneven pace of the walk's
+/// frames doesn't jolt the world; straight there when it's new, too far, or as good as there.
+pub(crate) fn pan(to: (f32, f32), at: Option<(f32, f32)>, dt: f32, smooth: bool) -> (f32, f32) {
+    match at {
+        Some(at) if smooth => {
+            let d = (to.0 - at.0, to.1 - at.1);
+            let far = d.0.abs().max(d.1.abs());
+            if far >= PAN_SNAP || far <= EYE_THERE {
+                return to;
+            }
+            let k = 1.0 - (-dt / PAN_EASE).exp();
+            (at.0 + d.0 * k, at.1 + d.1 * k)
+        }
+        _ => to,
+    }
+}
+
 /// The height the view looks at: the camera's own (`z`), or with the smooth camera (`smooth`),
 /// eased over `dt` seconds from where it was (`at`) towards the Avatar's footing (the camera's
 /// own height when it's well above it), straight there when it's new or too far.
@@ -106,6 +129,8 @@ pub(crate) struct View {
     /// looks at now (world units).
     pub(crate) smooth: bool,
     pub(crate) eye: Option<f32>,
+    /// With the smooth camera, where along the ground the view centres now (screen, game pixels).
+    pub(crate) pan: Option<(f32, f32)>,
     pub(crate) follow: bool,
     pub(crate) gamma: f32,
     pub(crate) colour_fix: bool,
@@ -125,7 +150,8 @@ impl App {
     /// drawn as finely: the one followed stays put while the world glides by).
     /// Centre the view on the camera, `dt` seconds on. With the smooth camera, following the
     /// Avatar, the height eases to its footing rather than its feet: a jump doesn't bounce the
-    /// world, a step glides (the original follows the feet, which zoomed in jolts the screen).
+    /// world, a step glides (the original follows the feet, which zoomed in jolts the screen);
+    /// and along the ground it catches up with him smoothly rather than step by step.
     pub(crate) fn follow_camera(&mut self, dt: f32) {
         if let Some((x, y, z)) = self.game.camera() {
             let s = self.world_ss() as i32;
@@ -140,7 +166,9 @@ impl App {
             let eye = eye_height(z, footing, self.view.eye, dt, smooth);
             self.view.eye = Some(eye);
             let (sx, sy) = u8render::project_fine(x, y, 0, s);
-            let cam = (sx as f32 / s as f32, sy as f32 / s as f32 - eye);
+            let ground = pan((sx as f32 / s as f32, sy as f32 / s as f32), self.view.pan, dt, smooth);
+            self.view.pan = Some(ground);
+            let cam = (ground.0, ground.1 - eye);
             if cam != self.view.cam {
                 self.view.cam = cam;
                 self.dirty = true;
@@ -300,6 +328,32 @@ mod tests {
         // Falling (or climbing, hanging): well above its footing, the Avatar itself is followed.
         let falling = eye_height(160, Some(68), Some(150.0), frame, true);
         assert!(falling > 150.0 && falling < 160.0, "{falling}");
+    }
+
+    /// Along the ground the smooth camera catches up with the Avatar a little behind, evening out
+    /// the walk's uneven steps; it gets there once he stops, and a teleport snaps.
+    #[test]
+    fn the_smooth_camera_glides_along() {
+        let frame = 1.0 / 60.0;
+        assert_eq!(pan((50.0, 0.0), Some((0.0, 0.0)), frame, false), (50.0, 0.0), "off: straight there");
+        assert_eq!(pan((50.0, 0.0), None, frame, true), (50.0, 0.0), "new: straight there");
+        assert_eq!(pan((500.0, 0.0), Some((0.0, 0.0)), frame, true), (500.0, 0.0), "a teleport snaps");
+        // Steps of 0, 0, 12 and 0 pixels a frame (as a walk's frames move him): the camera's
+        // moves are far more even than his.
+        let (mut to, mut at, mut moves) = (0.0, Some((0.0, 0.0)), vec![]);
+        for i in 0..120 {
+            to += if i % 4 == 2 { 12.0 } else { 0.0 };
+            let was = at.unwrap().0;
+            at = Some(pan((to, 0.0), at, frame, true));
+            moves.push(at.unwrap().0 - was);
+        }
+        let (lo, hi) = moves[60..].iter().fold((f32::MAX, 0.0f32), |(l, h), &m| (l.min(m), h.max(m)));
+        assert!(lo > 1.5 && hi < 4.5, "even: {lo}..{hi} a frame (he goes 0 or 12)");
+        assert!(to - at.unwrap().0 < 40.0, "not far behind");
+        for _ in 0..90 {
+            at = Some(pan((to, 0.0), at, frame, true));
+        }
+        assert_eq!(at, Some((to, 0.0)), "there once he stops");
     }
 
     #[test]

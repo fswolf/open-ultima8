@@ -275,6 +275,7 @@ impl App {
                 cutaway: true,
                 smooth: true,
                 eye: None,
+                pan: None,
                 follow: true,
                 gamma: 1.0,
                 colour_fix: std::env::var_os("U8_COLOUR_FIX").is_some(),
@@ -378,7 +379,7 @@ impl App {
     }
 
     fn on_map_loaded(&mut self) {
-        self.view.eye = None; // (a new place: the view starts at the Avatar's height)
+        (self.view.eye, self.view.pan) = (None, None); // (a new place: the view starts on the Avatar)
         self.apply_game_options();
         if let Some(ui) = &mut self.ui {
             ui.clear();
