@@ -268,3 +268,40 @@ fn the_steady_pace_of_a_walk_and_a_run() {
     assert!(turns.iter().all(|&(a, _)| a != action::WALK), "turning about first: {turns:?}");
     assert_eq!(pace(&g), None, "turning");
 }
+
+/// Something in his way, a little off his line: he eases round it as he reaches it, by the
+/// smallest shift aside that clears it (here 48: 16 and 32 don't), over the last frames before
+/// it (not a hop a stride early); not by veering off at an angle for a whole stride.
+#[test]
+#[ignore]
+fn he_eases_round_what_is_in_his_way() {
+    for run in [true, false] {
+        let Some(mut g) = plateau(EAST) else { return };
+        let small = |g: &Game, id: u16| {
+            let it = g.world.get(id).unwrap();
+            let si = g.data.typeflags.get(it.shape);
+            let (x, y, z) = si.dims();
+            si.has(flag::SOLID) && !si.has(flag::FIXED) && (x, y) == (64, 64) && z >= 16
+        };
+        let thing = g.world.objects().find(|&id| id > 255 && small(&g, id)).expect("something to put in the way");
+        let start = at(&g);
+        let mut it = g.world.get(thing).unwrap();
+        (it.x, it.y, it.z) = (start.0 + 451, start.1 + 24, start.2); // (its box 40 into his line)
+        g.world.set(&g.data, thing, it);
+        let mut path = vec![start];
+        for _ in 0..90 {
+            g.update(1.0 / 30.0, &Input { dir: Some(EAST), run, ..Default::default() });
+            path.push(at(&g));
+        }
+        let aside: Vec<i32> = path.windows(2).map(|w| w[0].1 - w[1].1).filter(|&d| d != 0).collect();
+        assert_eq!(aside.iter().sum::<i32>(), 48, "run {run}: 48 aside in all: {aside:?}");
+        assert!(aside.len() >= 2 && aside.iter().all(|&d| d > 0 && d <= 24), "run {run}: eased, not a hop: {aside:?}");
+        let first = path.windows(2).position(|w| w[0].1 != w[1].1).unwrap();
+        assert!(
+            it.x - 64 - path[first].0 < 130,
+            "run {run}: easing begins near it ({} away)",
+            it.x - 64 - path[first].0
+        );
+        assert!(at(&g).0 > it.x, "run {run}: and past it");
+    }
+}

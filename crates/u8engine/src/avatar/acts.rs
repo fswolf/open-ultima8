@@ -6,6 +6,14 @@ use super::*;
 use crate::world::WALK_STEP;
 
 const LOOPING: u16 = 0x04;
+/// Shifts aside tried for a blocked walk, run or careful step: 16, 32 and 48, left first. (The
+/// original tries a walk or run turned a way before the 48s; a turned run veers off for a whole
+/// stride, up to 160 off his line, so here every shift comes first.)
+const SHIFTS: [(i32, bool); 6] = [(16, false), (16, true), (32, false), (32, true), (48, false), (48, true)];
+/// A shift aside is eased over at most this many frames (see `Avatar::drift`).
+const DRIFT_FRAMES: usize = 2;
+/// Moves added to some frames of an action: (place in its frames, (dx, dy)).
+pub(super) type Drift = Vec<(usize, (i32, i32))>;
 
 /// Where a frame's move takes him.
 enum Way {
@@ -35,9 +43,13 @@ impl Avatar {
         while self.act.is_none() {
             let Some((action, dir)) = self.then.pop_front() else { return };
             let mut dir = dir.unwrap_or(self.dir) % 8;
-            let mut action = action;
+            let (mut action, mut drift) = (action, vec![]);
+            self.slip = None;
             if matches!(action, action::WALK | action::RUN | action::STEP) && !(action == action::STEP && self.over) {
-                (action, dir) = self.choose_move(gd, world, action, dir);
+                let was = world.get(AVATAR).map(|it| (it.x, it.y, it.z));
+                (action, dir, drift) = self.choose_move(gd, world, action, dir);
+                // (Shifted aside at once: drawn going there over the first frame, not hopping.)
+                self.slip = was.filter(|&w| world.get(AVATAR).is_some_and(|it| (it.x, it.y, it.z) != w));
             }
             let Some((it, a)) = world.get(AVATAR).and_then(|it| Some((it, gd.anims.get(it.shape, action)?))) else {
                 continue;
@@ -63,6 +75,7 @@ impl Avatar {
                 stopped: false,
                 over: action == action::STEP && std::mem::take(&mut self.over),
                 leap,
+                drift,
             });
             self.last = (action, dir);
             self.failed &= action == action::STAND;
@@ -78,38 +91,82 @@ impl Avatar {
 
     /// How `action` facing `dir` would go from `at` (ANIMPRIM.C, run as a test): Some(false) it
     /// plays out, Some(true) it goes over an edge (which a test counts as failing too), None
-    /// something's in the way.
-    fn try_act(
+    /// it's blocked.
+    fn try_act(&self, gd: &GameData, world: &World, action: usize, dir: usize, at: (i32, i32, i32)) -> Option<bool> {
+        self.trial(gd, world, action, dir, at, &[]).ok()
+    }
+
+    /// [`try_act`](Self::try_act) with `drift` added to some frames' moves (see [`Act::drift`]):
+    /// Ok(over an edge?) if it plays out, else the place in its frames of the one that's blocked.
+    fn trial(
         &self,
         gd: &GameData,
         world: &World,
         action: usize,
         dir: usize,
         mut at: (i32, i32, i32),
-    ) -> Option<bool> {
-        let a = gd.anims.get(world.get(AVATAR)?.shape, action)?;
-        let frames = a.frames.get(dir)?;
+        drift: &[(usize, (i32, i32))],
+    ) -> Result<bool, usize> {
+        let a = world.get(AVATAR).and_then(|it| gd.anims.get(it.shape, action)).ok_or(0usize)?;
+        let frames = a.frames.get(dir).ok_or(0usize)?;
         let again = self.last.0 == action && a.flags & LOOPING != 0;
-        for k in anim_range(a.flags, frames.len(), self.first, again) {
+        for (n, k) in anim_range(a.flags, frames.len(), self.first, again).into_iter().enumerate() {
             let fwd = 4 * frames.get(k).map_or(0, |f| f.ddir as i32);
-            if fwd != 0 {
-                let to =
-                    world.step_from(AVATAR, at, DIRS[dir].0 * fwd, DIRS[dir].1 * fwd, true, (WALK_STEP, i32::MAX))?;
+            let side = drift.iter().find(|d| d.0 == n).map_or((0, 0), |d| d.1);
+            let (dx, dy) = (DIRS[dir].0 * fwd + side.0, DIRS[dir].1 * fwd + side.1);
+            if (dx, dy) != (0, 0) {
+                let to = world.step_from(AVATAR, at, dx, dy, true, (WALK_STEP, i32::MAX)).ok_or(n)?;
                 if to.2 < at.2 - STEP {
-                    return Some(true);
+                    return Ok(true);
                 }
                 at = to;
             }
         }
-        Some(false)
+        Ok(false)
+    }
+
+    /// A shift aside of `by` drawn out over the last frames that carry him before the one that
+    /// would be blocked (at most [`DRIFT_FRAMES`]), so he eases round what's in the way as he
+    /// reaches it rather than hopping aside a stride early. The original makes the shift at
+    /// once, before the step; that's what's done when he's blocked straight away, or when the
+    /// eased way doesn't play out.
+    fn drift(
+        &self,
+        gd: &GameData,
+        world: &World,
+        action: usize,
+        dir: usize,
+        start: (i32, i32, i32),
+        by: (i32, i32),
+    ) -> Option<Vec<(usize, (i32, i32))>> {
+        let blocked = self.trial(gd, world, action, dir, start, &[]).err()?;
+        let a = gd.anims.get(world.get(AVATAR)?.shape, action)?;
+        let frames = a.frames.get(dir)?;
+        let again = self.last.0 == action && a.flags & LOOPING != 0;
+        let moving: Vec<usize> = anim_range(a.flags, frames.len(), self.first, again)
+            .into_iter()
+            .enumerate()
+            .take(blocked)
+            .filter(|&(_, k)| frames.get(k).is_some_and(|f| f.ddir != 0))
+            .map(|(n, _)| n)
+            .collect();
+        let ease = &moving[moving.len().saturating_sub(DRIFT_FRAMES)..];
+        let n = ease.len() as i32;
+        if n == 0 {
+            return None;
+        }
+        let share = |i: i32, v: i32| v * (i + 1) / n - v * i / n;
+        let drift: Vec<_> =
+            ease.iter().enumerate().map(|(i, &f)| (f, (share(i as i32, by.0), share(i as i32, by.1)))).collect();
+        (self.trial(gd, world, action, dir, start, &drift) == Ok(false)).then_some(drift)
     }
 
     /// The Avatar's walk, run or careful step about to start (ANIMPRIM.C's initialize): as it
     /// is, else slower (run, walk, careful step), each also a little to either side (shifting
     /// him there first) or a way to either side; the first that plays out is taken. Nothing
     /// does: a careful step (it fails, and he stands); after one that failed already, he stands.
-    fn choose_move(&self, gd: &GameData, world: &mut World, action: usize, dir: usize) -> (usize, usize) {
-        let Some(mut it) = world.get(AVATAR) else { return (action, dir) };
+    fn choose_move(&self, gd: &GameData, world: &mut World, action: usize, dir: usize) -> (usize, usize, Drift) {
+        let Some(mut it) = world.get(AVATAR) else { return (action, dir, vec![]) };
         let start = (it.x, it.y, it.z);
         let turns = [(dir + 1) % 8, (dir + 7) % 8];
         let fits = |m: usize, d: usize, at| self.try_act(gd, world, m, d, at) == Some(false);
@@ -131,24 +188,29 @@ impl Avatar {
             let pick = fits(m, dir, start)
                 .then_some((dir, None))
                 .or_else(|| turn(m == action::STEP))
-                .or_else(|| aside(m, &[(16, false), (16, true), (32, false), (32, true)]).map(|p| (dir, Some(p))))
-                .or_else(|| turn(m != action::STEP))
-                .or_else(|| aside(m, &[(48, false), (48, true)]).map(|p| (dir, Some(p))));
+                .or_else(|| aside(m, &SHIFTS).map(|p| (dir, Some(p))))
+                .or_else(|| turn(m != action::STEP));
             pick.map(|p| (i, m, p))
         });
         let dir = found.map_or(dir, |f| f.2 .0);
-        if let Some((_, _, (_, Some(p)))) = found {
-            (it.x, it.y, it.z) = p;
-            world.set(gd, AVATAR, it);
+        let mut drift = vec![];
+        if let Some((_, m, (_, Some(p)))) = found {
+            match self.drift(gd, world, m, dir, start, (p.0 - start.0, p.1 - start.1)) {
+                Some(d) => drift = d,
+                None => {
+                    (it.x, it.y, it.z) = p;
+                    world.set(gd, AVATAR, it);
+                }
+            }
         }
         // (The original's loop runs out after the careful step whether that played or not.)
         if found.is_none_or(|f| f.0 == 2) && self.failed {
             if self.try_act(gd, world, action, dir, (it.x, it.y, it.z)) != Some(true) {
-                return (action::STAND, dir);
+                return (action::STAND, dir, vec![]);
             }
-            return (action, dir);
+            return (action, dir, vec![]);
         }
-        (found.map_or(action::STEP, |f| f.1), dir)
+        (found.map_or(action::STEP, |f| f.1), dir, drift)
     }
 
     /// Play on for `dt` seconds.
@@ -179,7 +241,8 @@ impl Avatar {
         };
         let f = frames[k];
         let fwd = 4 * f.ddir as i32;
-        let (mut dx, mut dy, mut dz) = (DIRS[j.dir].0 * fwd, DIRS[j.dir].1 * fwd, f.dz as i32);
+        let side = j.drift.iter().find(|d| d.0 == j.step).map_or((0, 0), |d| d.1);
+        let (mut dx, mut dy, mut dz) = (DIRS[j.dir].0 * fwd + side.0, DIRS[j.dir].1 * fwd + side.1, f.dz as i32);
         if let Some(l) = j.leap.filter(|l| l.total != 0) {
             // Its share of the way to the point, and of the rise after the take-off.
             (dx, dy) = ((l.to.0 - l.from.0) * fwd / l.total, (l.to.1 - l.from.1) * fwd / l.total);
@@ -202,7 +265,8 @@ impl Avatar {
                 to
             }
             Way::To(to) => {
-                self.glide = Some(Glide { from: here, to, t: -j.wait, pace: j.pace });
+                let from = self.slip.take().unwrap_or(here);
+                self.glide = Some(Glide { from, to, t: -j.wait, pace: j.pace });
                 j.step += 1;
                 j.wait += j.pace;
                 to

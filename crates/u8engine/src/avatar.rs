@@ -82,6 +82,8 @@ struct Act {
     over: bool,
     /// A jump aimed at a point (ANIMCLAS.C's StandingLeap).
     leap: Option<Leap>,
+    /// A shift aside eased into some of its frames' moves (`acts::Drift`).
+    drift: acts::Drift,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -125,6 +127,8 @@ pub struct Avatar {
     /// A two-step action plays its first half next.
     first: bool,
     glide: Option<Glide>,
+    /// Where he was before a shift aside made at once (the first frame's drawn from there).
+    slip: Option<(i32, i32, i32)>,
     /// In combat stance (mirrors the world's flag, which scripts can change too).
     combat: bool,
     /// Out of the stance to run, back in when he stops.
@@ -221,6 +225,7 @@ impl Avatar {
             last: (stand, dir),
             first: false,
             glide: None,
+            slip: None,
             combat,
             pending: false,
             pose: (stand, 0),
