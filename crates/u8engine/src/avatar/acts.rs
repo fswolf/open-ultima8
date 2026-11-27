@@ -3,6 +3,7 @@
 //! what happens when the way is blocked or runs out; catching a ledge in a fall and hanging
 //! from it (GRAVITY.C).
 use super::*;
+use crate::world::WALK_STEP;
 
 const LOOPING: u16 = 0x04;
 
@@ -33,7 +34,11 @@ impl Avatar {
     pub(super) fn next(&mut self, gd: &GameData, world: &mut World) {
         while self.act.is_none() {
             let Some((action, dir)) = self.then.pop_front() else { return };
-            let dir = dir.unwrap_or(self.dir) % 8;
+            let mut dir = dir.unwrap_or(self.dir) % 8;
+            let mut action = action;
+            if matches!(action, action::WALK | action::RUN | action::STEP) && !(action == action::STEP && self.over) {
+                (action, dir) = self.choose_move(gd, world, action, dir);
+            }
             let Some((it, a)) = world.get(AVATAR).and_then(|it| Some((it, gd.anims.get(it.shape, action)?))) else {
                 continue;
             };
@@ -60,6 +65,7 @@ impl Avatar {
                 leap,
             });
             self.last = (action, dir);
+            self.failed &= action == action::STAND;
             // Exertion: swings and kicks; climbs by their height (a pull-up as 40).
             self.effort = match action {
                 action::ATTACK | action::KICK => Some(Effort::Strike),
@@ -68,6 +74,81 @@ impl Avatar {
                 _ => self.effort,
             };
         }
+    }
+
+    /// How `action` facing `dir` would go from `at` (ANIMPRIM.C, run as a test): Some(false) it
+    /// plays out, Some(true) it goes over an edge (which a test counts as failing too), None
+    /// something's in the way.
+    fn try_act(
+        &self,
+        gd: &GameData,
+        world: &World,
+        action: usize,
+        dir: usize,
+        mut at: (i32, i32, i32),
+    ) -> Option<bool> {
+        let a = gd.anims.get(world.get(AVATAR)?.shape, action)?;
+        let frames = a.frames.get(dir)?;
+        let again = self.last.0 == action && a.flags & LOOPING != 0;
+        for k in anim_range(a.flags, frames.len(), self.first, again) {
+            let fwd = 4 * frames.get(k).map_or(0, |f| f.ddir as i32);
+            if fwd != 0 {
+                let to =
+                    world.step_from(AVATAR, at, DIRS[dir].0 * fwd, DIRS[dir].1 * fwd, true, (WALK_STEP, i32::MAX))?;
+                if to.2 < at.2 - STEP {
+                    return Some(true);
+                }
+                at = to;
+            }
+        }
+        Some(false)
+    }
+
+    /// The Avatar's walk, run or careful step about to start (ANIMPRIM.C's initialize): as it
+    /// is, else slower (run, walk, careful step), each also a little to either side (shifting
+    /// him there first) or a way to either side; the first that plays out is taken. Nothing
+    /// does: a careful step (it fails, and he stands); after one that failed already, he stands.
+    fn choose_move(&self, gd: &GameData, world: &mut World, action: usize, dir: usize) -> (usize, usize) {
+        let Some(mut it) = world.get(AVATAR) else { return (action, dir) };
+        let start = (it.x, it.y, it.z);
+        let turns = [(dir + 1) % 8, (dir + 7) % 8];
+        let fits = |m: usize, d: usize, at| self.try_act(gd, world, m, d, at) == Some(false);
+        // A shift of `by` to the left (or right), 16 at a time, as long as there's room.
+        let aside = |m: usize, by: &[(i32, bool)]| {
+            by.iter().find_map(|&(off, right)| {
+                let side = if right { (dir + 2) % 8 } else { (dir + 6) % 8 };
+                let mut at = start;
+                for _ in 0..off / 16 {
+                    at = world.step_from(AVATAR, at, DIRS[side].0 * 16, DIRS[side].1 * 16, true, (WALK_STEP, STEP))?;
+                }
+                fits(m, dir, at).then_some(at)
+            })
+        };
+        let moves = [action::RUN, action::WALK, action::STEP];
+        let first = moves.iter().position(|&m| m == action).unwrap_or(2);
+        let found = moves.iter().enumerate().skip(first).find_map(|(i, &m)| {
+            let turn = |ok: bool| turns.into_iter().find(|&d| ok && fits(m, d, start)).map(|d| (d, None));
+            let pick = fits(m, dir, start)
+                .then_some((dir, None))
+                .or_else(|| turn(m == action::STEP))
+                .or_else(|| aside(m, &[(16, false), (16, true), (32, false), (32, true)]).map(|p| (dir, Some(p))))
+                .or_else(|| turn(m != action::STEP))
+                .or_else(|| aside(m, &[(48, false), (48, true)]).map(|p| (dir, Some(p))));
+            pick.map(|p| (i, m, p))
+        });
+        let dir = found.map_or(dir, |f| f.2 .0);
+        if let Some((_, _, (_, Some(p)))) = found {
+            (it.x, it.y, it.z) = p;
+            world.set(gd, AVATAR, it);
+        }
+        // (The original's loop runs out after the careful step whether that played or not.)
+        if found.is_none_or(|f| f.0 == 2) && self.failed {
+            if self.try_act(gd, world, action, dir, (it.x, it.y, it.z)) != Some(true) {
+                return (action::STAND, dir);
+            }
+            return (action, dir);
+        }
+        (found.map_or(action::STEP, |f| f.1), dir)
     }
 
     /// Play on for `dt` seconds.
@@ -117,6 +198,7 @@ impl Avatar {
             Way::Over(to) => {
                 self.stop();
                 self.drop = true;
+                self.fling = (to.0 - here.0, to.1 - here.1, to.2 - here.2);
                 to
             }
             Way::To(to) => {
@@ -149,8 +231,9 @@ impl Avatar {
     }
 
     /// Where the frame's move (`d`) takes him: on the ground as walking does (up a step, down
-    /// any way; a careful step never over an edge, unless it's the step over; sliding along a
-    /// wall met slantwise); a climb as its frames say; in the air only if the way is clear (a
+    /// any way, over an edge (a careful step gets there only as the step over the edge he
+    /// teetered at, or when nothing else would go: see `choose_move`); sliding along a wall met
+    /// slantwise); a climb as its frames say; in the air only if the way is clear (a
     /// standing jump, blocked, goes on where it is).
     fn way(&self, world: &World, j: &mut Act, f: &AnimFrame, (dx, dy, dz): (i32, i32, i32)) -> Way {
         let Some(it) = world.get(AVATAR) else { return Way::Blocked };
@@ -168,9 +251,7 @@ impl Avatar {
                 if p.2 >= it.z - STEP {
                     return Way::To(p);
                 }
-                if j.action != action::STEP || j.over {
-                    return world.try_move_air(AVATAR, x, y, 0).map_or(Way::Blocked, Way::Over);
-                }
+                return world.try_move_air(AVATAR, x, y, 0).map_or(Way::Blocked, Way::Over);
             }
             return Way::Blocked;
         }
@@ -187,16 +268,20 @@ impl Avatar {
         }
     }
 
-    /// The way was blocked (ANIMPRIM.C's failFunction): running into it may hurt (the game
-    /// decides); else, with nothing more to do, he stands. Up off the ground, he falls.
+    /// The way was blocked (ANIMPRIM.C's failFunction): running or leaping into it may hurt
+    /// (the game decides), and stops all he was to do; else what's queued goes on, and with
+    /// nothing more to do, he stands. Up off the ground, he falls.
     fn fail(&mut self, world: &World, j: &Act) {
-        let alone = self.then.is_empty();
-        self.stop();
-        self.last.0 = FAILED;
+        (self.last.0, self.failed) = (FAILED, true);
         if j.flags & (BUMPS | HURTS) != 0 {
+            self.stop(); // (everything he was to do, dropped)
             self.bump = Some(j.flags & HURTS != 0);
-        } else if alone {
-            self.queue(self.stance(), None);
+        } else {
+            // (What was to come still comes; with nothing, he stands.)
+            (self.act, self.glide, self.aimed, self.over) = (None, None, None, false);
+            if self.then.is_empty() {
+                self.queue(self.stance(), None);
+            }
         }
         self.drop = unsupported(world);
     }
@@ -225,8 +310,9 @@ impl Avatar {
             }
         }
         self.next(gd, world);
-        if let Some(n) = &mut self.act {
-            n.wait = j.wait; // (the time over, carried)
+        match &mut self.act {
+            Some(n) => n.wait = j.wait, // (the time over, carried)
+            None => self.spare = Some(j.wait),
         }
     }
 

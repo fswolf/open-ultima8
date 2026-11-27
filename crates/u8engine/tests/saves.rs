@@ -491,3 +491,36 @@ fn a_fresh_install_starts_a_new_game_from_the_first_save() {
     assert!(people > 0 && things > 1000, "people {people}, things {things}");
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+/// A click on someone shows their name (their look's speech) without the talking gesture: the
+/// game is telling the player who it is, not making them speak (WORLD.C looks with its look flag
+/// up, and BARK.C's fidget needs it down). A script's look on them still gestures.
+#[test]
+#[ignore]
+fn a_look_shows_the_name_without_a_gesture() {
+    use u8data::anim::action;
+    use u8engine::usecode::UiEvent;
+    let dir = PathBuf::from(std::env::var("U8_DATA").unwrap_or_default());
+    let Ok(mut g) = Game::open(&dir, Some(0), None) else { return };
+    g.vm().unwrap().kill_all(); // (no opening scene)
+    for look in [false, true] {
+        for _ in 0..30 {
+            g.update(1.0 / 30.0, &Input::default());
+            g.take_events();
+        }
+        g.world.set_last_anim(2, action::STAND); // (standing: he may gesture)
+        match look {
+            true => g.look(2),
+            false => g.trigger(2, u8engine::usecode::event::LOOK),
+        };
+        let (mut barked, mut gestured) = (false, false);
+        for _ in 0..60 {
+            g.update(1.0 / 30.0, &Input::default());
+            barked |= g.take_events().iter().any(|e| matches!(e, UiEvent::Bark { item: 2, .. }));
+            gestured |= g.world.acting(2).is_some_and(|a| a.0 == action::TALK);
+        }
+        assert!(barked, "Devon's name");
+        assert_eq!(gestured, !look, "a click's look: no gesture");
+        g.vm().unwrap().kill_all();
+    }
+}

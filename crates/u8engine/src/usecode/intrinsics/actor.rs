@@ -180,10 +180,13 @@ pub fn clr_feign_death(c: &mut Ctx) -> u32 {
     with_stats(c, |s| s.feigning = 0)
 }
 
-/// setActivity(n): 0 loiter (about its routine), 1 fight, 2 stand. Returns a process that ends
-/// when it's under way.
+/// setActivity(n): 0 loiter (about its routine), 1 fight, 2 stand; out of combat first (NPC.C
+/// cSetActivity). Returns a process that ends when it's under way.
 pub fn set_activity(c: &mut Ctx) -> u32 {
     let (id, activity) = (c.this(), c.arg2(4));
+    if activity != 1 {
+        c.host.set_in_combat(id, false);
+    }
     match activity {
         1 => {
             c.host.set_in_combat(id, true);

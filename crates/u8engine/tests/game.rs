@@ -702,3 +702,34 @@ fn careful_steps_are_slow() {
     assert!((100..=180).contains(&careful), "careful: {careful} units in 3 s (DOS 141)");
     assert!(walk > 3 * careful, "walking: {walk}");
 }
+
+/// Walking off a ledge (ANIMPRIM.C): a walk that would go over is tried as something slower, so
+/// he steps off carefully; and going over, he carries on the way he was going as he falls
+/// (checkGravity hurls him with the frame's move), landing out from the foot of it, not at it.
+#[test]
+#[ignore]
+fn walking_off_a_ledge_carries_him_out_as_he_falls() {
+    let Some(mut g) = game(40) else { return };
+    let (shape, a) = (box_shape(&g), g.world.get(AVATAR).unwrap());
+    let (x, y) = open_spot(&mut g, 192, 200);
+    for k in 0..4 {
+        g.world.add(&g.data, Item { shape, x, y: y + 16, z: a.z + 24 * k, ..Default::default() }, true);
+    }
+    g.world.set(&g.data, AVATAR, Item { x: x - 16, y, z: a.z + 96, ..a });
+    g.avatar.as_mut().unwrap().dir = 2;
+    let (mut path, mut acts) = (vec![], vec![]);
+    for _ in 0..90 {
+        tick(&mut g, Input { dir: Some(2), ..Default::default() });
+        let it = g.world.get(AVATAR).unwrap();
+        path.push((it.x, it.z));
+        acts.push(g.avatar.as_ref().unwrap().action());
+        if it.z == a.z {
+            break;
+        }
+    }
+    let off = path.iter().position(|&(_, z)| z < a.z + 96).expect("fell");
+    assert!(acts[..off].ends_with(&[action::STEP]), "walked up, stepped off: {acts:?}");
+    let mid = path.iter().position(|&(_, z)| z < a.z + 48).unwrap();
+    assert!(path[mid].0 > path[off].0, "still going east halfway down: {path:?}");
+    assert!(path.last().unwrap().0 - x > 32, "landed out from the foot: {path:?}");
+}

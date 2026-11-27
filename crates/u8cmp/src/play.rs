@@ -116,7 +116,7 @@ pub(super) fn play(root: &Path, slot: Option<u32>, steps: &[String]) {
                 println!("[t{t}] use {} can {can} -> {ok}", nums[0]);
             }
             "look" => {
-                g.trigger(nums[0] as u16, 0);
+                g.look(nums[0] as u16); // (as the player clicks: no talking gesture)
             }
             "trig" => {
                 println!("[t{t}] trigger {} ev {} -> {}", nums[0], nums[1], g.trigger(nums[0] as u16, nums[1] as usize))

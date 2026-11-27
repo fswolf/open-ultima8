@@ -56,8 +56,10 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   `lookLeft`/`lookRight` (turnToFace), careful steps that teeter at an edge (`edgeBalance`),
   jumps (a climb that `World::anim_fits`, else straight up, else `jump`, aimed at the pointer's
   `Aim` if he's strong enough, as ANIMCLAS.C's StandingLeap), running leaps, advance and retreat,
-  swings, kicks, blocks; `avatar/acts.rs` plays them: a move blocked stops the action, a run or
-  leap into something is a bump (the game hurts him 1 in 3), a step over an edge drops him, the
+  swings, kicks, blocks; `avatar/acts.rs` plays them: a walk, run or careful step is tried first
+  (`choose_move`, ANIMPRIM.C's initialize: slower, shifted aside or turned a way, the first that
+  plays out; none, after a failure, he stands), a move blocked stops the action, a running leap
+  into something is a bump (the game hurts him 1 in 3), a step over an edge drops him, the
   frames' sounds go out (`take_sounds`), and a falling Avatar with the move button held may
   catch a ledge (`cling`, GRAVITY.C) and hang (pull up or let go). He's moved at once, as the
   original moves him; `World::lag` only draws him going there over the frame's time. Falls end

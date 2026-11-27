@@ -75,7 +75,7 @@ impl App {
         if self.pending_look.is_some_and(|(_, t)| now >= t) {
             let (id, _) = self.pending_look.take().unwrap();
             if self.game.world.get(id).is_some() {
-                self.game.trigger(id, u8engine::usecode::event::LOOK);
+                self.game.look(id);
             }
         }
         let (_, seen) = self.world_view();

@@ -35,9 +35,10 @@ fn the_avatar_draws_its_weapon_and_fights() {
     let dir = g.avatar.as_ref().unwrap().dir;
     step(&mut g, Input { dir: Some(dir), ..Default::default() }, 0.3);
     assert!(g.in_combat());
-    step(&mut g, Input { dir: Some(dir), run: true, ..Default::default() }, 0.3);
+    step(&mut g, Input { dir: Some(dir), run: true, ..Default::default() }, 0.6);
     assert!(!g.in_combat() && g.world.overlay(AVATAR).is_none());
     // Scripts can start and end it too (conversations do).
+    step(&mut g, Input::default(), 1.0);
     g.world.set_in_combat(AVATAR, true);
     step(&mut g, Input::default(), 0.1);
     assert!(frame(&g, action::COMBAT_STAND) && g.world.overlay(AVATAR).is_some());
@@ -106,9 +107,10 @@ fn the_avatar_staggers_and_can_die() {
     g.receive_hit(AVATAR, 0, 2, 5, dmg::PIERCE);
     assert_eq!(g.stats.get(AVATAR).unwrap().hp, hp - 5);
     assert!(g.avatar.as_ref().unwrap().busy(), "staggering");
-    // A plain one: armour class 7 takes 21% off.
+    // A plain one: armour class 7 takes 21% off, the fraction kept by chance.
     g.receive_hit(AVATAR, 0, 2, 10, dmg::NORMAL);
-    assert_eq!(g.stats.get(AVATAR).unwrap().hp, hp - 5 - 7);
+    let took = hp - 5 - g.stats.get(AVATAR).unwrap().hp;
+    assert!(took == 7 || took == 8, "{took}");
     g.receive_hit(AVATAR, 0, 2, 999, dmg::PIERCE);
     assert!(g.avatar_dead());
     (0..60).for_each(|_| _ = g.update(1.0 / 30.0, &Input::default())); // falling back
@@ -338,7 +340,38 @@ fn kicks_land_and_blocks_soften_blows() {
     }
     assert!(hp(&g, m) < full, "a kick landed");
     let str = g.stats.get(AVATAR).unwrap().str as i16;
-    assert!(full - hp(&g, m) <= str / 2, "kicks do up to half strength (no leggings of power here)");
+    assert!(full - hp(&g, m) <= str / 2 + 4, "kicks do 4 to 4 + half strength (no magic leggings here)");
+    assert!(g.stats.get(m).unwrap().stunned > 0, "and stun");
+    // Stunned, every blow lands.
+    for _ in 0..20 {
+        let before = hp(&g, m);
+        g.stats.get_mut(m).unwrap().stunned = 10;
+        g.stats.get_mut(m).unwrap().dex = 25;
+        g.stats.get_mut(AVATAR).unwrap().dex = 1;
+        g.receive_hit(m, AVATAR, 6, 1, dmg::NORMAL);
+        assert_eq!(hp(&g, m), before - 1);
+    }
+    g.stats.get_mut(m).unwrap().stunned = 0;
+    step(&mut g, Input::default(), 0.1);
+}
+
+#[test]
+#[ignore]
+fn blows_land_as_often_as_the_originals() {
+    // ITEM.C receiveHit: hit when 0..attack + 3 beats 0..defend; at 10 against 10 that's 72%.
+    use u8engine::combat::dmg;
+    let Some(mut g) = game(40) else { return };
+    let m = 7;
+    g.stats.get_mut(m).unwrap().immortal = false;
+    let mut hits = 0;
+    for _ in 0..2000 {
+        g.stats.get_mut(m).unwrap().hp = 100;
+        g.stats.get_mut(m).unwrap().dex = 10;
+        g.stats.get_mut(AVATAR).unwrap().dex = 10;
+        g.receive_hit(m, AVATAR, 6, 1, dmg::NORMAL);
+        hits += (g.stats.get(m).unwrap().hp < 100) as u32;
+    }
+    assert!((1340..1540).contains(&hits), "{hits} of 2000");
 }
 
 #[test]
@@ -349,8 +382,10 @@ fn blood_fanfares_and_bursting_seekers() {
     let Some(mut g) = game(40) else { return };
     let shapes =
         |g: &Game, s: u32| g.world.objects().filter(|&id| g.world.get(id).is_some_and(|it| it.shape == s)).count();
-    // A real blow bleeds.
+    // A real blow bleeds (a blade's, not only piercing: ITEM.C's blockable).
     g.receive_hit(AVATAR, 50, 2, 6, dmg::PIERCE);
+    assert_eq!(shapes(&g, 620), 0, "no blood");
+    g.receive_hit(AVATAR, 50, 2, 6, dmg::PIERCE | dmg::BLADE);
     assert_eq!(shapes(&g, 620), 1, "blood");
     // A guard who's the Avatar's enemy falls while it fights: the fanfare.
     let guard = 50;
@@ -396,7 +431,9 @@ fn drowning_leaves_the_view_over_the_water() {
     }
     // Four ripples spread out over the body, one every 5/6 of a second (50 ticks of the scripts'
     // 60 Hz timer; the first with the splash).
-    let starts: Vec<i32> = rings.values().copied().collect();
+    // (Landing across several water tiles, each runs its script: the same ripples, stacked.)
+    let mut starts: Vec<i32> = rings.values().copied().collect();
+    starts.dedup();
     assert_eq!(starts.len(), 4, "{starts:?}");
     assert!(starts.windows(2).all(|w| (25..=27).contains(&(w[1] - w[0]))), "{starts:?}");
     assert!(g.avatar_dead(), "drowned");
@@ -494,6 +531,7 @@ fn spiders_and_insects_squash_too() {
         let at = (a.x + 96, a.y, a.z);
         let egg = u8data::map::Item { x: at.0, y: at.1, z: at.2, quality: shape, mapnum: 2, ..Default::default() };
         let id = g.hatch_monster(egg).expect("a creature");
+        g.stats.get_mut(id).unwrap().dex = 0; // (the squash is a blow it can dodge)
         if !walk {
             g.put_avatar(3, (at.0 + 16, at.1 + 16, at.2 + 60));
             g.fall(AVATAR);
@@ -512,4 +550,57 @@ fn spiders_and_insects_squash_too() {
     assert!(spider, "a spider walked onto");
     assert_eq!(squashed(824, true), Some(false), "an insect isn't: too high a step");
     assert_eq!(squashed(824, false), Some(true), "an insect landed on");
+}
+
+/// Hurt at ease, the Avatar staggers with nothing in his hand (the original draws the weapon only
+/// in combat, or while putting it away: DLITEM.C); in combat stance, with it.
+#[test]
+#[ignore]
+fn the_weapon_shows_only_in_combat() {
+    use u8data::anim::action;
+    let Some(mut g) = game(40) else { return };
+    for combat in [false, true] {
+        g.world.set_in_combat(AVATAR, combat);
+        (0..45).for_each(|_| _ = g.update(1.0 / 30.0, &Input::default()));
+        g.receive_hit(AVATAR, 0, 0, 2, u8engine::combat::dmg::PIERCE);
+        let mut seen = vec![];
+        for _ in 0..20 {
+            g.update(1.0 / 30.0, &Input::default());
+            if g.avatar.as_ref().unwrap().action() == action::STUMBLE {
+                seen.push(g.world.overlay(AVATAR).is_some());
+            }
+        }
+        assert!(!seen.is_empty() && seen.iter().all(|&o| o == combat), "combat {combat}: {seen:?}");
+    }
+}
+
+/// A fighter's pause between blows (3 ticks for each point of dex under 25) runs while it
+/// swings, as COMBATBR.C attackTarget waits on both: at dex 10, a blow every 45 ticks.
+#[test]
+#[ignore]
+fn the_pause_between_blows_runs_during_the_swing() {
+    let Some(mut g) = game(40) else { return };
+    let guard = 50;
+    let a = g.world.get(AVATAR).unwrap();
+    let mut it = g.world.get(guard).unwrap();
+    (it.x, it.y, it.z) = (a.x + 64, a.y, a.z);
+    g.world.set(&g.data, guard, it);
+    g.stats.get_mut(AVATAR).unwrap().invincible = true;
+    g.stats.get_mut(guard).unwrap().dex = 10;
+    g.world.set_target(guard, AVATAR);
+    let (mut starts, mut swing, mut was) = (vec![], 0, false);
+    for t in 0..600 {
+        g.update(1.0 / 30.0, &Input::default());
+        let now = g.world.acting(guard).is_some_and(|(act, ..)| act == u8data::anim::action::ATTACK);
+        if now && !was {
+            starts.push(t);
+        }
+        swing += now as u32;
+        was = now;
+    }
+    assert!(starts.len() > 4, "swung {starts:?}");
+    let swing = swing / starts.len() as u32;
+    let gaps: Vec<_> = starts.windows(2).map(|w| w[1] - w[0]).skip(1).collect();
+    let most = gaps.iter().max().copied().unwrap_or(0) as u32;
+    assert!(most <= swing.max(45) + 3, "a blow every {gaps:?} ticks, a swing {swing} long");
 }

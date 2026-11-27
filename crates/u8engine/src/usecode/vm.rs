@@ -120,6 +120,8 @@ pub const PROC_TYPE_ALL: u16 = 6;
 pub const ANIM_PROC: u16 = 0xF0;
 /// Process type of a walk (the original's PathFinder).
 pub const PATHFINDER: u16 = 0x204;
+/// What someone does of their own accord (the original's Loiter, scripts' routines: PT_ACTIVITY).
+pub const ACTIVITY: u16 = 0x205;
 
 /// How long the original waits on an unanswered question (measured: 30.8 and 30.9 s in DOS).
 pub const ASK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(30_800);

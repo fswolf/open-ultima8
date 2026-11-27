@@ -96,13 +96,15 @@ impl Game {
         // (Already acting something out, they don't stagger: the original's doAnim won't queue
         // the stumble behind it. Bentic reading in his chair stays in it.)
         let busy = self.world.is_acting(target);
+        let kicked = self.is_person(by) && self.world.last_anim(by) == action::KICK;
         let damage = if damage == 0 && self.is_person(by) { self.damage_by(by) } else { damage };
         let kind = if kind == 0 { self.damage_type(by) } else { kind };
-        if by == AVATAR && self.world.last_anim(AVATAR) != action::KICK {
-            self.grow(0, damage.max(0) as u32 / 4); // swinging builds strength (kicks count apart)
+        if by == AVATAR {
+            self.grow(0, damage.max(0) as u32 / 4); // blows build strength, kicks too (ITEM.C)
         }
+        let blow = kind & (dmg::BLADE | dmg::BLUNT | dmg::NORMAL) != 0;
         let damage = self.attack_damage(target, by, damage, kind);
-        if target == AVATAR && damage >= 4 && by != 0 {
+        if target == AVATAR && damage >= 4 && by != 0 && blow {
             self.bleed(dir);
         }
         if damage > 0 && !s.immortal && !s.invincible {
@@ -176,6 +178,22 @@ impl Game {
                     self.world.play(&self.data, target, action::STUMBLE, (dir + 4) % 8);
                     let stand = if self.world.in_combat(target) { action::COMBAT_STAND } else { action::STAND };
                     self.world.then_play(target, stand, facing);
+                    // A kick stuns it a while, by how hard; spiked ones (one time in three) half
+                    // as long, those in magic leggings half again as long.
+                    let spiked = self.defence_type(target) & dmg::PIERCE != 0;
+                    if kicked && (!spiked || self.world.roll(3) == 0) {
+                        let legs = equip::worn(&self.data, &self.world, target, Slot::Legs)
+                            .is_some_and(|b| self.world.get(b).is_some_and(|b| equip::kick_bonus(b.shape) > 0));
+                        let ticks = 22 + 8 * damage as u16;
+                        let ticks = match (legs, spiked) {
+                            (true, false) => ticks + ticks / 2,
+                            (false, true) => ticks / 2,
+                            _ => ticks,
+                        };
+                        if let Some(s) = self.stats.get_mut(target) {
+                            s.stunned = ticks;
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -231,41 +249,56 @@ impl Game {
     /// Knocked flat, the Avatar's armour counts half and every blow lands.
     fn attack_damage(&mut self, target: ObjId, by: ObjId, damage: i32, kind: u16) -> i32 {
         let defence = self.defence_type(target);
+        let stunned = self.stats.get(target).is_some_and(|s| s.stunned > 0);
+        let blocking = !stunned && matches!(self.world.last_anim(target), action::START_BLOCK | action::STOP_BLOCK);
+        // Only blades, blunt and plain blows can miss (ITEM.C receiveHit).
+        let blockable = kind & (dmg::BLADE | dmg::BLUNT | dmg::NORMAL) != 0;
         let kind = kind & !(defence & !(dmg::MAGIC | dmg::UNDEAD | dmg::PIERCE));
         let mut damage = if defence & dmg::MAGIC != 0 && kind & dmg::MAGIC == 0 { 0 } else { damage };
         let mut slain = false;
         if damage != 0 && kind != 0 {
-            if kind & dmg::SLAYER != 0 && self.world.roll(10) == 0 {
-                (slain, damage) = (true, 255);
-            }
-            if kind & dmg::UNDEAD != 0 && defence & dmg::UNDEAD != 0 {
-                damage *= 2;
-            }
             if defence & dmg::PIERCE != 0 && kind & (dmg::BLADE | dmg::FIRE | dmg::PIERCE) == 0 {
                 damage /= 2;
             }
+            if kind & dmg::SLAYER != 0 && self.world.roll(10) == 0 {
+                (slain, damage) = (true, 255);
+            }
+            // (The original means to double undead-bane's blows on the undead, but doesn't.)
         } else {
             damage = 0;
         }
         if damage != 0 && kind & dmg::PIERCE == 0 && !slain {
-            // Blocking takes a fifth of strength off.
-            if matches!(self.world.last_anim(target), action::START_BLOCK | action::STOP_BLOCK) {
+            // Blocking takes a fifth of strength off; armour a share, halved against fire and
+            // when stunned, the odd fraction rounded up by chance.
+            if blocking {
                 damage -= self.stats.get(target).map_or(0, |s| s.str as i32) / 5;
             }
             let ac = 3 * self.armour(target).max(0);
-            let ac = if kind & dmg::FIRE != 0 { ac / 2 } else { ac }.min(100);
-            damage = ((100 - ac) * damage / 100).max(0);
+            let ac = ac >> (kind & dmg::FIRE != 0) as u32 >> stunned as u32;
+            let ac = 100 - ac.min(100);
+            let total = ac * damage;
+            damage = total / 100;
+            if total % 100 != 0 && self.world.roll(ac as u32) >= self.world.roll(100) {
+                damage += 1;
+            }
+            damage = damage.max(0);
         }
-        if damage != 0 && kind & dmg::PIERCE == 0 && self.is_person(by) {
-            let attack = self.dex(by) + self.avatar_weapon(by).map_or(0, |w| w.dex_attack as i32);
-            let defend = (self.dex(target) + self.avatar_weapon(target).map_or(0, |w| w.dex_defend as i32)).max(1);
-            let attack = attack.max(0);
-            let hit = self.world.roll(attack as u32 + 3) > self.world.roll(defend as u32);
-            if hit && by == AVATAR {
-                self.grow(1, if attack > defend { 2 * (attack - defend) as u32 } else { 2 });
+        if damage != 0 && kind & dmg::PIERCE == 0 && blockable && self.is_person(by) {
+            // To hit (NPC.C getAttackingDex/getDefendingDex): dex and the weapon's bonus, and a
+            // fifth more dex to the one blocking. The stunned are always hit; a spiked beast
+            // still lands one miss in four.
+            let attack = self.dex(by) + self.held(by).map_or(0, |w| w.dex_attack as i32);
+            let dex = self.dex(target);
+            let defend =
+                dex + if blocking { dex / 5 } else { 0 } + self.held(target).map_or(0, |w| w.dex_defend as i32);
+            let mut hit = stunned || self.world.roll(attack.max(0) as u32) + 3 > self.world.roll(defend.max(0) as u32);
+            if !hit && self.monster(by).is_some_and(|m| m.defence & dmg::PIERCE != 0) {
+                hit = self.world.roll(4) == 0;
             }
             if !hit {
                 damage = 0;
+            } else if by == AVATAR {
+                self.grow(1, 2 * (defend - attack).max(1) as u32);
             }
         }
         damage
@@ -320,7 +353,7 @@ impl Game {
     }
 
     /// Use builds the Avatar's stats (0 STR, 1 DEX, 2 INT): `n` points towards the next one,
-    /// which comes at 650 or, by chance, sooner the nearer it gets (ScummVM's reading).
+    /// which comes at 650 or, by chance (1 in 650 less those), sooner (NPC.C accumulateDexterity).
     pub(crate) fn grow(&mut self, stat: usize, n: u32) {
         let Some(s) = self.stats.get(AVATAR) else { return };
         let value = [s.str, s.dex, s.int][stat];
@@ -329,7 +362,7 @@ impl Game {
         }
         self.growth[stat] += n;
         let acc = self.growth[stat];
-        if acc >= STAT_GROWTH || self.world.roll(STAT_GROWTH - acc + 1) == 0 {
+        if acc >= STAT_GROWTH || self.world.roll(STAT_GROWTH - acc) == 0 {
             self.growth[stat] = 0;
             if let Some(s) = self.stats.get_mut(AVATAR) {
                 match stat {
@@ -355,7 +388,7 @@ impl Game {
             // A kick: up to half strength, and what the legs add.
             let legs = equip::worn(&self.data, &self.world, AVATAR, Slot::Legs).and_then(|l| self.world.get(l));
             let bonus = legs.map_or(0, |l| equip::kick_bonus(l.shape));
-            return self.world.roll(str as u32 / 2 + 1) as i32 + bonus;
+            return self.world.roll(str as u32 / 2 + 1) as i32 + 4 + bonus;
         }
         if let Some(m) = self.monster(by) {
             let (lo, hi) = (m.damage.0 as u32, m.damage.1.max(m.damage.0) as u32);

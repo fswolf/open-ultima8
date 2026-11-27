@@ -314,9 +314,9 @@ impl Windows {
         None
     }
 
-    /// Draw the windows, bottom first. `cache` draws the items (at the canvas's scale); `carried`
-    /// (the item the mouse is dragging) isn't drawn in its window; `decorate` adds to a window
-    /// before its items (the paperdoll's stats).
+    /// Draw the windows, bottom first. `cache` draws the items (at the canvas's scale); one being
+    /// dragged stays drawn where it is till it's let go (as the original); `decorate` adds to a
+    /// window before its items (the paperdoll's stats).
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &self,
@@ -325,14 +325,13 @@ impl Windows {
         gd: &GameData,
         world: &World,
         cache: &mut SpriteCache,
-        carried: Option<ObjId>,
         mut decorate: impl FnMut(&mut Canvas, &mut GumpArt, ObjId, u32, (i32, i32)),
     ) {
         let s = art.scale() as i32;
         for w in &self.wins {
             art.draw(canvas, w.gump, 0, w.at.0, w.at.1);
             decorate(canvas, art, w.item, w.gump, w.at);
-            for id in w.contents(gd, world, self.editor).into_iter().filter(|&id| Some(id) != carried) {
+            for id in w.contents(gd, world, self.editor) {
                 let Some(it) = world.get(id) else { continue };
                 let look = w.look(gd, art, &it);
                 if !look.shown {

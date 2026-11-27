@@ -609,3 +609,49 @@ fn the_gate_guard_goes_back_to_his_patrol() {
         assert!(said > 0 && spots.len() > 5, "{replies:?}: patrolling ({} spots)", spots.len());
     }
 }
+
+/// Talked to, Mythran stops loitering about his house (NPC's enterConvo kills his activity: the
+/// original's Loiter is one, LOITER.C) and stays put for the whole talk; when it ends his
+/// enterFastArea sets him loitering again.
+#[test]
+#[ignore]
+fn people_stand_still_to_talk() {
+    let Some(mut g) = game(40) else { return };
+    assert!(g.go_to("plateau"));
+    g.set_minutes(24 * 60 + 60); // in his upstairs room
+    let mut a = g.world.get(AVATAR).unwrap();
+    (a.x, a.y, a.z) = (1888, 1280, 48);
+    g.world.set(&g.data, AVATAR, a);
+    for _ in 0..30 * 10 {
+        g.update(1.0 / 30.0, &Input::default());
+        answer(&mut g);
+    }
+    let at = |g: &Game| g.world.get(33).map(|m| (m.x, m.y, m.z)).unwrap();
+    g.use_item(33);
+    let (mut asked, mut spots, mut after) = (0, std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
+    for _ in 0..30 * 40 {
+        g.update(1.0 / 30.0, &Input::default());
+        for ev in g.take_events() {
+            use u8engine::usecode::UiEvent;
+            match ev {
+                UiEvent::Bark { pid, .. } => g.vm().unwrap().finish(pid, 0),
+                UiEvent::Ask { pid, options, .. } => {
+                    asked += 1;
+                    // Some time over each question, then on; the fourth time, goodbye.
+                    for _ in 0..90 {
+                        g.update(1.0 / 30.0, &Input::default());
+                        spots.insert(at(&g));
+                    }
+                    let k = if asked < 4 { 0 } else { options.len() - 1 };
+                    g.vm().unwrap().answer(pid, &options, k);
+                }
+                _ => {}
+            }
+        }
+        if asked >= 4 {
+            after.insert(at(&g));
+        }
+    }
+    assert!(asked >= 4 && spots.len() == 1, "still while talking: {} spots over {asked} questions", spots.len());
+    assert!(after.len() > 1, "and about his house again after");
+}

@@ -39,6 +39,6 @@ mod touch;
 pub mod usecode;
 pub mod world;
 
-pub use game::{Game, Place};
+pub use game::{DropKind, Game, Place};
 pub use u8data;
 pub use world::{ObjId, World};

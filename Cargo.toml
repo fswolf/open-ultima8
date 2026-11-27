@@ -8,7 +8,7 @@ resolver = "2"
 members = ["crates/u8data", "crates/u8engine", "crates/u8render", "crates/u8tool", "crates/u8view", "crates/u8cmp"]
 
 [workspace.package]
-version = "0.6.5"
+version = "0.6.6"
 edition = "2021"
 license = "GPL-3.0-or-later"
 

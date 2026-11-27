@@ -1,6 +1,7 @@
 //! The Avatar moved as the original moves him (WORLD.C, ANIM.C, ANIMPRIM.C): every move an
 //! animation at its own pace, so a walk covers about 390 units a second and a run about 680;
-//! turning about looks over the shoulder; running into a wall hurts one time in three; a running
+//! turning about looks over the shoulder; a run into a wall stops short, a leap into one hurts one
+//! time in three; moves follow each other on time at any frame rate; a running
 //! leap is long; a standing jump goes to the pointer when it can.
 //! Run against a real install: U8_DATA=/path/to/U8 cargo test -- --ignored
 mod common;
@@ -88,7 +89,7 @@ fn turning_about_looks_over_the_shoulder() {
     shown.dedup();
     assert_eq!(shown[..5], [(33, 6), (33, 7), (33, 0), (33, 1), (action::STAND, EAST)], "looking round: {shown:?}");
     let moved = acts.iter().position(|a| a.0 == action::WALK).unwrap();
-    assert!(moved >= 15, "no step till turned ({moved})");
+    assert!(moved >= 12, "no step till turned, four looks of three ticks ({moved})");
     assert_ne!(at(&g), here);
     // Moving, one way round is no turn: the step goes that way at once.
     let acts = play(&mut g, Input { dir: Some(3), ..Input::default() }, 10);
@@ -105,28 +106,68 @@ fn turning_about_looks_over_the_shoulder() {
     assert!(acts.iter().any(|a| a.0 == action::RETREAT), "{acts:?}");
 }
 
+/// Running into a wall (ANIMPRIM.C's initialize): a run that can't go is tried as a walk, then a
+/// careful step, each a little to either side and a way to either side; none can, so a careful
+/// step that fails, and held on, he just stands: no hurt. A running leap into it hurts one time
+/// in three. A careful step at the wall the same: no move, and again, only standing.
 #[test]
 #[ignore]
-fn running_into_a_wall_hurts_one_time_in_three() {
-    // Mythran's house, north of the plateau.
+fn running_into_a_wall_doesnt_hurt_but_leaping_into_it_does() {
+    // Mythran's house, north of the plateau: its wall at y 2132.
     let Some(mut g) = saved(10) else { return };
     let (mut hurt, trials) = (0, 18);
-    for _ in 0..trials {
-        g.put_avatar(8, (2541, 3327, 0));
-        g.avatar.as_mut().unwrap().dir = 0;
-        let hp = g.stats.get(AVATAR).unwrap().hp;
-        let acts = play(&mut g, Input { dir: Some(0), run: true, ..Input::default() }, 60);
-        assert!(at(&g).1 < 2800, "at the wall");
-        let lost = hp - g.stats.get(AVATAR).unwrap().hp;
-        assert!(lost <= 1, "{lost}");
-        if lost == 1 {
-            hurt += 1;
-            assert!(acts.iter().any(|a| a.0 == action::STUMBLE), "staggered back");
+    for leap in [false, true] {
+        for k in 0..trials {
+            g.put_avatar(8, (2805, 2420, 0));
+            g.avatar.as_mut().unwrap().dir = 0;
+            let hp = g.stats.get(AVATAR).unwrap().hp;
+            let run = Input { dir: Some(0), run: true, ..Input::default() };
+            let acts: Vec<_> =
+                (0..60).flat_map(|t| play(&mut g, Input { jump: leap && t >= 8 + k % 4, ..run }, 1)).collect();
+            assert!((2100..=2132).contains(&at(&g).1), "at the wall: {}", at(&g).1);
+            if !leap {
+                assert_eq!(acts[59].0, action::STAND, "held on, he stands");
+            }
+            hurt += (g.stats.get(AVATAR).unwrap().hp < hp) as usize;
+            g.stats.get_mut(AVATAR).unwrap().hp = hp;
+            play(&mut g, Input::default(), 30);
         }
-        g.stats.get_mut(AVATAR).unwrap().hp = hp;
-        play(&mut g, Input::default(), 30);
+        if !leap {
+            assert_eq!(hurt, 0, "running into it never hurts");
+        }
     }
-    assert!((2..=12).contains(&hurt), "{hurt} of {trials}");
+    assert!((2..=12).contains(&hurt), "leaping into it: {hurt} of {trials}");
+    // A careful step where the run stopped: nowhere, and held on, standing.
+    g.put_avatar(8, (2805, 2420, 0));
+    g.avatar.as_mut().unwrap().dir = 0;
+    play(&mut g, Input { dir: Some(0), run: true, ..Input::default() }, 60);
+    play(&mut g, Input::default(), 30);
+    let here = at(&g);
+    let acts = play(&mut g, Input { dir: Some(0), careful: true, ..Input::default() }, 60);
+    assert_eq!(at(&g), here);
+    assert!(acts[30..].iter().all(|a| a.0 == action::STAND), "{acts:?}");
+}
+
+/// Held, one move follows another on time, whatever the frame rate: a run's frames come every
+/// two ticks (its first frame, standing still, as in the original), the same at 45, 60 or 144
+/// updates a second.
+#[test]
+#[ignore]
+fn moves_follow_on_time_at_any_frame_rate() {
+    for fps in [45.0f32, 60.0, 144.0] {
+        let Some(mut g) = plateau(EAST) else { return };
+        let run = Input { dir: Some(EAST), run: true, ..Input::default() };
+        let (mut last, mut was, mut gaps) = (0.0, at(&g).0, vec![]);
+        for n in 1..(fps * 3.0) as usize {
+            g.update(1.0 / fps, &run);
+            let now = n as f32 / fps;
+            if at(&g).0 != was {
+                (gaps, last, was) = ([gaps, vec![now - last]].concat(), now, at(&g).0);
+            }
+        }
+        let gaps = &gaps[gaps.len() - 16..];
+        assert!(gaps.iter().all(|&t| (0.06..0.073).contains(&t) || (0.125..0.14).contains(&t)), "{fps}: {gaps:?}");
+    }
 }
 
 /// Where a jump from the plateau lands (how far east, how high), `run_up` ticks of running before
@@ -157,9 +198,10 @@ fn jump(run_up: usize, aim: Option<i32>, strength: Option<u8>) -> Option<(i32, i
     let acts = play(&mut g, Input { jump: true, aim, ..run }, 1);
     let acts = [acts, play(&mut g, Input::default(), 90)].concat();
     let j = if run_up > 0 { action::RUNNING_JUMP } else { action::JUMP };
-    assert!(acts.iter().any(|a| a.0 == j), "jumped");
+    let shrug = acts.iter().any(|a| a.0 == 32);
+    assert!(shrug || acts.iter().any(|a| a.0 == j), "jumped");
     let (to, _, z) = at(&g);
-    Some((to - x, z, acts.iter().any(|a| a.0 == 32)))
+    Some((to - x, z, shrug))
 }
 
 #[test]
@@ -169,13 +211,13 @@ fn a_running_leap_is_long_and_a_jump_goes_to_the_pointer() {
     let Some((leap, ..)) = jump(30, None, None) else { return };
     assert!((648..=1100).contains(&leap), "{leap}");
     // Standing: 384 forward; to the pointer, on something to land on, if he's strong enough (32
-    // a point of STR); else a shrug, and the jump as it goes.
+    // a point of STR); else only a shrug.
     assert_eq!(jump(0, None, None), Some((384, 0, false)));
     // (Each frame's share rounded down, as the original's: a little short.)
     let (to, z, shrug) = jump(0, Some(200), None).unwrap();
     assert!((192..=200).contains(&to) && z == 24 && !shrug, "box to box: {to}, {z}");
-    let (to, _, shrug) = jump(0, Some(200), Some(3)).unwrap();
-    assert!(to == 384 && shrug, "too weak for it ({to})");
+    // Too weak for it: only a shrug (ANIM.C: the jump's doAnim finds him busy shrugging).
+    assert_eq!(jump(0, Some(200), Some(3)), Some((0, 24, true)), "too weak for it");
 }
 
 #[test]

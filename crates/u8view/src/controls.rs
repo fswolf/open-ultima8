@@ -2,6 +2,16 @@
 //! buttons to jump, dragging things between windows and the map, and the target cursor.
 use super::*;
 use crate::slider::{Answer, Dest, Slider};
+use u8engine::{DropKind, Place};
+
+/// Where the carried thing would go, shown as its outline (the original moves a see-through
+/// copy of it there as the mouse moves: WORLD.C preDragItem, dragItem): on the map, or in a
+/// window (under the pointer).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Ghost {
+    Map((i32, i32, i32)),
+    Window,
+}
 
 impl App {
     /// Where the pointer aims from the Avatar, while the player controls it.
@@ -122,6 +132,7 @@ impl App {
         }
         if let Some(id) = self.item_drag.take() {
             self.drop_item(id);
+            self.update_drag();
         } else if !std::mem::take(&mut self.left_jumped) && self.press.is_some() && !self.dragging {
             self.click();
         }
@@ -207,6 +218,40 @@ impl App {
                 self.slider = Some(Slider::new(id, it.quality, dest));
             }
             None => self.put(id, None, dest),
+        }
+    }
+
+    /// While dragging: where it would go, and the pointer (WORLD.C dragItem): its outline where
+    /// it'd be put, the target pointer where it'd be thrown, the red cross where it won't go.
+    pub(super) fn update_drag(&mut self) {
+        let (ghost, cursor) = match self.item_drag {
+            Some(id) => self.drag_preview(id),
+            None => (None, None),
+        };
+        if (ghost, cursor) != (self.drag_ghost, self.drag_cursor) {
+            (self.drag_ghost, self.drag_cursor, self.dirty) = (ghost, cursor, true);
+        }
+    }
+
+    fn drag_preview(&mut self, id: ObjId) -> (Option<Ghost>, Option<usize>) {
+        if self.pile_under_mouse(id).is_some() {
+            return (None, None); // (onto a pile it goes with)
+        }
+        let (gx, gy) = self.mouse_game();
+        let Some(art) = &self.art else { return (None, None) };
+        let target = self.windows.drop_target(&self.game.data, art, &self.game.world, gx, gy, id);
+        let to = match target {
+            Some(gumps::Drop::Into(container, at)) => Some(Place::Into { container, at }),
+            Some(gumps::Drop::Wear) => return (None, None),
+            Some(gumps::Drop::Nowhere) => None,
+            None => self.map_drop(id, self.mouse_world()),
+        };
+        match to.map(|to| (self.game.drop_kind(id, to), to)) {
+            None | Some((DropKind::Refused, _)) => (None, Some(mouse::CROSS)),
+            Some((DropKind::Throw, _)) => (None, Some(mouse::TARGET)),
+            Some((DropKind::Put, Place::Map(p))) => (Some(Ghost::Map(p)), None),
+            Some((DropKind::Put, Place::Into { .. })) if target.is_some() => (Some(Ghost::Window), None),
+            Some((DropKind::Put, Place::Into { .. })) => (None, None), // (into a bag on the map)
         }
     }
 
@@ -407,7 +452,7 @@ impl App {
             }
         }
         if self.item_drag.is_some() {
-            self.dirty = true; // the carried item follows the pointer
+            self.update_drag();
         }
         // Middle drag pans; with a free camera, so does left drag.
         let left_pan = self.press.filter(|_| self.dragging && !self.controlling() && self.item_drag.is_none());
@@ -515,6 +560,7 @@ impl App {
     pub(super) fn cancel_press(&mut self) {
         (self.press, self.press_item, self.item_drag, self.win_drag) = (None, None, None, None);
         (self.left, self.left_jumped, self.dragging, self.swung) = (false, false, false, None);
+        self.update_drag();
     }
 
     /// Both buttons: jump towards the pointer (and a left press held isn't a click).

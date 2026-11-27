@@ -52,7 +52,8 @@ pub enum Effort {
 }
 
 /// ANIM.DAT action flags: stops for nothing (a standing jump); running into things with it
-/// hurts 1 time in 3 (running), or always.
+/// hurts 1 time in 3 (the run, which never meets anything (see `choose_move`), and the running
+/// leap), or always.
 const UNSTOPPABLE: u16 = 0x08;
 const BUMPS: u16 = 0x10;
 const HURTS: u16 = 0x20;
@@ -152,10 +153,19 @@ pub struct Avatar {
     aimed: Option<(i32, i32, i32)>,
     /// Over nothing (off an edge, let go, a jump into a pit): the game lets it fall.
     drop: bool,
+    /// Gone over an edge mid-move: that frame's move, which he carries on with as he falls
+    /// (ANIMPRIM.C's checkGravity hurls him with it).
+    fling: (i32, i32, i32),
     /// Ran into something: hurt for sure, or 1 in 3 (the game decides).
     bump: Option<bool>,
     /// Sounds of the frames shown since last asked (a footstep: running?).
     sounds: Vec<(u16, Option<bool>)>,
+    /// The last action other than standing failed (the original's NPCDATA flag 0x1B bit 0x04):
+    /// a walk, run or step that can't go then only stands.
+    failed: bool,
+    /// Time left over from an action that ended with nothing queued after it (seconds, 0 or
+    /// less), for the next one the held button starts in the same update.
+    spare: Option<f32>,
     /// Strength, which limits how far a jump at the pointer goes (the game keeps it current).
     pub strength: i32,
 }
@@ -225,8 +235,11 @@ impl Avatar {
             held: false,
             aimed: None,
             drop: false,
+            fling: (0, 0, 0),
             bump: None,
             sounds: vec![],
+            failed: false,
+            spare: None,
             strength: 0,
         })
     }
@@ -279,8 +292,10 @@ impl Avatar {
     }
 
     /// Has it gone over nothing since last asked? (The game drops it, and a long way down hurts.)
-    pub fn take_drop(&mut self) -> bool {
-        std::mem::take(&mut self.drop)
+    /// With the move it went over the edge with, a tick's worth, to carry on with as it falls.
+    pub fn take_drop(&mut self) -> Option<(i32, i32, i32)> {
+        let fling = std::mem::take(&mut self.fling);
+        std::mem::take(&mut self.drop).then_some(fling)
     }
 
     /// Ran into something since last asked: (sure to hurt, else 1 in 3; the way he faced).
@@ -408,6 +423,21 @@ impl Avatar {
             self.command(gd, world, input, pressed, released);
         }
         changed |= self.update_act(gd, world, dt);
+        // An action ended mid-update with the button still held: the next starts on time, not
+        // an update late (which made walking and running hitch by however long updates are).
+        if let Some(dir) =
+            input.dir.filter(|_| !pressed && !input.jump && !self.blocking && !self.down && !self.hanging)
+        {
+            if let Some(spare) = self.spare.filter(|_| !self.busy()) {
+                self.keep_going(gd, world, input, dir);
+                self.next(gd, world);
+                if let Some(j) = &mut self.act {
+                    j.wait = spare;
+                }
+                changed |= self.update_act(gd, world, 0.0);
+            }
+        }
+        self.spare = None;
         self.hold(gd, world);
         changed
     }
@@ -551,8 +581,8 @@ impl Avatar {
 
     /// Both buttons, standing (ANIM.C's jumpAvatar): facing elsewhere, turn; else onto what's in
     /// front if it's in reach, else straight up (the pointer close), else a jump forward: to the
-    /// pointer if that's on something to land on and he's strong enough to get there, otherwise
-    /// after a shrug, as far as the jump goes.
+    /// pointer if that's on something to land on and he's strong enough to get there; else just
+    /// a shrug (no pointer: as far as the jump goes).
     fn jump(&mut self, gd: &GameData, world: &World, dir: usize, how: u8, aim: Option<Aim>) {
         if self.dir != dir {
             self.turn_to(dir, true);
@@ -564,17 +594,21 @@ impl Avatar {
         } else if how == 1 {
             self.queue(action::JUMP_UP, None);
         } else {
-            if let (Some(aim), Some(it)) = (aim, world.get(AVATAR)) {
+            let reach = |aim: Aim, it: Item| {
                 let far = (aim.at.0 - it.x).abs().max((aim.at.1 - it.y).abs()) >> 5;
-                let land = world.index(aim.on).is_some_and(|i| world.entry(i).traits.land);
-                if self.strength >= far && land {
-                    self.aimed = Some(aim.at);
-                } else {
+                self.strength >= far && world.index(aim.on).is_some_and(|i| world.entry(i).traits.land)
+            };
+            match (aim, world.get(AVATAR)) {
+                (Some(aim), Some(it)) if !reach(aim, it) => {
+                    // (The jump's doAnim finds him busy with the shrug: it's never made.)
                     let s = action::STAND;
                     self.then.extend([action::LOOK_LEFT, s, action::LOOK_RIGHT, s].map(|a| (a, None)));
                 }
+                (aim, _) => {
+                    self.aimed = aim.map(|a| a.at);
+                    self.queue(action::JUMP, None);
+                }
             }
-            self.queue(action::JUMP, None);
         }
         self.queue(action::STAND, None);
     }
@@ -628,7 +662,9 @@ impl Avatar {
         let (act, step) = self.pose;
         let posed =
             world.get(AVATAR).and_then(|a| anim_frame(gd, a.shape, act, self.dir, step).filter(|f| f.0 == a.frame));
-        let (Some((_, flip)), true) = (posed, gd.overlays.has(act)) else {
+        // (Only in combat, or putting it away: DLITEM.C. Hurt at ease, he holds none.)
+        let drawn = world.in_combat(AVATAR) || act == action::UNREADY_WEAPON;
+        let (Some((_, flip)), true) = (posed, drawn && gd.overlays.has(act)) else {
             world.set_overlay(AVATAR, None); // (cheap: no looking for the weapon)
             return;
         };

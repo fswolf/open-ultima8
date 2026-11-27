@@ -23,13 +23,19 @@ pub(super) struct Lifted {
 const THROW_GRAVITY: i32 = 4;
 
 /// The speed per tick (x, y, z) that takes a thing thrown from `from` to `to` at about `speed`
-/// across, with `gravity` (ScummVM's MissileTracker): the frames the distance takes at that
-/// speed, an upward start that comes back down to the target's height by then, capped.
-pub(crate) fn missile(from: (i32, i32, i32), to: (i32, i32, i32), speed: i32, gravity: i32) -> (i32, i32, i32) {
-    let range = (to.0 - from.0).abs() + (to.1 - from.1).abs();
+/// across, with `gravity` (MISSILE.C MissileTracker): the frames the distance takes at that
+/// speed, an upward start that comes back down to the target's height by then, capped; and
+/// whether it's in range (that start no more than speed / 4 up, the distance no more than
+/// speed × (2 × speed / gravity)).
+pub(crate) fn missile(from: (i32, i32, i32), to: (i32, i32, i32), speed: i32, gravity: i32) -> ((i32, i32, i32), bool) {
+    let (dx, dy) = ((to.0 - from.0).abs(), (to.1 - from.1).abs());
+    let range = (dx.max(dy) + dx + dy) / 2;
+    let in_range = |v: (i32, i32, i32)| {
+        (v, v.2 <= speed / 4 && range <= if gravity == 0 { 3000 } else { speed * (speed * 2 / gravity) })
+    };
     let mut frames = (range + speed / 2) / speed;
     if frames <= 0 {
-        return (0, 0, if to.2 > from.2 { speed / 4 } else { -speed / 4 });
+        return in_range((0, 0, if to.2 > from.2 { speed / 4 } else { -speed / 4 }));
     }
     let up = |f: i32| (gravity * f * (f - 1) / 2 + to.2 - from.2) / f;
     if up(frames) > speed / 4 {
@@ -42,7 +48,7 @@ pub(crate) fn missile(from: (i32, i32, i32), to: (i32, i32, i32), speed: i32, gr
         }
     }
     let frames = frames.max(1);
-    (((to.0 - from.0) + frames / 2) / frames, ((to.1 - from.1) + frames / 2) / frames, up(frames))
+    in_range((((to.0 - from.0) + frames / 2) / frames, ((to.1 - from.1) + frames / 2) / frames, up(frames)))
 }
 
 /// The most a pile holds (ScummVM's MAX_QUANTITY).
@@ -50,6 +56,14 @@ const MAX_QUANTITY: u16 = 666;
 
 /// Where things put into a bag without a spot land (window position).
 const STOW_AT: (i32, i32) = (20, 20);
+
+/// What a drop would do (see [`Game::drop_kind`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropKind {
+    Put,
+    Throw,
+    Refused,
+}
 
 /// Where a moved item goes.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -63,6 +77,17 @@ pub enum Place {
 impl Game {
     /// Move an item the player picked up: into a container (or a person's belongings) at a
     /// window position, or onto the map. The Avatar has to be able to reach both ends.
+    /// What letting go of `id` at `to` would do: put it there, throw it (on the map out of
+    /// reach), or nothing (won't go there). The original shows it while dragging: an outline
+    /// where it would go, the target pointer for a throw, the red cross (WORLD.C dragItem).
+    pub fn drop_kind(&self, id: ObjId, to: Place) -> DropKind {
+        match (self.check_move(id, to), to) {
+            (Err(_), _) => DropKind::Refused,
+            (Ok(()), Place::Map(at)) if !self.reaches(at) => DropKind::Throw,
+            _ => DropKind::Put,
+        }
+    }
+
     pub fn move_item(&mut self, id: ObjId, to: Place) -> Result<(), &'static str> {
         self.can_pick_up(id)?;
         self.let_go(id);
@@ -106,20 +131,24 @@ impl Game {
         for o in l.resting {
             self.fall(o);
         }
-        let (Some(a), Some(i)) = (self.world.get(AVATAR), self.world.index(AVATAR)) else { return };
-        let from = (a.x, a.y, a.z + (self.world.entry(i).z1 - a.z) / 2); // (its middle)
+        let Some((from, speed)) = self.throw_from(id) else { return };
         self.world.move_to_map(&self.data, id, from);
         self.keep(id);
         self.trigger(id, event::JUST_MOVED);
-        let s = self.stats.get(AVATAR);
-        let (str, dex) = s.map_or((10, 10), |s| (s.str as i32, s.dex as i32));
-        let weight = (equip::weight(&self.data, &self.world, id) / 10) as i32;
-        let speed = (64 - weight + str).max(1);
+        let dex = self.stats.get(AVATAR).map_or(10, |s| s.dex as i32);
         let off = (4 * (30 - dex)).max(20);
         let mut aim = |c: i32| c - off + self.world.roll(2 * off as u32 + 1) as i32;
         let to = (aim(at.0), aim(at.1), at.2);
         self.face(Err(at));
-        self.hurl(id, missile(from, to, speed, THROW_GRAVITY), THROW_GRAVITY, None);
+        self.hurl(id, missile(from, to, speed, THROW_GRAVITY).0, THROW_GRAVITY, None);
+    }
+
+    /// Where the Avatar throws `id` from (its middle) and how hard (64 − its weight + STR).
+    fn throw_from(&self, id: ObjId) -> Option<((i32, i32, i32), i32)> {
+        let (a, i) = (self.world.get(AVATAR)?, self.world.index(AVATAR)?);
+        let str = self.stats.get(AVATAR).map_or(10, |s| s.str as i32);
+        let weight = (equip::weight(&self.data, &self.world, id) / 10) as i32;
+        Some(((a.x, a.y, a.z + (self.world.entry(i).z1 - a.z) / 2), (64 - weight + str).max(1)))
     }
 
     /// The Avatar turns to `id` (on the map), or the spot it threw something at (box centre to
@@ -160,9 +189,13 @@ impl Game {
                 self.check_load(id, container)?;
             }
             Place::Map(at) => {
-                // (Out of reach it's thrown.)
+                // (Out of reach it's thrown, if it can be thrown that far: WORLD.C dragItem.)
                 if self.reaches(at) && !self.world.fits(&self.data, id, at) {
                     return Err("It won't fit there.");
+                }
+                let throw = self.throw_from(id).map(|(from, speed)| missile(from, at, speed, THROW_GRAVITY).1);
+                if !self.reaches(at) && throw == Some(false) {
+                    return Err("It won't go there.");
                 }
             }
         }

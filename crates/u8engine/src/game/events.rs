@@ -17,6 +17,13 @@ impl Game {
         s.vm.item_event(&s.usecode, &host, id, ev).is_some()
     }
 
+    /// The player looks at `id` (a click): its look event, whose speech (a person saying who
+    /// they are) comes without the talking gesture.
+    pub fn look(&mut self, id: ObjId) -> bool {
+        self.looked = Some((id, self.tick));
+        self.trigger(id, event::LOOK)
+    }
+
     /// Run `id`'s handler for `ev` with arguments (e.g. gotHit's striker and damage).
     pub fn trigger_with(&mut self, id: ObjId, ev: usize, args: &[u8]) -> bool {
         self.start_event(id, ev, args).is_some()
@@ -75,11 +82,11 @@ impl Game {
         for r in asked {
             match r {
                 Request::Walk { pid, actor, to, range } => {
-                    self.loiters.remove(&actor);
+                    self.stop_loitering(actor);
                     self.walks.retain(|w| w.actor != actor); // new orders replace old ones
                     self.walks.push(Walk::new(pid, actor, to, range));
                 }
-                Request::Loiter(id) => _ = self.loiters.insert(id, Default::default()),
+                Request::Loiter(id) => self.start_loitering(id),
                 Request::CameraFollow(id) => done.extend(self.camera.set_center_on(&self.world, id)),
                 Request::CameraScroll { pid, to } => done.extend(self.camera.scroll_to(&self.world, pid, to)),
                 Request::CameraMove(to) => done.extend(self.camera.move_to(to)),
@@ -138,12 +145,17 @@ impl Game {
         for e in &s.vm.events {
             if let UiEvent::Bark { pid, item, .. } | UiEvent::Ask { pid, item, .. } = *e {
                 // (Each once, while it's up: the events stay queued till the host takes them.)
-                if (2..256).contains(&item) && s.vm.alive(pid) && !self.talkers.contains(&(pid, item)) {
-                    self.talkers.push((pid, item));
+                let new = s.vm.alive(pid) && !self.talkers.contains(&(pid, item)) && !self.said_by_look.contains(&pid);
+                if (2..256).contains(&item) && new {
+                    match self.looked {
+                        Some((id, t)) if id == item && self.tick <= t + 1 => self.said_by_look.push(pid),
+                        _ => self.talkers.push((pid, item)),
+                    }
                 }
             }
         }
         let alive = |pid| self.scripts.as_ref().is_some_and(|s| s.vm.alive(pid));
+        self.said_by_look.retain(|&pid| alive(pid));
         let (talking, done): (Vec<_>, Vec<_>) = self.talkers.iter().copied().partition(|&(pid, _)| alive(pid));
         self.talkers = talking;
         let speaking = |id| self.talkers.iter().any(|&(_, t)| t == id);

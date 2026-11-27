@@ -127,7 +127,7 @@ out, the faster you go.
 |---|---|
 | hold **right** | move towards the pointer (measured from the Avatar's feet), at the original's pace. Short arrow: careful steps (at an edge he teeters; the next step that way goes over), medium: walk, long: run (from the second step). Pointing well round, he turns about first, looking over his shoulder |
 | tap **right** | one step (careful with a short arrow), or turn to face the pointer |
-| **both buttons** | jump. Standing: onto what's in front if it's in reach; short arrow: straight up; else towards the pointer, landing on it if it's something to stand on and he's strong enough, otherwise with a shrug, an ordinary jump. Running: a running leap. Running or leaping into a wall can hurt |
+| **both buttons** | jump. Standing: onto what's in front if it's in reach; short arrow: straight up; else towards the pointer, landing on it if it's something to stand on and he's strong enough, otherwise just a shrug. Running: a running leap. Leaping into a wall can hurt (running into one doesn't: he tries a slower move, or a little to the side, and else stops) |
 | keep **right** held as you fall | you may catch a ledge: **both buttons** pull up, letting go of **right** drops |
 | **left click** / **double-click** | look at / use (doors, levers, signs, people, a body to search it) |
 | **left click** in combat | swing towards the pointer; hold to block |
@@ -193,7 +193,9 @@ the save for you (where you are and the day); A takes it. The back paddles (Deck
 M1/M2) aren't used: map them in Steam Input if you like.
 
 **In windows:** click looks, double-click uses (opens bags), drag things between windows, onto
-the paperdoll to wear or wield them, or out into the world. Drag a window by its frame;
+the paperdoll to wear or wield them, or out into the world. While dragging, a see-through
+outline shows where it will go; the pointer turns to a target where it would be thrown (out of
+reach) and to a red cross where it won't go, as in the original. Drag a window by its frame;
 double-click the frame to close it. The button under the paperdoll's stats shows the health and
 mana gauge.
 
@@ -296,13 +298,13 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 | Moving things: drag between bags, out onto the floor or a table, and back; saved. Coins dropped on coins (or a reagent on the same reagent) make one pile, up to 666; dropping part of a pile asks how many with the original's slider (arrows or its buttons, drag the knob, Enter/OK; Esc or right click: never mind) | ✅ |
 | The world noticing: pressure plates go down underfoot (the Avatar's, monsters', anyone's in the fast area, or under something put on them) and spring back, lava, water (deep water drowns, as in the original) and webs react to what touches them; things on top of something picked up fall; taking what isn't the Avatar's in sight of people (640 units) and guards shout "Thief!"; once carried, things are the Avatar's; people scripts send to another map are there when you arrive | ✅ |
 | Equipping: drag armour or a weapon onto the paperdoll to wear or wield it, off to take it off; weight limit (4 × STR, the patched game's) | ✅ |
-| Combat stance: draw the weapon (C, double right-click on the Avatar), red arrows, advance / retreat / turn, swing, kick (magic leggings kick harder), block (a fifth of STR off a blow, no stagger); the wielded weapon drawn in hand (WPNOVLAY.DAT) | ✅ |
-| Hitting, as ScummVM's reading of the original has it: swings strike the person (or web, door, breakable...) in reach; damage from U8.EXE's weapon table and STR; defences, Slayer, undead-bane, fire (halves armour), 3% off per point of ARMR (worn armour + weapon bonus), a DEX roll to hit; STR and DEX grow with use; people stagger, die and stay down; scripts' hits (traps) hurt too; the Avatar can die (its tombstone, as the original's, then the game menu) | ✅ |
+| Combat stance: draw the weapon (C, double right-click on the Avatar), red arrows, advance / retreat / turn, swing, kick (harder in magic leggings; a kick that hurts stuns), block (a fifth of STR off a blow and harder to hit, no stagger); the wielded weapon drawn in hand (WPNOVLAY.DAT) | ✅ |
+| Hitting, as the original's code has it: swings strike the person (or web, door, breakable...) in reach; damage from U8.EXE's weapon table and STR; defences, Slayer, fire (halves armour), 3% off per point of ARMR (worn armour + weapon bonus), a DEX roll to hit (the stunned always hit), enemies pausing 3 ticks per DEX under 25 between blows; STR and DEX grow with use; people stagger, die and stay down; scripts' hits (traps) hurt too; the Avatar can die (its tombstone, as the original's, then the game menu) | ✅ |
 | People fighting back (ScummVM's reading of the original's combat): struck, they turn on the striker; scripts set targets and sides; fighters close in round furniture, turn, swing when in their weapon's reach and pause between swings by DEX; guards, monsters and townsfolk hit, defend and resist by kind (u8monsters numbers); playing dead | ✅ |
 | Monster eggs: creatures hatch where the scripts say (into free NPC slots, as the original's saves have them), loiter or fight, and are put away when out of range; the dead leave loot (double-click a body to search it), skeletons rise again | ✅ |
 | Seekers blow apart (pieces flung about), changelings wait in ambush as trees and spring out when you come close; the Avatar bleeds from real blows; combat music when fighting (the fanfare when an enemy falls, a lament when the Avatar dies) and the game's songs after; dropping something out of reach throws it (harder with STR, truer with DEX) | ✅ |
 | Magic: Necromancy (the Key of the Necromancer makes spells from reagents in a bag), Theurgy's foci, Sorcery's charged foci, Thaumaturgy, spell scrolls, the recall item, all run by the game's own scripts; a tester's save and the original's cheat menu to try them (see Testing saves) | ✅ |
-| Hanging from ledges (a jump that falls short catches the edge: towards it pulls up, away lets go); walking or jumping off an edge falls (not steered on the way down); a fall that hurts 6+ knocks the Avatar flat; it gets up shaking its head, easier to hit till then | ✅ |
+| Hanging from ledges (a jump that falls short catches the edge: towards it pulls up, away lets go); walking or jumping off an edge falls (not steered on the way down); a fall that hurts 6+ knocks the Avatar flat; it falls back, gets up and looks about, dazed | ✅ |
 | The films (STATIC/EINTRO.SKF before a new game and from the menu, ENDGAME.SKF when the game is won and from the menu): pictures, fades, music, effects, the Guardian's lines with subtitles; any key or click skips | ✅ |
 | Music: MUSIC.FLX XMIDI → MT-32→GM map → SoundFont synth | ✅ |
 | Sound effects (SOUND.FLX, Sonarc) placed in the world; ambient loops (fires, wind) | ✅ |

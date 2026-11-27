@@ -30,6 +30,9 @@ pub struct Npc {
     /// Faking death (Actor::setFeignDeath): ticks till it's over. It falls, gets up when
     /// [`FEIGN_TICKS`] are left, and is taken for dead by the undead till 0.
     pub feigning: u16,
+    /// Stunned by a kick (ITEM.C UnstunNpc): ticks till it can act again. Meanwhile every blow
+    /// lands and armour does half.
+    pub stunned: u16,
     /// Which sides this person is on, and whose enemy (4 bits each: NPCDATA byte 0x0B's low and
     /// high nibbles). The Avatar is 2; townsfolk 1, enemies 2; monsters 4 or 8, enemies 2 and more.
     pub alignment: u8,
@@ -76,6 +79,7 @@ impl Stats {
                     in_combat: has(actor_flag::IN_COMBAT),
                     withstand_death: has(actor_flag::WITHSTAND_DEATH),
                     feigning: if has(actor_flag::FEIGN_DEATH) { FEIGN_TICKS } else { 0 },
+                    stunned: 0,
                     alignment: s.alignment & 0xF,
                     enemies: s.alignment >> 4,
                     flags: s.flags,

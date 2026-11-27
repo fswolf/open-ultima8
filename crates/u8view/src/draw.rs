@@ -73,6 +73,9 @@ impl App {
             return; // minimised
         }
         self.update();
+        if self.item_drag.is_some() {
+            self.update_drag(); // (the Avatar moving brings things into reach or out of it)
+        }
         if self.dirty {
             let t0 = Instant::now();
             self.draw_frame();
@@ -132,6 +135,20 @@ impl App {
         let cam = self.view_origin();
         let mut canvas = Canvas::new(&mut self.buf, bw, bh);
         self.painter.draw(&self.game.data, &mut self.game.world, &mut self.cache, cam, &mut canvas, self.view.opts);
+        // Where the carried thing would go: its outline (drawn see-through, as the original
+        // draws its copy flagged unseen: DLITEM.C).
+        if let (Some(controls::Ghost::Map((x, y, z))), Some(it)) =
+            (self.drag_ghost, self.item_drag.and_then(|id| self.game.world.get(id)))
+        {
+            let (gd, s) = (&self.game.data, world_ss as i32);
+            if let Some(sp) =
+                self.cache.get(gd, it.shape, it.frame, it.flags & u8engine::world::item_flag::FLIPPED != 0)
+            {
+                let (px, py) = u8render::project(x, y, z);
+                let (px, py) = ((px - cam.0) * s - sp.xoff, (py - cam.1) * s - sp.yoff);
+                canvas.recolour(&sp, px, py, |c| gd.xform.unseen(&gd.palette, c));
+            }
+        }
         // Over it, at the interface's size (in a buffer of its own while the rest of `self` draws).
         let used = self.overlay_used();
         let (vw, vh) = self.view_size();
@@ -158,11 +175,14 @@ impl App {
     fn draw_overlay(&mut self, canvas: &mut Canvas, ui_ss: u32, (vw, vh): (u32, u32)) {
         let (mouse, buttons_up) = (self.mouse_game(), self.touch_buttons_up());
         self.draw_windows(canvas, ui_ss);
-        if let Some(it) = self.item_drag.and_then(|id| self.game.world.get(id)) {
-            // The item being carried, under the pointer.
-            let flip = it.flags & u8engine::world::item_flag::FLIPPED != 0;
-            if let Some(sp) = self.ui_cache.get(&self.game.data, it.shape, it.frame, flip) {
-                canvas.blit(&sp, mouse.0 * ui_ss as i32 - sp.xoff, mouse.1 * ui_ss as i32 - sp.yoff);
+        if let (Some(controls::Ghost::Window), Some(it)) =
+            (self.drag_ghost, self.item_drag.and_then(|id| self.game.world.get(id)))
+        {
+            // Where the carried thing would go in a window: its outline there, under the pointer.
+            let (gd, flip) = (&self.game.data, it.flags & u8engine::world::item_flag::FLIPPED != 0);
+            if let Some(sp) = self.ui_cache.get(gd, it.shape, it.frame, flip) {
+                let (x, y) = (mouse.0 * ui_ss as i32 - sp.xoff, mouse.1 * ui_ss as i32 - sp.yoff);
+                canvas.recolour(&sp, x, y, |c| gd.xform.unseen(&gd.palette, c));
             }
         }
         self.draw_speech(canvas, ui_ss, (vw, vh));
@@ -236,7 +256,7 @@ impl App {
                     paperdoll_stats(canvas, art, ui_ss, ui, gd, (st, weighs(item), armour(item), stats_pressed), at);
                 }
             };
-            self.windows.draw(canvas, art, gd, &self.game.world, &mut self.ui_cache, self.item_drag, stats);
+            self.windows.draw(canvas, art, gd, &self.game.world, &mut self.ui_cache, stats);
             if let Some(st) = self.game.stats.get(AVATAR) {
                 let bars = [(st.hp, st.max_hp()), (st.mana, st.max_mana())];
                 self.windows.draw_gauge(canvas, art, gd, ui_ss, bars);

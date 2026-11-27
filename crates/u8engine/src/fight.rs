@@ -51,6 +51,8 @@ pub(crate) struct Fighter {
     walked: u32,
     swinging: bool,
     struck: bool,
+    /// The wait is the pause after a blow, which runs during it.
+    pause: bool,
     /// The `cast` script run on going into combat: no fighting till it's done.
     cast: Option<Pid>,
     /// A changeling (its shape when it went into combat): where it is in its changes, and the
@@ -114,7 +116,7 @@ impl Game {
     /// townsfolk cry for Beren, Theurgists flee. Fighting waits for it.
     pub(crate) fn join_fight(&mut self, id: ObjId) {
         self.stop_walking(id);
-        self.loiters.remove(&id);
+        self.stop_loitering(id);
         if let Some(s) = &mut self.scripts {
             s.vm.kill_item_procs(id, crate::usecode::vm::PROC_TYPE_ALL, 0);
         }
@@ -150,6 +152,15 @@ impl Game {
         }
         // (The original's waits count on whatever is playing.)
         (f.clone_wait, f.tree_wait) = (f.clone_wait.saturating_sub(1), f.tree_wait.saturating_sub(1));
+        // The pause after a blow runs from the swing's start (COMBATBR.C attackTarget).
+        let waiting = f.wait > 0;
+        if waiting && (f.pause || !self.world.is_acting(id)) {
+            f.wait -= 1;
+        }
+        f.pause &= f.wait > 0;
+        if self.stats.get(id).is_some_and(|s| s.stunned > 0) {
+            return; // kicked senseless
+        }
         if let Some((act, dir, step)) = self.world.acting(id) {
             // Mid-swing: the blow lands on the frame that reaches.
             if f.swinging && act == action::ATTACK && !f.struck {
@@ -163,8 +174,7 @@ impl Game {
                 self.stance(id, d); // weapon back up
             }
         }
-        if f.wait > 0 {
-            f.wait -= 1;
+        if waiting {
             return;
         }
         if f.changeling && self.changeling(id, f) {
@@ -181,7 +191,7 @@ impl Game {
             match f.dir {
                 Some(d) if d == want => {
                     if self.world.play(&self.data, id, action::ATTACK, want).is_some() {
-                        (f.swinging, f.struck) = (true, false);
+                        (f.swinging, f.struck, f.pause) = (true, false, true);
                         let dex = self.stats.get(id).map_or(10, |s| s.dex as i32);
                         f.wait = (PAUSE_PER_DEX * (DEX_QUICK - dex)).max(0) as u32;
                     } else {
@@ -428,10 +438,15 @@ impl Game {
         }
     }
 
-    /// One tick of people faking death (Actor::setFeignDeath): having fallen, they get up.
+    /// One tick of people faking death (Actor::setFeignDeath): having fallen, they get up; and
+    /// of the stunned coming round.
     pub(crate) fn feign(&mut self) {
         for id in 1..256u16 {
-            let Some(s) = self.stats.get_mut(id).filter(|s| s.feigning > 0) else { continue };
+            let Some(s) = self.stats.get_mut(id) else { continue };
+            s.stunned = s.stunned.saturating_sub(1);
+            if s.feigning == 0 {
+                continue;
+            }
             s.feigning -= 1;
             if s.feigning == FEIGN_TICKS && !s.dead {
                 let dir = self.world.get(id).and_then(|it| facing(&self.data, &it)).unwrap_or(0);

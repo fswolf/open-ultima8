@@ -108,7 +108,7 @@ impl Game {
         self.world.set_void(id, true);
         self.world.set_in_combat(id, false);
         self.fights.remove(&id);
-        self.loiters.remove(&id);
+        self.stop_loitering(id);
         self.rising.retain(|&(r, _)| r != id);
         self.stop_walking(id);
     }
@@ -132,17 +132,31 @@ impl Game {
 const LOITER_STEPS: i32 = 10;
 const LOITER_PAUSE: (u32, u32) = (4 * 30, 7 * 30);
 
-/// Someone loitering: the walk under way, or ticks till the next.
-#[derive(Default)]
+/// Someone loitering: the walk under way, or ticks till the next; and its process (LOITER.C's
+/// is an activity, 0x205, so a script killing that one stops it: a talk's enterConvo).
 pub(crate) struct Loiter {
     walk: Option<crate::npc::Walk>,
     wait: u32,
+    pid: crate::usecode::Pid,
 }
 
 impl Game {
     /// Start `id` loitering (activity 0): wandering about where it is.
     pub(crate) fn start_loitering(&mut self, id: ObjId) {
-        self.loiters.insert(id, Loiter::default());
+        self.stop_loitering(id);
+        let pid = self.scripts.as_mut().map_or(0, |s| s.vm.spawn_external(id, crate::usecode::vm::ACTIVITY));
+        self.loiters.insert(id, Loiter { walk: None, wait: 0, pid });
+    }
+
+    /// `id` stops loitering (standing where its walk had got to).
+    pub(crate) fn stop_loitering(&mut self, id: ObjId) {
+        let Some(l) = self.loiters.remove(&id) else { return };
+        if let Some(w) = &l.walk {
+            w.stand(&self.data, &mut self.world);
+        }
+        if let Some(s) = &mut self.scripts {
+            s.vm.finish(l.pid, 0);
+        }
     }
 
     /// One tick of everyone loitering in the fast area.
@@ -150,8 +164,10 @@ impl Game {
         let ids: Vec<ObjId> = self.loiters.keys().copied().collect();
         for id in ids {
             let still = self.world.get(id).filter(|_| !self.world.is_void(id) && !self.world.in_combat(id));
-            let Some(it) = still.filter(|_| !self.stats.get(id).is_some_and(|s| s.dead)) else {
-                self.loiters.remove(&id);
+            let killed = self.loiters.get(&id).is_some_and(|l| l.pid != 0)
+                && self.scripts.as_ref().is_some_and(|s| !s.vm.alive(self.loiters[&id].pid));
+            let Some(it) = still.filter(|_| !killed && !self.stats.get(id).is_some_and(|s| s.dead)) else {
+                self.stop_loitering(id);
                 continue;
             };
             if !self.world.is_fast(id) || self.world.is_acting(id) {

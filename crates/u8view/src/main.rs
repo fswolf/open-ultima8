@@ -204,6 +204,10 @@ struct App {
     /// the mouse once that press became a drag.
     press_item: Option<ObjId>,
     item_drag: Option<ObjId>,
+    /// While dragging, where it would go (its outline there) and the pointer saying it'd be
+    /// thrown or won't go (see `drag_preview`).
+    drag_ghost: Option<controls::Ghost>,
+    drag_cursor: Option<usize>,
     /// The book menus (Esc, J); while one is open the game waits.
     menu: Option<menu::Menu>,
     /// The settings panel (F1, or the book's Options).
@@ -331,6 +335,8 @@ impl App {
             last_win_click: None,
             press_item: None,
             item_drag: None,
+            drag_ghost: None,
+            drag_cursor: None,
             settings: settings::Settings::default(),
             mouse: (0.0, 0.0),
             last_click: None,
@@ -386,6 +392,7 @@ impl App {
         }
         self.windows.close_all(); // item ids are per map
         (self.item_drag, self.press_item, self.win_drag, self.pending_look) = (None, None, None, None);
+        (self.drag_ghost, self.drag_cursor) = (None, None);
         self.painter.sync(&self.game.data, &mut self.game.world, [0; 4]);
         self.view.follow = self.game.avatar.is_some();
         self.recentre();

@@ -364,7 +364,7 @@ pub fn shoot(c: &mut Ctx) -> u32 {
     let to = (u16::from_le_bytes([wp[0], wp[1]]) as i32, u16::from_le_bytes([wp[2], wp[3]]) as i32, wp[4] as i32);
     let (speed, gravity) = (c.arg2(8) as i32, c.arg2(10) as i32);
     let Some(it) = c.item().filter(|_| c.host.container(c.this()).is_none()) else { return 0 };
-    let v = crate::game::missile((it.x, it.y, it.z), to, speed.max(1), gravity);
+    let v = crate::game::missile((it.x, it.y, it.z), to, speed.max(1), gravity).0;
     c.vm.requests.push(Request::Hurl { id: c.this(), v, gravity, pid: 0 });
     0
 }

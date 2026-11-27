@@ -21,7 +21,7 @@ mod items;
 mod travel;
 
 pub(crate) use items::missile;
-pub use items::Place;
+pub use items::{DropKind, Place};
 
 /// Game ticks per second (the original's clock: scripts and egg checks run on it).
 pub const TICK_HZ: f32 = 30.0;
@@ -59,6 +59,11 @@ pub struct Game {
     pub(crate) talkers: Vec<(crate::usecode::Pid, ObjId)>,
     /// The tick each talker may gesture again (a rest of one to three seconds between).
     pub(crate) talk_rest: HashMap<ObjId, u32>,
+    /// The player looked at someone (a click) this tick: speech started now is the look's,
+    /// with no gesture (WORLD.C looks with its look flag up; BARK.C fidgets only without it).
+    pub(crate) looked: Option<(ObjId, u32)>,
+    /// Speech that's a look's (never gestured to).
+    pub(crate) said_by_look: Vec<crate::usecode::Pid>,
     /// The dead who'll rise again, and ticks till they do.
     pub(crate) rising: Vec<(ObjId, u32)>,
     /// The Avatar's healing and hunger (see [`heal`](crate::heal)).
@@ -155,6 +160,8 @@ impl Game {
             loiters: HashMap::new(),
             talkers: vec![],
             talk_rest: HashMap::new(),
+            looked: None,
+            said_by_look: vec![],
             rising: vec![],
             recovery: Default::default(),
             peace: None,
@@ -306,8 +313,12 @@ impl Game {
         if let Some(a) = &self.avatar {
             self.world.set_last_anim(AVATAR, a.action());
         }
-        if self.avatar.as_mut().is_some_and(Avatar::take_drop) {
-            self.fall(AVATAR);
+        match self.avatar.as_mut().and_then(Avatar::take_drop) {
+            // Off an edge mid-move: on the way he was going as he falls (ANIMPRIM.C
+            // checkGravity: hurl(the frame's move, gravity 2)).
+            Some(v) if v != (0, 0, 0) => self.hurl(AVATAR, v, 2, None),
+            Some(_) => self.fall(AVATAR),
+            None => {}
         }
         self.step_contacts(AVATAR);
         match self.avatar.as_mut().and_then(Avatar::take_effort) {

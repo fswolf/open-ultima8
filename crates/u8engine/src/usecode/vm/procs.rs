@@ -65,8 +65,10 @@ impl Vm {
             .collect()
     }
 
+    /// Processes still going (not counting people's loitering, which goes on for good and
+    /// doesn't make a scene).
     pub fn running(&self) -> usize {
-        self.procs.iter().filter(|p| !p.done).count()
+        self.procs.iter().filter(|p| !p.done && !(matches!(p.body, Body::Native) && p.ptype == super::ACTIVITY)).count()
     }
 
     pub(super) fn alloc_pid(&mut self) -> Pid {

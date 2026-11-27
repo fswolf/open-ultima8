@@ -497,3 +497,32 @@ fn set_dead_waits_behind_a_blow_in_the_same_turn() {
     let s = g.stats.get(50).unwrap();
     assert_eq!((s.hp, s.dead), (hp - 1, false), "the blow found him alive; dead, then not, in that order");
 }
+
+/// setActivity takes someone out of combat first (NPC.C cSetActivity): a fighter told to loiter
+/// or stand stops fighting; told to fight, fights.
+#[test]
+#[ignore]
+fn set_activity_ends_a_fight_first() {
+    let Some(mut g) = game(40) else { return };
+    let guard = g.world.objects().find(|&id| id < 256 && g.world.get(id).is_some_and(|it| it.shape == 574)).unwrap();
+    for (n, fights) in [(0, false), (2, false), (1, true)] {
+        g.world.set_in_combat(guard, n != 1);
+        call(&mut g, 0xAE, "Actor::setActivity", &args(guard, &[n]));
+        g.update(1.0 / 30.0, &Input::default());
+        assert_eq!(g.world.in_combat(guard), fights, "activity {n}");
+    }
+}
+
+/// A point of strength comes at 650, or by chance before: 1 in (650 − what's built up) (NPC.C
+/// accumulateStrength), so at 649 always.
+#[test]
+#[ignore]
+fn strength_comes_one_short_of_650_for_sure() {
+    let Some(mut g) = game(40) else { return };
+    for _ in 0..20 {
+        g.stats.get_mut(AVATAR).unwrap().str = 10;
+        call(&mut g, 0xE6, "MainActor::accumulateStrength", &649u16.to_le_bytes());
+        g.update(1.0 / 30.0, &Input::default());
+        assert_eq!(g.stats.get(AVATAR).unwrap().str, 11);
+    }
+}

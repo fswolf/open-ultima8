@@ -551,3 +551,20 @@ fn a_weapon_swap_needs_room_in_the_pack() {
     assert_eq!(worn(&g.data, &g.world, AVATAR, Slot::Weapon), Some(other));
     assert_eq!(g.world.container(dagger), Some(pack));
 }
+
+/// What a drop would do, shown while dragging (WORLD.C dragItem): put down near the Avatar, thrown
+/// out of reach, refused where it won't go (a bag into itself, farther than it can be thrown).
+#[test]
+#[ignore]
+fn a_drop_says_whether_it_puts_throws_or_wont() {
+    use u8engine::{DropKind, Place};
+    let Some(g) = game(40) else { return };
+    let pack = *g.world.contents(AVATAR).iter().find(|&&id| g.world.get(id).unwrap().shape == 529).unwrap();
+    let dagger = *g.world.contents(pack).iter().find(|&&id| g.world.get(id).unwrap().shape == 418).unwrap();
+    let av = g.world.get(AVATAR).unwrap();
+    assert_eq!(g.drop_kind(dagger, Place::Map((av.x + 96, av.y, av.z))), DropKind::Put);
+    assert_eq!(g.drop_kind(dagger, Place::Map((av.x + 600, av.y, av.z))), DropKind::Throw);
+    // (Too far to throw: speed × 2 × speed / gravity, speed 64 − weight + STR; MISSILE.C.)
+    assert_eq!(g.drop_kind(dagger, Place::Map((av.x + 5000, av.y, av.z))), DropKind::Refused);
+    assert_eq!(g.drop_kind(pack, Place::Into { container: pack, at: (10, 10) }), DropKind::Refused);
+}
