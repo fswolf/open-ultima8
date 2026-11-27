@@ -47,6 +47,14 @@ fn speech_anchor(world: &u8engine::world::World, id: ObjId) -> Option<((i32, i32
     Some(((sx, sy - 16), u8render::project(e.it.x, e.it.y, e.it.z).1, wide))
 }
 
+/// Where the world's frame goes under the screen (in its own pixels, at `fs` a game pixel and
+/// `k` of them a screen pixel) for a view `o` game pixels into it: to the whole screen pixel,
+/// since a view a fraction of one off blurs the frame's pixels between two, and as it moves
+/// they pulse soft and sharp.
+fn snap(o: f32, fs: f32, k: f32) -> f32 {
+    (o * fs / k).round() * k
+}
+
 /// How much bigger xBRZ makes things for a zoom (none below 1.5×; the GPU does the rest).
 fn xbrz_factor(zoom: f32) -> u32 {
     (zoom.round() as u32).clamp(1, MAX_XBRZ)
@@ -300,16 +308,17 @@ impl App {
         }
     }
 
-    /// Show the world (placed to a fraction of a pixel, in its look) and the overlay.
+    /// Show the world (placed to the screen pixel, in its look) and the overlay.
     fn present(&mut self) {
         let (s, zoom) = (self.view.scale, self.view.zoom);
         // The world's frame starts at whole game pixels; the view, at a fraction of one.
         let ((x, y), _) = self.world_view();
         let (tx, ty) = self.view_origin();
-        let fs = self.frame_ss as f32;
+        let (fs, k) = (self.frame_ss as f32, self.frame_ss as f32 / zoom);
+        let snap = |o: f32| snap(o, fs, k);
         let world = gpu::Place {
-            k: fs / zoom,
-            off: ((x - tx as f32) * fs, (y - ty as f32) * fs),
+            k,
+            off: (snap(x - tx as f32), snap(y - ty as f32)),
             filter: match self.view.mode {
                 Mode::Smooth => gpu::Filter::Plain,
                 Mode::Xbr => gpu::Filter::Xbr,
@@ -333,6 +342,20 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The world lands on whole screen pixels at any zoom (so its pixels stay crisp as it
+    /// glides), never more than half a screen pixel from where the view is.
+    #[test]
+    fn the_world_lands_on_whole_screen_pixels() {
+        for (fs, zoom) in [(2.0, 2.0), (3.0, 2.5), (1.0, 3.0), (4.0, 4.0)] {
+            let k = fs / zoom;
+            for o in [0.0, 0.1, 0.37, 0.5, 0.9] {
+                let screen = snap(o, fs, k) / k;
+                assert_eq!(screen, screen.round(), "zoom {zoom}: {o}");
+                assert!((screen - o * zoom).abs() <= 0.5, "zoom {zoom}: {o}");
+            }
+        }
+    }
 
     /// The gauge comes up twice its old size in the bottom-left corner, answers clicks over all
     /// of it, and fills its bars from the bottom; the paperdoll's numbers sit centred between

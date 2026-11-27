@@ -655,3 +655,31 @@ fn people_stand_still_to_talk() {
     assert!(asked >= 4 && spots.len() == 1, "still while talking: {} spots over {asked} questions", spots.len());
     assert!(after.len() > 1, "and about his house again after");
 }
+
+/// Leaving the map and coming back puts everyone into the fast area again (the original dumps
+/// the map it leaves, ITEMCACH.C dumpMapLevel): guard 45 (GUARD2, south of the castle) walks his
+/// rounds again instead of standing frozen mid-step where he was left.
+#[test]
+#[ignore]
+fn a_guard_goes_back_on_his_rounds_after_a_trip_away() {
+    let Some(mut g) = saved(2) else { return };
+    let spot = (13237, 14485, 48);
+    let steps = |g: &mut Game| {
+        let (mut moves, mut at) = (0, None);
+        for _ in 0..60 {
+            (0..15).for_each(|_| _ = g.update(1.0 / 30.0, &Input::default()));
+            g.take_events();
+            let now = g.world.get(45).map(|it| (it.x, it.y));
+            moves += (now != at) as u32;
+            at = now;
+        }
+        moves
+    };
+    assert!(g.put_avatar(40, spot));
+    assert!(steps(&mut g) > 20, "he walks");
+    assert!(g.put_avatar(41, (19500, 14200, 48)));
+    play(&mut g, 5);
+    assert!(g.put_avatar(40, spot));
+    let moves = steps(&mut g);
+    assert!(moves > 20, "and walks again when the Avatar's back ({moves})");
+}

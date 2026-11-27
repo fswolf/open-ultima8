@@ -77,27 +77,26 @@ pub(crate) const EYE_SNAP: f32 = 160.0;
 pub(crate) const EYE_LIFT: i32 = 32;
 pub(crate) const EYE_THERE: f32 = 0.01;
 
-/// The smooth camera along the ground: how fast it catches up with the Avatar (seconds to about
-/// two thirds of the way), and a jump too big to glide (game pixels: a teleport, a new place).
-pub(crate) const PAN_EASE: f32 = 0.1;
+/// The smooth camera along the ground: how fast it catches up with the Avatar (each of its two
+/// stages: seconds to about two thirds of the way), and a jump too big to glide (game pixels: a
+/// teleport, a new place).
+pub(crate) const PAN_EASE: f32 = 0.08;
 pub(crate) const PAN_SNAP: f32 = 120.0;
 
-/// Where the view centres along the ground (screen, game pixels): `to`, or with the smooth
-/// camera eased over `dt` seconds from where it was (`at`), so the uneven pace of the walk's
-/// frames doesn't jolt the world; straight there when it's new, too far, or as good as there.
-pub(crate) fn pan(to: (f32, f32), at: Option<(f32, f32)>, dt: f32, smooth: bool) -> (f32, f32) {
-    match at {
-        Some(at) if smooth => {
-            let d = (to.0 - at.0, to.1 - at.1);
-            let far = d.0.abs().max(d.1.abs());
-            if far >= PAN_SNAP || far <= EYE_THERE {
-                return to;
-            }
-            let k = 1.0 - (-dt / PAN_EASE).exp();
-            (at.0 + d.0 * k, at.1 + d.1 * k)
-        }
-        _ => to,
+/// Where the view centres along the ground (screen, game pixels), and the stage before it: `to`,
+/// or with the smooth camera eased over `dt` seconds from where they were (`at`) through two
+/// stages, so the uneven pace of the walk's frames (and the sidesteps round things) doesn't
+/// surge the world, and it never overshoots; straight there when new, too far, or there.
+pub(crate) fn pan(to: (f32, f32), at: Option<[(f32, f32); 2]>, dt: f32, smooth: bool) -> [(f32, f32); 2] {
+    let Some([mid, at]) = at.filter(|_| smooth) else { return [to; 2] };
+    let far = |a: (f32, f32)| (to.0 - a.0).abs().max((to.1 - a.1).abs());
+    if far(at) >= PAN_SNAP || far(at).max(far(mid)) <= EYE_THERE {
+        return [to; 2];
     }
+    let k = 1.0 - (-dt / PAN_EASE).exp();
+    let ease = |a: (f32, f32), b: (f32, f32)| (a.0 + (b.0 - a.0) * k, a.1 + (b.1 - a.1) * k);
+    let mid = ease(mid, to);
+    [mid, ease(at, mid)]
 }
 
 /// The height the view looks at: the camera's own (`z`), or with the smooth camera (`smooth`),
@@ -129,8 +128,9 @@ pub(crate) struct View {
     /// looks at now (world units).
     pub(crate) smooth: bool,
     pub(crate) eye: Option<f32>,
-    /// With the smooth camera, where along the ground the view centres now (screen, game pixels).
-    pub(crate) pan: Option<(f32, f32)>,
+    /// With the smooth camera, where along the ground the view centres now and its first stage
+    /// (screen, game pixels).
+    pub(crate) pan: Option<[(f32, f32); 2]>,
     pub(crate) follow: bool,
     pub(crate) gamma: f32,
     pub(crate) colour_fix: bool,
@@ -166,8 +166,9 @@ impl App {
             let eye = eye_height(z, footing, self.view.eye, dt, smooth);
             self.view.eye = Some(eye);
             let (sx, sy) = u8render::project_fine(x, y, 0, s);
-            let ground = pan((sx as f32 / s as f32, sy as f32 / s as f32), self.view.pan, dt, smooth);
-            self.view.pan = Some(ground);
+            let stages = pan((sx as f32 / s as f32, sy as f32 / s as f32), self.view.pan, dt, smooth);
+            self.view.pan = Some(stages);
+            let ground = stages[1];
             let cam = (ground.0, ground.1 - eye);
             if cam != self.view.cam {
                 self.view.cam = cam;
@@ -335,25 +336,29 @@ mod tests {
     #[test]
     fn the_smooth_camera_glides_along() {
         let frame = 1.0 / 60.0;
-        assert_eq!(pan((50.0, 0.0), Some((0.0, 0.0)), frame, false), (50.0, 0.0), "off: straight there");
-        assert_eq!(pan((50.0, 0.0), None, frame, true), (50.0, 0.0), "new: straight there");
-        assert_eq!(pan((500.0, 0.0), Some((0.0, 0.0)), frame, true), (500.0, 0.0), "a teleport snaps");
+        let z = (0.0, 0.0);
+        assert_eq!(pan((50.0, 0.0), Some([z; 2]), frame, false), [(50.0, 0.0); 2], "off: straight there");
+        assert_eq!(pan((50.0, 0.0), None, frame, true), [(50.0, 0.0); 2], "new: straight there");
+        assert_eq!(pan((500.0, 0.0), Some([z; 2]), frame, true), [(500.0, 0.0); 2], "a teleport snaps");
         // Steps of 0, 0, 12 and 0 pixels a frame (as a walk's frames move him): the camera's
-        // moves are far more even than his.
-        let (mut to, mut at, mut moves) = (0.0, Some((0.0, 0.0)), vec![]);
+        // moves are far more even than his, and it never gets ahead of him.
+        let (mut to, mut at, mut moves) = (0.0, Some([z; 2]), vec![]);
         for i in 0..120 {
             to += if i % 4 == 2 { 12.0 } else { 0.0 };
-            let was = at.unwrap().0;
+            let was = at.unwrap()[1].0;
             at = Some(pan((to, 0.0), at, frame, true));
-            moves.push(at.unwrap().0 - was);
+            moves.push(at.unwrap()[1].0 - was);
+            assert!(at.unwrap()[1].0 <= to, "behind him");
         }
         let (lo, hi) = moves[60..].iter().fold((f32::MAX, 0.0f32), |(l, h), &m| (l.min(m), h.max(m)));
-        assert!(lo > 1.5 && hi < 4.5, "even: {lo}..{hi} a frame (he goes 0 or 12)");
-        assert!(to - at.unwrap().0 < 40.0, "not far behind");
-        for _ in 0..90 {
+        assert!(lo > 2.5 && hi < 3.5, "even: {lo}..{hi} a frame (he goes 0 or 12)");
+        assert!(to - at.unwrap()[1].0 < 40.0, "not far behind");
+        // He stops: the camera comes to rest on him without going past.
+        for _ in 0..120 {
             at = Some(pan((to, 0.0), at, frame, true));
+            assert!(at.unwrap()[1].0 <= to, "no overshoot");
         }
-        assert_eq!(at, Some((to, 0.0)), "there once he stops");
+        assert_eq!(at.unwrap()[1], (to, 0.0), "there once he stops");
     }
 
     #[test]

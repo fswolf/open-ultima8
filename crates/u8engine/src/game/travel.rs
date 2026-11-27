@@ -46,7 +46,8 @@ impl Game {
         self.world.clear_ethereal(); // nor what scripts left in the void
         let fresh = !self.visited.contains_key(&map);
         let next = self.visited.remove(&map).unwrap_or_else(|| World::build(&self.data, map));
-        let old = std::mem::replace(&mut self.world, next);
+        let mut old = std::mem::replace(&mut self.world, next);
+        old.left();
         self.world.clear_flag(GUMP_OPEN); // windows don't survive leaving a map
         self.visited.insert(old.map(), old);
         self.arrivals();

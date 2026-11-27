@@ -525,6 +525,16 @@ impl World {
         }
     }
 
+    /// The Avatar's gone to another map: nothing here is live any more (the original dumps the
+    /// whole map from its item cache, ITEMCACH.C dumpMapLevel), so coming back brings everyone
+    /// into the fast area again (their enterFastArea: guards back on their rounds), and what
+    /// they were acting out stops where it was (its process went with the map).
+    pub(crate) fn left(&mut self) {
+        self.entries.iter_mut().for_each(|e| e.fast = false);
+        self.acting.clear();
+        self.lag = None;
+    }
+
     pub fn remove(&mut self, id: ObjId) {
         self.fighting.remove(&id);
         self.overlays.remove(&id);
