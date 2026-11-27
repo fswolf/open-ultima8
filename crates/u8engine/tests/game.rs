@@ -733,3 +733,21 @@ fn walking_off_a_ledge_carries_him_out_as_he_falls() {
     assert!(path[mid].0 > path[off].0, "still going east halfway down: {path:?}");
     assert!(path.last().unwrap().0 - x > 32, "landed out from the foot: {path:?}");
 }
+
+/// Ryan (map 39, north of the troll's pen): a false floor (521, grass at 48 over a drop) under a
+/// COLLAPSE marker (525, editor-only, not solid). The original's move hits everything in the
+/// space it takes up, solid or not (MOTRAK.C, MOTCHECK.ASM), so stepping on the marker runs its
+/// gotHit: with weight on the floor it goes, and the Avatar falls.
+#[test]
+#[ignore]
+fn a_false_floor_gives_way_underfoot() {
+    let Some(mut g) = saved(2) else { return };
+    assert!(g.put_avatar(39, (14591, 5063, 48)));
+    let find = |g: &Game, s| g.world.area(14600, 4900, 300).into_iter().find(|&o| g.world.get(o).unwrap().shape == s);
+    let (floor, marker) = (find(&g, 521).expect("the false floor"), find(&g, 525).expect("the marker"));
+    for t in 0..240 {
+        g.update(1.0 / 30.0, &Input { dir: (t < 50).then_some(0), ..Default::default() });
+    }
+    assert!(g.world.get(floor).is_none() && g.world.get(marker).is_none(), "the floor gave way");
+    assert!(g.world.get(AVATAR).unwrap().z < 48, "and he fell");
+}

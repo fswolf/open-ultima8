@@ -77,26 +77,120 @@ pub(crate) const EYE_SNAP: f32 = 160.0;
 pub(crate) const EYE_LIFT: i32 = 32;
 pub(crate) const EYE_THERE: f32 = 0.01;
 
-/// The smooth camera along the ground: how fast it catches up with the Avatar (each of its two
-/// stages: seconds to about two thirds of the way), and a jump too big to glide (game pixels: a
-/// teleport, a new place).
-pub(crate) const PAN_EASE: f32 = 0.08;
+/// The smooth camera along the ground keeps a pace of its own (the Avatar's frames carry him
+/// unevenly, as the original's do; following his every frame surges the world): its speed eases
+/// to the steady pace of what he's doing (seconds to two thirds of the way, speeding up and
+/// slowing), and it's put right by how far he's been from the middle over his last whole cycle
+/// (which cancels his stride's surge), taken up slowly. With no pace (standing, turning,
+/// jumping...) it eases straight to him. A jump too big to glide snaps (game pixels: a teleport,
+/// a new place).
+pub(crate) const PACE_UP: f32 = 0.12;
+pub(crate) const PACE_DOWN: f32 = 0.05;
+pub(crate) const PUT_RIGHT: f32 = 0.5;
+pub(crate) const CATCH_UP: f32 = 0.10;
 pub(crate) const PAN_SNAP: f32 = 120.0;
 
-/// Where the view centres along the ground (screen, game pixels), and the stage before it: `to`,
-/// or with the smooth camera eased over `dt` seconds from where they were (`at`) through two
-/// stages, so the uneven pace of the walk's frames (and the sidesteps round things) doesn't
-/// surge the world, and it never overshoots; straight there when new, too far, or there.
-pub(crate) fn pan(to: (f32, f32), at: Option<[(f32, f32); 2]>, dt: f32, smooth: bool) -> [(f32, f32); 2] {
-    let Some([mid, at]) = at.filter(|_| smooth) else { return [to; 2] };
-    let far = |a: (f32, f32)| (to.0 - a.0).abs().max((to.1 - a.1).abs());
-    if far(at) >= PAN_SNAP || far(at).max(far(mid)) <= EYE_THERE {
-        return [to; 2];
+/// Where the smooth camera centres along the ground (screen, game pixels), how fast it's going
+/// (game pixels a second), and how far he's been from it, frame by frame, over his last cycle
+/// (each frame's time and the offset).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Pan {
+    pub(crate) at: (f32, f32),
+    vel: (f32, f32),
+    seen: std::collections::VecDeque<(f32, (f32, f32))>,
+}
+
+impl Pan {
+    pub(crate) fn new(at: (f32, f32)) -> Self {
+        Self { at, ..Self::default() }
     }
-    let k = 1.0 - (-dt / PAN_EASE).exp();
-    let ease = |a: (f32, f32), b: (f32, f32)| (a.0 + (b.0 - a.0) * k, a.1 + (b.1 - a.1) * k);
-    let mid = ease(mid, to);
-    [mid, ease(at, mid)]
+
+    /// `dt` seconds on, following `to` (where he's drawn), at his steady `pace` (game pixels a
+    /// second, and his cycle's length in seconds), if he has one.
+    pub(crate) fn step(&mut self, to: (f32, f32), pace: Option<((f32, f32), f32)>, dt: f32) {
+        let off = |a: (f32, f32)| (to.0 - a.0, to.1 - a.1);
+        let far = |d: (f32, f32)| d.0.abs().max(d.1.abs());
+        if far(off(self.at)) >= PAN_SNAP {
+            *self = Self::new(to);
+            return;
+        }
+        let k = |t: f32| 1.0 - (-dt / t).exp();
+        let mv = |a: (f32, f32), d: (f32, f32), f: f32| (a.0 + d.0 * f, a.1 + d.1 * f);
+        match pace {
+            Some((p, cycle)) => {
+                // (Only the speed's aim changes with a change of pace: no jolt.)
+                self.vel = mv(self.vel, (p.0 - self.vel.0, p.1 - self.vel.1), k(ease(self.vel, p)));
+                self.at = mv(self.at, self.vel, dt);
+                self.seen.push_back((dt, off(self.at)));
+                let mut total: f32 = self.seen.iter().map(|s| s.0).sum();
+                while self.seen.len() > 1 && total - self.seen[0].0 >= cycle {
+                    total -= self.seen.pop_front().map_or(0.0, |s| s.0);
+                }
+                // (The oldest frame counts only for the part of it inside the cycle.)
+                let first = (cycle - (total - self.seen[0].0)).clamp(0.0, self.seen[0].0);
+                let span = total - self.seen[0].0 + first;
+                let sum = self.seen.iter().enumerate().fold((0.0, 0.0), |m, (i, &(t, d))| {
+                    let w = if i == 0 { first } else { t };
+                    (m.0 + d.0 * w, m.1 + d.1 * w)
+                });
+                if span > 0.0 {
+                    self.at = mv(self.at, (sum.0 / span, sum.1 / span), k(PUT_RIGHT));
+                }
+            }
+            None => {
+                self.seen.clear();
+                let before = off(self.at);
+                let want = (before.0 / CATCH_UP, before.1 / CATCH_UP);
+                self.vel = mv(self.vel, (want.0 - self.vel.0, want.1 - self.vel.1), k(ease(self.vel, want)));
+                self.at = mv(self.at, self.vel, dt);
+                let after = off(self.at);
+                // (Never past him: crossing over, it's on him and stops.)
+                if before.0 * after.0 + before.1 * after.1 < 0.0 || far(after) <= EYE_THERE {
+                    (self.at, self.vel) = (to, (0.0, 0.0));
+                }
+            }
+        }
+    }
+}
+
+/// How fast a speed `v` eases to `to`: speeding up the slower way; slowing, or turned against
+/// the way it goes (he's turned about), the quicker, so the view doesn't run on past him.
+fn ease(v: (f32, f32), to: (f32, f32)) -> f32 {
+    let up = to.0.hypot(to.1) >= v.0.hypot(v.1) && v.0 * to.0 + v.1 * to.1 >= 0.0;
+    if up {
+        PACE_UP
+    } else {
+        PACE_DOWN
+    }
+}
+
+/// The Avatar's steady pace (see [`u8engine::avatar::Avatar::pace`]) along the screen, in game
+/// pixels a second, and his cycle's length.
+pub(crate) fn screen_pace(game: &u8engine::Game) -> Option<((f32, f32), f32)> {
+    let ((vx, vy), cycle) = game.avatar.as_ref()?.pace(&game.data, &game.world)?;
+    Some((((vx - vy) / 4.0, (vx + vy) / 8.0), cycle))
+}
+
+/// Where the view centres along the ground following `to`: there (smooth camera off), or the
+/// smooth camera's [`Pan`] `dt` seconds on.
+pub(crate) fn ground(
+    pan: &mut Option<Pan>,
+    smooth: bool,
+    to: (f32, f32),
+    pace: Option<((f32, f32), f32)>,
+    dt: f32,
+) -> (f32, f32) {
+    match (smooth, pan) {
+        (false, pan) => {
+            *pan = None;
+            to
+        }
+        (true, Some(pan)) => {
+            pan.step(to, pace, dt);
+            pan.at
+        }
+        (true, pan) => pan.insert(Pan::new(to)).at,
+    }
 }
 
 /// The height the view looks at: the camera's own (`z`), or with the smooth camera (`smooth`),
@@ -128,9 +222,8 @@ pub(crate) struct View {
     /// looks at now (world units).
     pub(crate) smooth: bool,
     pub(crate) eye: Option<f32>,
-    /// With the smooth camera, where along the ground the view centres now and its first stage
-    /// (screen, game pixels).
-    pub(crate) pan: Option<[(f32, f32); 2]>,
+    /// With the smooth camera, where along the ground the view centres and how it's moving.
+    pub(crate) pan: Option<Pan>,
     pub(crate) follow: bool,
     pub(crate) gamma: f32,
     pub(crate) colour_fix: bool,
@@ -151,7 +244,7 @@ impl App {
     /// Centre the view on the camera, `dt` seconds on. With the smooth camera, following the
     /// Avatar, the height eases to its footing rather than its feet: a jump doesn't bounce the
     /// world, a step glides (the original follows the feet, which zoomed in jolts the screen);
-    /// and along the ground it catches up with him smoothly rather than step by step.
+    /// and along the ground it keeps a steady pace of its own ([`Pan`]) rather than his uneven steps.
     pub(crate) fn follow_camera(&mut self, dt: f32) {
         if let Some((x, y, z)) = self.game.camera() {
             let s = self.world_ss() as i32;
@@ -166,9 +259,8 @@ impl App {
             let eye = eye_height(z, footing, self.view.eye, dt, smooth);
             self.view.eye = Some(eye);
             let (sx, sy) = u8render::project_fine(x, y, 0, s);
-            let stages = pan((sx as f32 / s as f32, sy as f32 / s as f32), self.view.pan, dt, smooth);
-            self.view.pan = Some(stages);
-            let ground = stages[1];
+            let to = (sx as f32 / s as f32, sy as f32 / s as f32);
+            let ground = ground(&mut self.view.pan, smooth, to, screen_pace(&self.game), dt);
             let cam = (ground.0, ground.1 - eye);
             if cam != self.view.cam {
                 self.view.cam = cam;
@@ -331,34 +423,24 @@ mod tests {
         assert!(falling > 150.0 && falling < 160.0, "{falling}");
     }
 
-    /// Along the ground the smooth camera catches up with the Avatar a little behind, evening out
-    /// the walk's uneven steps; it gets there once he stops, and a teleport snaps.
+    /// Turned about at a run, the view's speed turns the quick way: it runs on no more than a
+    /// pixel or so the old way (eased at the slow speeding-up rate, it ran on about 5).
     #[test]
-    fn the_smooth_camera_glides_along() {
-        let frame = 1.0 / 60.0;
-        let z = (0.0, 0.0);
-        assert_eq!(pan((50.0, 0.0), Some([z; 2]), frame, false), [(50.0, 0.0); 2], "off: straight there");
-        assert_eq!(pan((50.0, 0.0), None, frame, true), [(50.0, 0.0); 2], "new: straight there");
-        assert_eq!(pan((500.0, 0.0), Some([z; 2]), frame, true), [(500.0, 0.0); 2], "a teleport snaps");
-        // Steps of 0, 0, 12 and 0 pixels a frame (as a walk's frames move him): the camera's
-        // moves are far more even than his, and it never gets ahead of him.
-        let (mut to, mut at, mut moves) = (0.0, Some([z; 2]), vec![]);
-        for i in 0..120 {
-            to += if i % 4 == 2 { 12.0 } else { 0.0 };
-            let was = at.unwrap()[1].0;
-            at = Some(pan((to, 0.0), at, frame, true));
-            moves.push(at.unwrap()[1].0 - was);
-            assert!(at.unwrap()[1].0 <= to, "behind him");
-        }
-        let (lo, hi) = moves[60..].iter().fold((f32::MAX, 0.0f32), |(l, h), &m| (l.min(m), h.max(m)));
-        assert!(lo > 2.5 && hi < 3.5, "even: {lo}..{hi} a frame (he goes 0 or 12)");
-        assert!(to - at.unwrap()[1].0 < 40.0, "not far behind");
-        // He stops: the camera comes to rest on him without going past.
+    fn turned_about_the_view_doesnt_run_on() {
+        let (dt, west, east) = (1.0 / 60.0, ((-180.0, 0.0), 0.6), ((180.0, 0.0), 0.6));
+        let (mut pan, mut to) = (Pan::new((0.0, 0.0)), 0.0);
         for _ in 0..120 {
-            at = Some(pan((to, 0.0), at, frame, true));
-            assert!(at.unwrap()[1].0 <= to, "no overshoot");
+            to -= 3.0;
+            pan.step((to, 0.0), Some(west), dt);
         }
-        assert_eq!(at.unwrap()[1], (to, 0.0), "there once he stops");
+        let turned = pan.at.0;
+        let mut furthest = turned;
+        for _ in 0..60 {
+            to += 3.0;
+            pan.step((to, 0.0), Some(east), dt);
+            furthest = furthest.min(pan.at.0);
+        }
+        assert!(turned - furthest < 2.5, "ran on {}", turned - furthest);
     }
 
     #[test]
@@ -390,5 +472,178 @@ mod tests {
         assert_eq!(rung(2.2, 1), 2.5, "from between two");
         assert_eq!(rung(2.2, -1), 2.0);
         assert_eq!(rung(3.0, 0), 3.0);
+    }
+}
+
+#[cfg(test)]
+mod ride {
+    use super::*;
+    use u8engine::avatar::Input;
+
+    /// Each frame: where he's drawn and where the view centres (screen, game pixels), and his pace.
+    pub(crate) struct Frame {
+        pub to: (f32, f32),
+        pub at: (f32, f32),
+        pub pace: bool,
+    }
+
+    pub(crate) fn open(map: u16, at: (i32, i32, i32)) -> Option<u8engine::Game> {
+        let dir = std::path::PathBuf::from(std::env::var("U8_DATA").ok()?);
+        let mut g = u8engine::Game::open(&dir, Some(2), None).ok()?;
+        assert!(g.put_avatar(map, at));
+        Some(g)
+    }
+
+    /// Play `secs` at `fps` with `input(t)`, following as the viewer does (zoom 3).
+    pub(crate) fn ride(
+        g: &mut u8engine::Game,
+        pan: &mut Option<Pan>,
+        fps: f32,
+        secs: f32,
+        smooth: bool,
+        input: impl Fn(f32) -> Input,
+    ) -> Vec<Frame> {
+        let (dt, s) = (1.0 / fps, 3);
+        (0..(fps * secs) as usize)
+            .map(|i| {
+                g.update(dt, &input(i as f32 * dt));
+                g.take_events();
+                let (a, l) = (g.world.get(AVATAR).unwrap(), g.world.lag(AVATAR));
+                let (sx, sy) = u8render::project_fine(a.x + l.0, a.y + l.1, 0, s);
+                let to = (sx as f32 / s as f32, sy as f32 / s as f32);
+                let pace = screen_pace(g);
+                let at = ground(pan, smooth, to, pace, dt);
+                Frame { to, at, pace: pace.is_some() }
+            })
+            .collect()
+    }
+
+    pub(crate) fn run(dir: usize, run: bool) -> impl Fn(f32) -> Input {
+        move |_| Input { dir: Some(dir), run, ..Default::default() }
+    }
+
+    /// How far the view moved each frame.
+    pub(crate) fn moves(f: &[Frame]) -> Vec<f32> {
+        f.windows(2).map(|w| (w[1].at.0 - w[0].at.0).hypot(w[1].at.1 - w[0].at.1)).collect()
+    }
+    pub(crate) fn off(f: &Frame) -> f32 {
+        (f.to.0 - f.at.0).hypot(f.to.1 - f.at.1)
+    }
+
+    /// The biggest change from one frame's move to the next (game pixels): a jolt.
+    pub(crate) fn jolt(f: &[Frame]) -> f32 {
+        let d = |w: &[Frame], i: usize| (w[i + 1].at.0 - w[i].at.0, w[i + 1].at.1 - w[i].at.1);
+        f.windows(3).map(|w| (d(w, 1).0 - d(w, 0).0).hypot(d(w, 1).1 - d(w, 0).1)).fold(0.0, f32::max)
+    }
+
+    /// A run and a walk on the East Road (west, and a diagonal south-west) at 60, 90 and 144
+    /// frames a second: once steady the view moves within 4 percent of its mean each frame, and
+    /// he stays within 10 game pixels of the middle (a little more on the faster diagonal);
+    /// setting off he gets no further than 17 (50 screen pixels at zoom 3).
+    #[test]
+    #[ignore]
+    fn the_view_keeps_an_even_pace_on_real_moves() {
+        let cases = [
+            (6, true, 60.0, (9000, 12000), 10.0),
+            (6, true, 90.0, (9000, 12000), 10.0),
+            (6, true, 144.0, (9000, 12000), 10.0),
+        ];
+        let walks = [
+            (6, false, 60.0, (9000, 12000), 10.0),
+            (6, false, 144.0, (9000, 12000), 10.0),
+            (5, true, 60.0, (8000, 12000), 11.0),
+        ];
+        for (dir, runs, fps, (x, y), most) in cases.into_iter().chain(walks) {
+            let Some(mut g) = open(5, (x, y, 48)) else { return };
+            let f = ride(&mut g, &mut None, fps, 5.0, true, run(dir, runs));
+            let steady = &f[(fps * 2.5) as usize..];
+            assert!(steady.iter().all(|x| x.pace), "{dir} {runs} {fps}: held on all the way");
+            let m = moves(steady);
+            let mean = m.iter().sum::<f32>() / m.len() as f32;
+            assert!(m.iter().all(|v| (v / mean - 1.0).abs() < 0.04), "{dir} {runs} {fps}: {m:?}");
+            let o = steady.iter().map(off).fold(0f32, f32::max);
+            assert!(o <= most, "{dir} {runs} {fps}: he's {o} off the middle");
+            let first = f[..fps as usize].iter().map(off).fold(0f32, f32::max);
+            assert!(first <= 17.0, "{dir} {runs} {fps}: setting off he's {first} off");
+        }
+    }
+
+    /// Letting go of a run: the view comes to rest on him without ever passing him, within
+    /// 0.8 s; a teleport snaps; with the smooth camera off it's on him every frame.
+    #[test]
+    #[ignore]
+    fn stopping_snapping_and_off() {
+        for fps in [60.0, 144.0] {
+            let Some(mut g) = open(5, (9000, 12000, 48)) else { return };
+            let f = ride(&mut g, &mut None, fps, 4.0, true, |t| Input {
+                dir: (t < 2.5).then_some(6),
+                run: true,
+                ..Default::default()
+            });
+            let go = (fps * 2.5) as usize;
+            let last = f[f.len() - 1].to;
+            let way = (last.0 - f[go].to.0, last.1 - f[go].to.1);
+            for x in &f[go..] {
+                assert!((x.to.0 - x.at.0) * way.0 + (x.to.1 - x.at.1) * way.1 >= -0.01, "{fps}: past him");
+            }
+            let rest = go + (fps * 0.8) as usize;
+            assert!(f[rest..].iter().all(|x| x.at == x.to), "{fps}: at rest on him 0.8 s after letting go");
+        }
+        let Some(mut g) = open(5, (9000, 12000, 48)) else { return };
+        let mut pan = None;
+        ride(&mut g, &mut pan, 60.0, 2.0, true, run(6, true));
+        assert!(g.put_avatar(5, (9000, 12000, 48)));
+        let f = ride(&mut g, &mut pan, 60.0, 0.1, true, |_| Input::default());
+        assert_eq!(f[0].at, f[0].to, "a teleport snaps");
+        let f = ride(&mut g, &mut pan, 60.0, 2.0, false, run(6, true));
+        assert!(f.iter().all(|x| x.at == x.to), "off: on him");
+    }
+
+    /// No jolts: a turn mid-run, a sidestep round something in the way (the view's speed only
+    /// eases to the new pace), a run into a wall and a leap from a run (it comes to rest on
+    /// him); a jolt here is the change of a frame's move from the last's, in game pixels.
+    #[test]
+    #[ignore]
+    fn turns_sidesteps_walls_and_leaps_dont_jolt() {
+        use u8data::typeflag::flag;
+        let Some(mut g) = open(5, (9000, 12000, 48)) else { return };
+        let f = ride(&mut g, &mut None, 60.0, 5.0, true, |t| Input {
+            dir: Some(if t < 2.5 { 6 } else { 5 }),
+            run: true,
+            ..Default::default()
+        });
+        assert!(jolt(&f[100..]) < 0.4, "turn: {}", jolt(&f[100..]));
+        // Something in the way, a little off his line: he steps round it.
+        let Some(mut g) = open(5, (9000, 12000, 48)) else { return };
+        let small = |g: &u8engine::Game, id: u16| {
+            let it = g.world.get(id).unwrap();
+            let si = g.data.typeflags.get(it.shape);
+            let (x, y, z) = si.dims();
+            si.has(flag::SOLID) && !si.has(flag::FIXED) && (32..=64).contains(&x) && (32..=64).contains(&y) && z >= 16
+        };
+        let thing = g.world.objects().find(|&id| id > 255 && small(&g, id)).expect("something to put in the way");
+        let mut it = g.world.get(thing).unwrap();
+        (it.x, it.y, it.z) = (8600, 12024, 48);
+        g.world.set(&g.data, thing, it);
+        let f = ride(&mut g, &mut None, 60.0, 3.0, true, run(6, true));
+        assert!(g.world.get(AVATAR).unwrap().y < 12000, "he stepped round it");
+        assert!(jolt(&f[30..]) < 1.0, "sidestep: {}", jolt(&f[30..]));
+        // Into the castle's wall, and a leap from a run.
+        let Some(mut g) = open(40, (12774, 9010, 48)) else { return };
+        let f = ride(&mut g, &mut None, 60.0, 3.0, true, run(4, true));
+        assert!(jolt(&f) < 0.6 && f[f.len() - 1].at == f[f.len() - 1].to, "wall: {}", jolt(&f));
+        let Some(mut g) = open(5, (9000, 12000, 48)) else { return };
+        let f = ride(&mut g, &mut None, 60.0, 4.0, true, |t| Input {
+            dir: Some(6),
+            run: true,
+            jump: (t - 2.0).abs() < 0.01,
+            ..Default::default()
+        });
+        assert!(f.iter().filter(|x| !x.pace).count() > 20, "leapt");
+        assert!(
+            jolt(&f[100..]) < 1.5 && f[100..].iter().map(off).fold(0f32, f32::max) < PAN_SNAP / 2.0,
+            "leap: {}",
+            jolt(&f[100..])
+        );
     }
 }

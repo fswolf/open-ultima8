@@ -322,9 +322,9 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 - Upscaling, zoom, smooth movement and the modern interface options; the settings are our own
   panel (F1) rather than the book's options page.
 - The smooth camera (Settings): the view eases up and down with the Avatar's footing instead of
-  following every jump and step, and glides after him along the ground rather than moving with
-  each frame of his walk; zoomed in, both jolt the whole screen. Turn it off for the original's
-  camera.
+  following every jump and step, and while he walks or runs it moves at the steady pace of his
+  stride rather than with each uneven frame of it; zoomed in, both jolt the whole screen. Turn it
+  off for the original's camera.
 - Books and scrolls in a modern typeface (the page art and paging are the original's). Books
   get a leather cover round the original's open pages, and the page corners turn up where
   there are more pages; the left one turns back, which the original can't.

@@ -326,8 +326,10 @@ impl World {
         (!blocked).then_some((to.x1, to.y1, floor))
     }
 
-    /// What `id` is in contact with, as ScummVM's sweep counts it for events: what it overlaps,
-    /// and what it stands on (a top at its feet). Sorted; eggs and markers aren't counted.
+    /// What `id` is in contact with, as the original's move counts it for events (MOTRAK.C,
+    /// MOTCHECK.ASM: everything in the area its move takes up, solid or not): what it overlaps,
+    /// and what it stands on (a top at its feet). Sorted; eggs aren't counted. Editor markers
+    /// are: two are traps whose gotHit goes off underfoot (COLLAPSE 525, LIGTZAP 850).
     pub fn contacts(&self, id: ObjId) -> Vec<ObjId> {
         let Some(i) = self.index(id).filter(|&i| self.entries[i].present() && self.entries[i].parent.is_none()) else {
             return vec![];
@@ -339,7 +341,7 @@ impl World {
             .filter(|&k| {
                 let e = &self.entries[k];
                 let o = e.bounds();
-                e.present() && !e.marker() && o.overlaps_xy(&b) && (o.overlaps(&b) || o.z1 == b.z0)
+                e.present() && !e.traits.egg && o.overlaps_xy(&b) && (o.overlaps(&b) || o.z1 == b.z0)
             })
             .collect();
         v.sort_unstable();

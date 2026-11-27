@@ -255,6 +255,30 @@ impl Avatar {
     }
 
     /// Playing an action or with more to play: the host should keep frames coming.
+    /// The steady pace of what he's doing, for a view that keeps its own: for a held walk, run,
+    /// careful step, advance or retreat, the whole cycle's move over the whole cycle's time
+    /// along his facing (world units a second), and the cycle's length (seconds), as the frames
+    /// are played held on (a run's still frame included; a walk's first frame only starts it).
+    /// His frames carry him unevenly, as the original's do. None for anything else (standing,
+    /// turning, jumps, climbs, hanging, falls, staggers, scripts).
+    pub fn pace(&self, gd: &GameData, world: &World) -> Option<((f32, f32), f32)> {
+        use action::{ADVANCE, RETREAT, RUN, STEP, WALK};
+        let j = self.act.as_ref().filter(|j| matches!(j.action, WALK | RUN | STEP | ADVANCE | RETREAT))?;
+        if !self.held || self.hanging || self.down || j.leap.is_some() {
+            return None;
+        }
+        let a = gd.anims.get(world.get(AVATAR)?.shape, j.action)?;
+        let frames = a.frames.get(j.dir)?;
+        // (The frames a cycle plays, held on: both steps of a two-step action, as `next` takes them.)
+        let steps = if crate::world::two_step(a.flags) { &[true, false][..] } else { &[true][..] };
+        let cycle: Vec<usize> =
+            steps.iter().flat_map(|&first| anim_range(a.flags, frames.len(), first, true)).collect();
+        let time = cycle.len() as f32 * j.pace;
+        let fwd = cycle.iter().filter_map(|&k| frames.get(k)).map(|f| 4.0 * f.ddir as f32).sum::<f32>() / time;
+        let (dx, dy) = crate::geom::DIRS[j.dir];
+        (time > 0.0).then_some(((dx as f32 * fwd, dy as f32 * fwd), time))
+    }
+
     pub fn busy(&self) -> bool {
         self.act.is_some() || !self.then.is_empty() || self.glide.is_some()
     }

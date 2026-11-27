@@ -6,6 +6,9 @@ impl App {
     /// Advance the game to now. Sets `moving` / `scripting` for the frame pacing.
     pub(super) fn update(&mut self) {
         let now = Instant::now();
+        if let Some(t) = self.last_update {
+            self.gaps.push(now, now - t);
+        }
         self.zooming = self.ease_zoom(self.last_update.map_or(0.0, |t| (now - t).as_secs_f32()).min(0.1));
         if self.film.is_some() {
             self.tick_film(self.last_update.map_or(0.0, |t| (now - t).as_secs_f32()).min(0.1));
@@ -248,15 +251,27 @@ impl App {
         None
     }
 
-    /// Just the name; F12 adds the frame time.
+    /// Just the name; F12 adds the frame time, and over the last second the shortest and longest
+    /// time between updates and how many were over 1.5 times the middle one.
     pub(super) fn update_title(&mut self, win: &Window) {
+        let now = Instant::now();
+        // (Not every frame: setting a window's title takes the system time, which would show in
+        // the very numbers it gives.)
+        let recent = self.titled.is_some_and(|t| now - t < std::time::Duration::from_millis(500));
+        if self.view.stats && recent {
+            return;
+        }
         let mut title = String::from("Open Ultima8");
         if self.view.stats {
-            title += &format!(" ({:.1} ms/frame)", self.frame_ms);
+            title += &format!(" ({:.1} ms/frame", self.frame_ms);
+            if let Some((lo, hi, slow)) = self.gaps.summary() {
+                title += &format!(", updates {lo:.1}-{hi:.1} ms, {slow} slow");
+            }
+            title += ")";
         }
         if title != self.title {
             win.set_title(&title);
-            self.title = title;
+            (self.title, self.titled) = (title, Some(now));
         }
     }
 }
@@ -368,5 +383,45 @@ mod tests {
         assert!(!world.same_floor(AVATAR, wind), "the deck is over it");
         let (sx, sy) = project(a.x, a.y, a.z);
         assert!(sound_place(&world, (sx as f32, sy as f32), wind).unwrap().0 > 0.5);
+    }
+}
+
+/// The times between updates over the last second.
+#[derive(Default)]
+pub(crate) struct Gaps(std::collections::VecDeque<(Instant, f32)>);
+
+impl Gaps {
+    pub(crate) fn push(&mut self, now: Instant, gap: std::time::Duration) {
+        self.0.push_back((now, gap.as_secs_f32() * 1000.0));
+        while self.0.front().is_some_and(|&(t, _)| now - t > std::time::Duration::from_secs(1)) {
+            self.0.pop_front();
+        }
+    }
+
+    /// The shortest and longest (ms), and how many were over 1.5 times the middle one.
+    pub(crate) fn summary(&self) -> Option<(f32, f32, usize)> {
+        let mut v: Vec<f32> = self.0.iter().map(|g| g.1).collect();
+        v.sort_by(f32::total_cmp);
+        let mid = *v.get(v.len() / 2)?;
+        Some((v[0], v[v.len() - 1], v.iter().filter(|&&g| g > 1.5 * mid).count()))
+    }
+}
+
+#[cfg(test)]
+mod gap_tests {
+    use super::*;
+
+    /// The readout over the last second: shortest, longest, and the slow ones.
+    #[test]
+    fn update_gaps_over_the_last_second() {
+        let (mut g, t0) = (Gaps::default(), Instant::now());
+        assert_eq!(g.summary(), None);
+        let ms = |n: u64| std::time::Duration::from_millis(n);
+        for (i, gap) in [16, 17, 16, 40, 16, 15, 33].into_iter().enumerate() {
+            g.push(t0 + ms(i as u64 * 20), ms(gap));
+        }
+        assert_eq!(g.summary(), Some((15.0, 40.0, 2)));
+        g.push(t0 + ms(1500), ms(16)); // (a second on: the rest have gone)
+        assert_eq!(g.summary(), Some((16.0, 16.0, 0)));
     }
 }

@@ -103,6 +103,7 @@ impl Game {
     /// original leaves them).
     pub(crate) fn put_away(&mut self, id: ObjId) {
         let Some(mut it) = self.world.get(id) else { return };
+        self.end_procs(id); // (its slot is handed out again: nothing of its own may outlive it)
         it.flags |= item_flag::ETHEREAL;
         self.world.set(&self.data, id, it);
         self.world.set_void(id, true);
@@ -111,6 +112,13 @@ impl Game {
         self.stop_loitering(id);
         self.rising.retain(|&(r, _)| r != id);
         self.stop_walking(id);
+    }
+
+    /// End every process running for `id`.
+    pub(crate) fn end_procs(&mut self, id: ObjId) {
+        if let Some(s) = &mut self.scripts {
+            s.vm.kill_item_procs(id, crate::usecode::vm::PROC_TYPE_ALL, 0);
+        }
     }
 
     /// Is `id` something thrown away when it leaves the fast area (a hatched creature)?

@@ -207,6 +207,11 @@ impl Game {
             }
         }
         for id in change.left {
+            // Someone leaving it: everything running for them ends (ITEM.C leaveFastArea), so
+            // nothing of theirs carries on unseen (or as whoever gets a hatched one's slot next).
+            if id < 256 {
+                self.end_procs(id);
+            }
             if self.fast_only(id) {
                 self.put_away(id); // a hatched creature: gone again
             } else if id >= 256 && self.world.get(id).is_some_and(|it| it.flags & item_flag::FAST_ONLY != 0) {

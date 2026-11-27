@@ -98,7 +98,7 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
 - **`touch`**: contact events (ScummVM's collideMove): when anyone in the fast area steps (a jump
   of more than 128 in a tick is a script's teleport: no events, as ScummVM), the player puts
   something down or picks it up, or something lands, what it newly touches (overlaps or stands on,
-  `World::contacts`) gets `gotHit` and the mover `hit`; what it stops touching gets `release`.
+  `World::contacts`; solid or not, editor markers too, not eggs: COLLAPSE's false floors) gets `gotHit` and the mover `hit`; what it stops touching gets `release`.
   `game/items.rs` adds stealing (`Game::let_go`: `AvatarStoleSomething` to people within 640 of
   the Avatar, unless the thing is OWNED, which carrying makes it; told when the player lets go,
   before the drop is tried or the pile slider asks how many), `justMoved`, and things on top
@@ -116,7 +116,8 @@ Parsers must never panic on bad input (`parsers_survive_garbage`, `real_data_mut
   flags it needs; `go_to` the recall item's places); `u8tool kit` saves it. `vm.cheats` answers
   the scripts' `avatarCanCheat` (the Avatar's look then opens the original's developers' menu).
 - **`fast_area::FastArea`**: the live neighbourhood of the Avatar: items entering it get
-  `enterFastArea` (NPC routines, ambient sounds, many eggs), leaving it `leaveFastArea`. It is
+  `enterFastArea` (NPC routines, ambient sounds, many eggs), leaving it `leaveFastArea`, people's
+  scripts ended first (`Game::end_procs`), and a map left counts as everyone leaving (`World::left`). It is
   the original's diamond of 512-unit regions, sized for a 320x200 view and widened by what a
   bigger window or zoom shows (`Game::set_view`), so people are live before they come into sight.
   Fights and loitering run only inside it, as in DOS. Someone a script teleports into it gets
@@ -251,7 +252,7 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   speech, menus, films; premultiplied alpha, its own `SpriteCache`, at the interface's whole
   `scale`). Mouse: `mouse_world` for the map, `mouse_game` for the overlay. The view follows the
   game's camera (`App::follow_camera`); the smooth camera (an option) eases its height to the
-  Avatar's footing (`eye_height`) and glides after him along the ground (`pan`, two easing stages: even, never ahead of him); the world is put on whole screen pixels (`draw::snap`). `App`'s work is split by concern: `window.rs` (winit
+  Avatar's footing (`eye_height`) and along the ground keeps a pace of its own (`Pan`: his steady pace from `Avatar::pace`, put right by his mean offset over a cycle; with none, eases to him, never past); the world is put on whole screen pixels (`draw::snap`). `App`'s work is split by concern: `window.rs` (winit
   events), `frame.rs` (advancing the game, script events, sounds, dying), `draw.rs` (drawing a
   frame: `redraw` → `draw_frame` → the world, then `draw_overlay` with `draw_windows` and
   `draw_speech`; `present`), `view.rs` (the camera, interface size, zoom and looks, picked for the

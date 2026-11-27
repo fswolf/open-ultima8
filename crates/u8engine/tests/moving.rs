@@ -245,3 +245,26 @@ fn swings_queue_two_at_most_and_a_blow_in_the_air_brings_him_down() {
     play(&mut g, Input::default(), 60);
     assert_eq!(at(&g).2, 0, "back down");
 }
+
+/// His steady pace, for a view that keeps its own: a held run east is the whole cycle's 408
+/// units (both steps and the still frame) over its 18 ticks, a walk 208 over 16; none standing,
+/// turning about, or once the button's let go.
+#[test]
+#[ignore]
+fn the_steady_pace_of_a_walk_and_a_run() {
+    let Some(mut g) = plateau(EAST) else { return };
+    let pace = |g: &Game| g.avatar.as_ref().unwrap().pace(&g.data, &g.world);
+    assert_eq!(pace(&g), None, "standing");
+    play(&mut g, Input { dir: Some(EAST), run: true, ..Default::default() }, 20);
+    let ((vx, vy), cycle) = pace(&g).expect("running");
+    assert!((vx - 680.0).abs() < 0.5 && vy == 0.0 && (cycle - 0.6).abs() < 1e-4, "{vx} {vy} {cycle}");
+    play(&mut g, Input::default(), 30);
+    assert_eq!(pace(&g), None, "let go");
+    play(&mut g, Input { dir: Some(EAST), ..Default::default() }, 12);
+    let ((vx, _), cycle) = pace(&g).expect("walking");
+    assert!((vx - 390.0).abs() < 0.5 && (cycle - 16.0 / 30.0).abs() < 1e-4, "{vx} {cycle}");
+    play(&mut g, Input::default(), 30);
+    let turns = play(&mut g, Input { dir: Some(6), ..Default::default() }, 2);
+    assert!(turns.iter().all(|&(a, _)| a != action::WALK), "turning about first: {turns:?}");
+    assert_eq!(pace(&g), None, "turning");
+}

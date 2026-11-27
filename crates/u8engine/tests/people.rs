@@ -683,3 +683,28 @@ fn a_guard_goes_back_on_his_rounds_after_a_trip_away() {
     let moves = steps(&mut g);
     assert!(moves > 20, "and walks again when the Avatar's back ({moves})");
 }
+
+/// Ryan: a peasant made guard remarks ("Boy, this weapon gets heavy..."). A hatched guard put
+/// away as the Avatar went off kept his rounds running for his slot, and the peasant later
+/// hatched into that slot spoke them. Leaving the fast area ends everything running for someone
+/// (ITEM.C leaveFastArea), and a put-away creature takes nothing of its own with it.
+#[test]
+#[ignore]
+fn nobody_leaves_the_fast_area_with_their_scripts_running() {
+    let Some(mut g) = saved(2) else { return };
+    assert!(g.put_avatar(39, (15135, 12100, 48)));
+    play(&mut g, 3);
+    let guard = (62..256u16)
+        .find(|&n| g.world.get(n).is_some_and(|it| it.shape == 574) && !g.world.is_void(n))
+        .expect("a guard from the post");
+    let procs = |g: &mut Game, n: u16| {
+        let mut a = n.to_le_bytes().to_vec();
+        a.extend(6u16.to_le_bytes()); // (any type)
+        g.call_intrinsic(0xCA, &a)
+    };
+    assert!(procs(&mut g, guard) > 0, "on his rounds");
+    assert!(g.put_avatar(39, (14591, 5063, 48)));
+    play(&mut g, 3);
+    assert!(g.world.is_void(guard), "put away");
+    assert_eq!(procs(&mut g, guard), 0, "with nothing of his left running");
+}

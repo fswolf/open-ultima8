@@ -246,7 +246,11 @@ struct App {
     wheel: f32,
     overlay_shown: bool,
     title: String,
+    /// When the title last changed (the F12 numbers change it at most twice a second).
+    titled: Option<Instant>,
     frame_ms: f32,
+    /// The times between updates over the last second (F12 shows them).
+    gaps: frame::Gaps,
     #[cfg(feature = "audio")]
     audio: Option<audio::Audio>,
     window: Option<Arc<Window>>,
@@ -357,7 +361,9 @@ impl App {
             wheel: 0.0,
             overlay_shown: false,
             title: String::new(),
+            titled: None,
             frame_ms: 0.0,
+            gaps: frame::Gaps::default(),
             #[cfg(feature = "audio")]
             audio: audio::Audio::new(data).map_err(|e| eprintln!("audio disabled: {e:#}")).ok(),
             window: None,
