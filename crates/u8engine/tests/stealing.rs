@@ -133,3 +133,19 @@ fn beren_comes_to_another_map_and_is_seen() {
     let shown = g.world.index(32).is_some_and(|i| g.world.entry(i).shown());
     assert!(shown, "Beren on map 7, in sight: {:?}", g.world.get(32));
 }
+
+/// While Beren passes sentence the Avatar is held still (his script's setAvatarInStasis), so the
+/// player can't start another talk with him and end it to walk away (the client lets world
+/// clicks through only out of stasis, as WORLD.C).
+#[test]
+#[ignore]
+fn beren_holds_the_thief_still_while_he_speaks() {
+    let Some(mut g) = at(39, (12313, 16463, 48)) else { return };
+    make_room(&mut g);
+    let pack = g.backpack().unwrap();
+    g.move_item(30506, Place::Into { container: pack, at: (20, 20) }).unwrap();
+    let mut held = vec![];
+    let said = play_with(&mut g, 20, |g| held.push(g.in_stasis()));
+    assert!(says(&said, 32, "What seems to be the problem?"), "{said:?}");
+    assert!(held.iter().any(|&h| h), "held still at some point");
+}

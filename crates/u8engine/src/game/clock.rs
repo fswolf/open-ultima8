@@ -34,28 +34,41 @@ impl Game {
         }
     }
 
-    /// Every game hour each NPC's `schedule` event decides where it should be (ScummVM's
-    /// SchedulerProcess). The original runs it for everyone, wherever they are; we hold only this
-    /// map's people, so on arriving where an hour has turned since they were last scheduled,
-    /// theirs runs then.
+    /// Every game hour each NPC's `schedule` event decides where it should be (ITEMCACH.C's
+    /// Scheduler: everyone, the Avatar too, on whichever map). People on other maps are reached
+    /// through the host, so a script's METHOD way there teleports them, as the Avatar isn't on
+    /// their map (Tarna off the docks, Devon into the dungeon). The Avatar's keeps a storm's
+    /// tint to the outdoors. Someone fighting away from the fast area gives it up first
+    /// (NPC.C Npc::schedule); one fighting nearby is scheduled still.
     pub(super) fn schedule(&mut self) {
         let hour = self.minutes() / 60;
-        let map = self.world.map();
-        let here = self.map_scheduled.get(&map).copied().unwrap_or(self.loaded_scheduled);
-        if self.scheduled == Some(hour) && here == self.scheduled {
+        if self.scheduled == Some(hour) {
             return;
         }
         self.scheduled = Some(hour);
-        self.map_scheduled.insert(map, Some(hour));
-        let npcs: Vec<ObjId> = self
-            .world
-            .objects()
-            .filter(|&id| id > AVATAR && id < 256 && !self.stats.get(id).is_some_and(|s| s.dead))
-            .filter(|&id| !self.world.in_combat(id)) // busy fighting
-            .collect();
-        for id in npcs {
+        for id in self.due_schedules() {
+            if id != AVATAR && !self.fast.contains(&self.world, id) {
+                self.world.set_in_combat(id, false);
+                self.visited.values_mut().for_each(|w| w.set_in_combat(id, false));
+                if let Some(s) = self.stats.get_mut(id) {
+                    s.in_combat = false; // (as saved, for a map not loaded yet)
+                }
+            }
             self.trigger(id, event::SCHEDULE);
         }
+    }
+
+    /// Whose `schedule` runs: everyone alive, here or elsewhere, but monsters put away.
+    fn due_schedules(&mut self) -> Vec<ObjId> {
+        let host = WorldHost {
+            world: &mut self.world,
+            data: &self.data,
+            stats: &mut self.stats,
+            others: Some(&mut self.visited),
+        };
+        use crate::usecode::Host;
+        let known = |id| host.item(id).is_some_and(|it| it.flags & item_flag::ETHEREAL == 0);
+        (AVATAR..256).filter(|&id| !host.stats.get(id).is_some_and(|s| s.dead) && known(id)).collect()
     }
 
     /// Step walking NPCs; tell their scripts when they arrive (or give up).

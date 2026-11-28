@@ -17,6 +17,14 @@ use u8data::{anim::action, map::Item};
 const PARKED: u16 = item_flag::ETHEREAL | item_flag::FAST_ONLY;
 /// Monster egg quality: the creature's shape.
 const SHAPE_MASK: u16 = 0x7FF;
+/// How far round a ghost its skulls are counted (ANIMCALL.C).
+const SKULL_COUNT: i32 = 1536;
+
+/// Distance between two things (the larger of the ground and height gaps).
+fn dist(a: &Item, b: &Item) -> i32 {
+    (a.x - b.x).abs().max((a.y - b.y).abs()).max((a.z - b.z).abs())
+}
+
 /// Monster egg map byte: activity (0 loiter, 1 fight, 2 stand).
 const ACTIVITY_MASK: u8 = 0x07;
 
@@ -31,16 +39,27 @@ impl Game {
         if shape == 0 || !self.world.clear_at(&self.data, shape, (e.x, e.y, e.z)) {
             return None;
         }
+        let id = self.make_monster(shape, (e.x, e.y, e.z), None)?;
+        match e.mapnum & ACTIVITY_MASK {
+            0 => self.start_loitering(id),
+            1 => self.world.set_in_combat(id, true),
+            _ => {} // stand
+        }
+        Some(id)
+    }
+
+    /// A new creature of `shape` at `at` facing `dir` (else any way), in a free NPC slot, with
+    /// hit points and dexterity rolled for its kind; thrown away on leaving the fast area.
+    fn make_monster(&mut self, shape: u32, (x, y, z): (i32, i32, i32), dir: Option<usize>) -> Option<ObjId> {
         let id = self.free_npc()?;
         for w in self.visited.values_mut() {
             Self::clear_slot(w, id);
         }
         Self::clear_slot(&mut self.world, id);
-        let dir = self.world.roll(8) as usize;
+        let dir = dir.unwrap_or_else(|| self.world.roll(8) as usize);
         let frame = crate::avatar::anim_frame(&self.data, shape, action::STAND, dir, 0).map_or(0, |f| f.0);
         let flags = item_flag::FAST_ONLY | item_flag::DISPOSABLE | item_flag::IN_NPC_LIST;
         let map = self.map() as u8;
-        let (x, y, z) = (e.x, e.y, e.z);
         let it = Item { x, y, z, shape, frame, flags, npc: id, npcnum: id as u8, mapnum: map, ..Item::default() };
         self.world.put_actor(&self.data, it);
         self.world.set_void(id, false);
@@ -52,12 +71,48 @@ impl Game {
         if let Some(s) = self.stats.get_mut(id) {
             *s = Npc { hp: hp as i16, dex, alignment: align & 0xF, enemies: align >> 4, ..Npc::default() };
         }
-        match e.mapnum & ACTIVITY_MASK {
-            0 => self.start_loitering(id),
-            1 => self.world.set_in_combat(id, true),
-            _ => {} // stand
-        }
         Some(id)
+    }
+
+    /// Creatures' special frames (ANIMCALL.C generalAnimCall): a ghost swinging pulls off a
+    /// skull and sends it after whoever it fights (six at most about); a skull that comes close
+    /// to the Avatar bursts.
+    pub(crate) fn anim_calls(&mut self) {
+        for (id, act) in std::mem::take(&mut self.world.calls) {
+            let dead = self.stats.get(id).is_some_and(|s| s.dead);
+            let Some(it) = self.world.get(id).filter(|_| !self.world.is_void(id) && !dead) else { continue };
+            match it.shape {
+                monsters::GHOST if act == action::ATTACK && self.near(monsters::SKULL, &it, SKULL_COUNT) < 6 => {
+                    let dir = self.world.facing(&self.data, id).unwrap_or(0);
+                    let (dx, dy) = crate::geom::DIRS[dir];
+                    if let Some(s) =
+                        self.make_monster(monsters::SKULL, (it.x + dx * 32, it.y + dy * 32, it.z + 32), Some(dir))
+                    {
+                        let t = self.world.target(id).now;
+                        self.world.set_in_combat(s, true);
+                        self.world.set_target(s, t);
+                    }
+                }
+                monsters::SKULL if self.world.get(AVATAR).is_some_and(|a| dist(&a, &it) <= 96) => self.skull_bursts(id),
+                _ => {}
+            }
+        }
+    }
+
+    /// A skull bursts: dead, blown up, gone (ANIMCALL.C: setDead, explode).
+    pub(crate) fn skull_bursts(&mut self, id: ObjId) {
+        if let Some(s) = self.stats.get_mut(id) {
+            s.dead = true;
+        }
+        self.explode(id, false);
+        self.put_away(id);
+    }
+
+    /// How many living `shape`s are within `range` of `it`.
+    pub(crate) fn near(&self, shape: u32, it: &Item, range: i32) -> usize {
+        let alive = |o: &ObjId| !self.stats.get(*o).is_some_and(|s| s.dead) && !self.world.is_void(*o);
+        let close = |o: &ObjId| self.world.get(*o).is_some_and(|t| t.shape == shape && dist(&t, it) <= range);
+        self.world.area(it.x, it.y, range).into_iter().filter(|o| close(o) && alive(o)).count()
     }
 
     /// The lowest NPC number nobody holds: never used, or a creature put away.
@@ -321,12 +376,17 @@ impl Game {
         person || self.within_reach(id)
     }
 
-    /// Double-click on `id`: a dead body opens (or closes) for searching; anything else is used.
+    /// Double-click on `id`: a dead body opens (or closes) for searching; anything else is used,
+    /// but for someone fighting (no talking to them then).
     pub fn use_item(&mut self, id: ObjId) -> bool {
         let dead = id != AVATAR
             && self.world.get(id).is_some_and(|it| it.npc != 0)
             && self.stats.get(id).is_some_and(|s| s.dead);
         if !dead {
+            // Someone fighting won't be used, talked to (ITEM.C Item::use).
+            if id != AVATAR && id < 256 && self.world.in_combat(id) {
+                return false;
+            }
             return self.trigger(id, crate::usecode::event::USE);
         }
         let Some(mut it) = self.world.get(id) else { return false };

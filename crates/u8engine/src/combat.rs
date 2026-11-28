@@ -53,6 +53,10 @@ impl Game {
         let target = self.swing_target(who, dir, range);
         if let Some(t) = target {
             self.receive_hit(t, who, dir, 0, 0);
+            // (A skull that lands a blow bursts: ANIMCALL.C hitAnimCall.)
+            if self.world.get(who).is_some_and(|it| it.shape == crate::monsters::SKULL) {
+                self.skull_bursts(who);
+            }
         }
         target.is_some()
     }

@@ -51,6 +51,10 @@ pub trait Host {
     fn here(&self, _id: ObjId) -> bool {
         true
     }
+    /// The map whose world holds person `id` (this one, or another we know).
+    fn home(&self, _id: ObjId) -> Option<u16> {
+        Some(self.map_num())
+    }
     /// Move an item into (true) or back out of (false) the ethereal void (temporarily off the map).
     fn set_ethereal(&mut self, id: ObjId, on: bool);
     /// Facing (0–7) of an actor.
@@ -396,8 +400,18 @@ impl Host for WorldHost<'_> {
     fn here(&self, id: ObjId) -> bool {
         self.world.get(id).is_some()
     }
+    fn home(&self, id: ObjId) -> Option<u16> {
+        if self.world.get(id).is_some() {
+            return Some(self.world.map());
+        }
+        self.elsewhere(id)
+    }
+    /// (Someone on another map: in or out of that map's void.)
     fn set_ethereal(&mut self, id: ObjId, on: bool) {
-        self.world.set_void(id, on);
+        match self.elsewhere(id).filter(|_| self.world.get(id).is_none()) {
+            Some(m) => self.others.as_mut().and_then(|o| o.get_mut(&m)).into_iter().for_each(|w| w.set_void(id, on)),
+            None => self.world.set_void(id, on),
+        }
     }
     fn in_combat(&self, id: ObjId) -> bool {
         self.world.in_combat(id)

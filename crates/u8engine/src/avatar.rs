@@ -487,7 +487,7 @@ impl Avatar {
             // (One swing playing and one to come at most: ANIM.C's avatarSwing.)
             let a = if input.attack { action::ATTACK } else { action::KICK };
             self.then.extend([(a, None), (self.stance(), None)]);
-        } else if input.block && self.combat && input.dir.is_none() && !self.busy() {
+        } else if input.block && !self.blocking && self.combat && input.dir.is_none() && !self.busy() {
             self.blocking = true;
             self.queue(action::START_BLOCK, None);
         }

@@ -568,3 +568,39 @@ fn a_drop_says_whether_it_puts_throws_or_wont() {
     assert_eq!(g.drop_kind(dagger, Place::Map((av.x + 5000, av.y, av.z))), DropKind::Refused);
     assert_eq!(g.drop_kind(pack, Place::Into { container: pack, at: (10, 10) }), DropKind::Refused);
 }
+
+#[test]
+#[ignore]
+fn closing_a_bag_closes_the_bags_inside() {
+    use u8data::typeflag::family;
+    let Some(mut g) = game(40) else { return };
+    let pack = *g.world.contents(AVATAR).iter().find(|&&id| g.world.get(id).unwrap().shape == 529).unwrap();
+    let bag = g
+        .world
+        .contents(pack)
+        .into_iter()
+        .find(|&id| g.data.typeflags.get(g.world.get(id).unwrap().shape).family == family::CONTAINER);
+    let Some(bag) = bag else {
+        panic!(
+            "no bag in the backpack: {:?}",
+            g.world.contents(pack).iter().map(|&i| g.world.get(i).unwrap().shape).collect::<Vec<_>>()
+        )
+    };
+    let open = |g: &Game, id| g.world.get(id).unwrap().flags & u8engine::world::item_flag::GUMP_OPEN != 0;
+    for id in [pack, bag] {
+        assert!(g.trigger(id, event::USE));
+        g.update(1.0 / 30.0, &Input::default());
+    }
+    assert!(open(&g, pack) && open(&g, bag));
+    g.take_events();
+    // Shutting the backpack shuts the bag in it too (ITEM.C Item::closeGump).
+    assert!(g.use_item(pack));
+    g.update(1.0 / 30.0, &Input::default());
+    let shut: Vec<_> = g
+        .take_events()
+        .into_iter()
+        .filter_map(|e| if let UiEvent::CloseGump { item } = e { Some(item) } else { None })
+        .collect();
+    assert!(shut.contains(&pack) && shut.contains(&bag), "{shut:?}");
+    assert!(!open(&g, pack) && !open(&g, bag));
+}

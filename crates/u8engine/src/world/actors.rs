@@ -297,6 +297,11 @@ impl World {
         }
         let run = action == u8data::anim::action::RUN;
         self.sounds.extend(self.footstep(id, action, f.flags).map(|s| (s, id, Some(run))));
+        if f.flags & u8data::anim::AnimFrame::SPECIAL != 0
+            && matches!(it.shape, crate::monsters::GHOST | crate::monsters::SKULL)
+        {
+            self.calls.push((id, action));
+        }
     }
 
     /// How far from where `id` is it's drawn (world units): the Avatar on his way there.

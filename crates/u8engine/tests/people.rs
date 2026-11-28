@@ -708,3 +708,123 @@ fn nobody_leaves_the_fast_area_with_their_scripts_running() {
     assert!(g.world.is_void(guard), "put away");
     assert_eq!(procs(&mut g, guard), 0, "with nothing of his left running");
 }
+
+/// After the execution Toran's body is marked disposable (EXCUTION's hatch): leaving the map,
+/// or a save, throws it away (ITEMCACH.C dumpMapLevel). Hours spent on another map, Tarna's
+/// schedule ran there with the Avatar away, so METHOD's way there put her straight at her post.
+#[test]
+#[ignore]
+fn the_docks_are_cleared_after_the_execution() {
+    use u8data::save::Save;
+    let Some(mut g) = saved(0) else { return };
+    g.set_view(640.0, 400.0);
+    let egg = g.world.objects().find(|&id| g.world.get(id).is_some_and(|it| it.shape == 73 && it.quality == 4));
+    g.put_avatar(3, (11732, 5900, 48));
+    g.trigger(egg.expect("the execution's egg"), u8engine::usecode::event::HATCH);
+    for _ in 0..120 * 30 {
+        g.update(1.0 / 30.0, &Input::default());
+        answer(&mut g);
+    }
+    let toran = |g: &Game| g.world.objects().any(|id| g.world.get(id).is_some_and(|it| it.shape == 97));
+    assert!(toran(&g), "Toran lies there");
+    let dir = PathBuf::from(std::env::var("U8_DATA").unwrap());
+    let back = Save::parse(&g.snapshot().to_bytes()).unwrap();
+    let g2 = Game::new(GameData::load_save(&dir, Some(&back)).unwrap(), None, None).unwrap();
+    assert!(!toran(&g2), "a save leaves him out");
+    g.put_avatar(4, (13048, 15400, 48));
+    g.update(1.0 / 30.0, &Input::default());
+    g.set_minutes(14 * 60 + 10);
+    g.update(1.0 / 30.0, &Input::default());
+    g.put_avatar(3, (11732, 5900, 48));
+    for _ in 0..30 {
+        g.update(1.0 / 30.0, &Input::default());
+        answer(&mut g);
+    }
+    assert!(!toran(&g), "gone");
+    let t = g.world.get(8).unwrap();
+    assert_eq!((t.x, t.y), (13055, 7135), "Tarna at her afternoon post");
+}
+
+/// Once the Ceremonial Dagger is stolen (LOGBOOK4 sets the flag) Devon's schedule has him in the
+/// dungeon on map 40. The original schedules everyone on every map (ITEMCACH.C's Scheduler, also
+/// started when a map loads), so going down there finds him in his cell.
+#[test]
+#[ignore]
+fn devon_is_in_the_dungeon_after_the_dagger_is_stolen() {
+    let Some(mut g) = saved(0) else { return };
+    g.set_view(640.0, 400.0);
+    for _ in 0..5 {
+        g.update(1.0 / 30.0, &Input::default());
+        answer(&mut g);
+    }
+    for flag in [0x5b, 0x57, 0x58] {
+        g.vm().unwrap().set_global_bits(flag, 1, 1); // (the execution over, the dagger taken)
+    }
+    g.set_minutes(5 * 60 + 30); // (his early hours' cell)
+    g.put_avatar(40, (12000, 9823, 48));
+    for _ in 0..30 {
+        g.update(1.0 / 30.0, &Input::default());
+        answer(&mut g);
+    }
+    let devon = g.world.get(2).expect("Devon on map 40");
+    assert!((devon.x - 13535).abs() < 300 && (devon.y - 9823).abs() < 300, "in his cell: {devon:?}");
+    assert!(g.world.entry(g.world.index(2).unwrap()).present());
+}
+
+/// The Avatar's own schedule (AVATAR's, run with everyone's each hour and on each map load) keeps
+/// a storm's tint to the outdoors: out under a rain storm the colours wash grey (transform 3),
+/// and on an indoor or underground map they go back to normal.
+#[test]
+#[ignore]
+fn the_storm_tint_stays_outdoors() {
+    const RAIN: usize = 0xe7;
+    const TINTED: usize = 0xeb;
+    let Some(mut g) = saved(0) else { return };
+    let run = |g: &mut Game, n: usize| {
+        for _ in 0..n {
+            g.update(1.0 / 30.0, &Input::default());
+            answer(g);
+        }
+    };
+    run(&mut g, 5);
+    g.vm().unwrap().set_global_bits(RAIN, 1, 1);
+    g.set_minutes(g.minutes() + 60);
+    run(&mut g, 30);
+    assert_eq!(g.vm().unwrap().fade.transform, 3, "out in the rain: grey");
+    assert_eq!(g.vm().unwrap().global_bits(TINTED, 1), 1);
+    g.put_avatar(50, (13000, 13000, 0)); // (underground)
+    run(&mut g, 30);
+    assert_eq!(g.vm().unwrap().fade.transform, 0, "indoors: as normal");
+    assert_eq!(g.vm().unwrap().global_bits(TINTED, 1), 0);
+}
+
+/// Someone fighting far from the Avatar gives it up when the hour turns and goes about their
+/// schedule (NPC.C Npc::schedule); someone fighting nearby keeps at it.
+#[test]
+#[ignore]
+fn a_fighter_left_behind_gives_up_on_the_hour() {
+    let Some(mut g) = saved(0) else { return };
+    g.set_view(640.0, 400.0);
+    let run = |g: &mut Game, n: usize| {
+        for _ in 0..n {
+            g.update(1.0 / 30.0, &Input::default());
+            answer(g);
+        }
+    };
+    run(&mut g, 5);
+    let devon = g.world.get(2).unwrap();
+    // Nearby: still fighting after the hour.
+    g.put_avatar(3, (devon.x + 128, devon.y, devon.z));
+    run(&mut g, 5);
+    g.world.set_target(2, AVATAR);
+    g.set_minutes(g.minutes() + 60);
+    run(&mut g, 2);
+    assert!(g.world.in_combat(2), "close by, he fights on");
+    // Far off: he gives up.
+    g.put_avatar(3, (devon.x - 4000, devon.y - 4000, devon.z));
+    run(&mut g, 60);
+    assert!(g.world.in_combat(2) && !g.world.entry(g.world.index(2).unwrap()).fast);
+    g.set_minutes(g.minutes() + 60);
+    run(&mut g, 2);
+    assert!(!g.world.in_combat(2), "left behind, he gives up on the hour");
+}

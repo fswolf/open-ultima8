@@ -44,8 +44,8 @@ impl Game {
         }
         self.put_away_all(); // hatched creatures don't outlast the map
         self.world.clear_ethereal(); // nor what scripts left in the void
-        let fresh = !self.visited.contains_key(&map);
-        let next = self.visited.remove(&map).unwrap_or_else(|| World::build(&self.data, map));
+        let mut next = self.visited.remove(&map).unwrap_or_else(|| World::build(&self.data, map));
+        let fresh = !std::mem::replace(&mut next.entered, true);
         let mut old = std::mem::replace(&mut self.world, next);
         old.left();
         self.world.clear_flag(GUMP_OPEN); // windows don't survive leaving a map
@@ -60,7 +60,7 @@ impl Game {
         self.flights.clear();
         self.footing.clear(); // a fresh look at what people stand on
         self.camera.reset(); // its scripts are gone; follow the Avatar on the new map
-                             // (The new map's people are scheduled if an hour turned while we were away: `schedule`.)
+        self.scheduled = None; // (loading a map starts a Scheduler: ITEMCACH.C loadMapLevel)
         self.cache_in = true;
         self.tick_clock = 0.0;
         self.map_changed = true;

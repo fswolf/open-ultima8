@@ -51,16 +51,25 @@ impl App {
         input.combat = std::mem::take(&mut self.combat) && free;
         input.attack = std::mem::take(&mut self.attack) && free;
         input.kick = std::mem::take(&mut self.kick) && free;
-        input.block = free && self.left && self.swung.is_some_and(|t| t.elapsed() > DOUBLE_CLICK);
+        input.block = free && self.left && self.guard;
         // (From the pad with nothing leaning and the pointer not moved since it walked: the way
         // the Avatar faces, not where the pointer was left.)
         let facing = self.pad_aim == Some(pad::Aim::Facing);
         if (input.attack || input.kick || input.block) && input.dir.is_none() && !facing {
-            // Standing, strikes and blocks turn to the pointer first.
+            // Not facing the pointer (WORLD.C): a block press or a kick only turns him, a swing
+            // turns him first, and busy he does none of it.
             let aim = self.pointer().filter(|p| p.1 != mouse::Reach::Short).map(|p| mouse::facing(p.0));
             if let (Some(d), Some(a)) = (aim, self.game.avatar.as_mut()) {
-                if !a.busy() && !a.blocking() {
-                    a.dir = d;
+                if a.dir != d && !a.blocking() {
+                    let free = !a.busy();
+                    if free {
+                        a.dir = d;
+                    }
+                    input.kick = false;
+                    input.attack &= free;
+                    if input.block {
+                        (input.block, self.guard) = (false, false);
+                    }
                 }
             }
         }

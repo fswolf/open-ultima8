@@ -82,7 +82,7 @@ impl World {
         let inside = self.inside_map();
         let mut out = Vec::new();
         for (i, e) in self.entries.iter().enumerate() {
-            if e.origin == Origin::Movable && e.present() {
+            if e.origin == Origin::Movable && e.present() && !self.disposable(self.ids[i]) {
                 out.extend_from_slice(&e.it.record());
                 self.nest(&inside, i, 1, &mut out);
             }

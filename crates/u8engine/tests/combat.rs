@@ -604,3 +604,93 @@ fn the_pause_between_blows_runs_during_the_swing() {
     let most = gaps.iter().max().copied().unwrap_or(0) as u32;
     assert!(most <= swing.max(45) + 3, "a blow every {gaps:?} ticks, a swing {swing} long");
 }
+
+/// Someone fighting can't be talked to (ITEM.C Item::use: a living NPC in combat isn't used);
+/// out of the fight, they can again.
+#[test]
+#[ignore]
+fn no_talking_to_someone_fighting() {
+    let Some(mut g) = game(40) else { return };
+    let guard = 50;
+    g.world.set_target(guard, AVATAR);
+    assert!(g.world.in_combat(guard));
+    assert!(!g.use_item(guard), "fighting: no talk");
+    g.world.set_in_combat(guard, false);
+    assert!(g.use_item(guard), "at peace: talks");
+}
+
+#[test]
+#[ignore]
+fn a_block_held_stays_up() {
+    let Some(mut g) = game(40) else { return };
+    let frames = |g: &mut Game, input: Input, n: usize| {
+        (0..n).map(|_| (g.update(1.0 / 30.0, &input), g.world.get(AVATAR).unwrap().frame).1).collect::<Vec<_>>()
+    };
+    frames(&mut g, Input { combat: true, ..Default::default() }, 1);
+    frames(&mut g, Input::default(), 45);
+    // The weapon comes up once and stays (it went up again and again).
+    let held = frames(&mut g, Input { block: true, ..Default::default() }, 60);
+    assert!(g.avatar.as_ref().unwrap().blocking());
+    assert!(held[10..].iter().all(|&f| f == held[59]), "{held:?}");
+    frames(&mut g, Input::default(), 30);
+    assert!(!g.avatar.as_ref().unwrap().blocking());
+}
+
+/// A ghost's swing pulls off a skull that goes for whoever the ghost fights (ANIMCALL.C), six
+/// about at most; a skull reaching the Avatar bursts.
+#[test]
+#[ignore]
+fn a_ghost_sends_skulls_that_burst() {
+    use u8data::anim::action;
+    use u8data::map::Item;
+    use u8engine::monsters::{GHOST, SKULL};
+    let dir = PathBuf::from(std::env::var("U8_DATA").unwrap());
+    let Ok(mut g) = Game::open(&dir, Some(0), Some(3)) else { return };
+    g.set_view(640.0, 400.0);
+    for _ in 0..6 {
+        g.update(1.0 / 30.0, &Input::default());
+    }
+    let a = g.world.get(AVATAR).unwrap();
+    let spots = (-6i32..=6)
+        .flat_map(|i| (-6i32..=6).map(move |j| (i * 64, j * 64)))
+        .filter(|&(i, j)| i.abs().max(j.abs()) >= 192);
+    let egg = |(dx, dy): (i32, i32)| Item {
+        x: a.x + dx,
+        y: a.y + dy,
+        z: a.z,
+        quality: GHOST as u16,
+        mapnum: 1,
+        ..Item::default()
+    };
+    let ghost = spots.into_iter().find_map(|d| g.hatch_monster(egg(d))).expect("a ghost");
+    let skulls = |g: &Game| {
+        let alive = |s: u16| !g.stats.get(s).is_some_and(|x| x.dead) && !g.world.is_void(s);
+        g.world
+            .objects()
+            .filter(|&id| g.world.get(id).is_some_and(|it| it.shape == SKULL) && alive(id))
+            .collect::<Vec<_>>()
+    };
+    let run =
+        |g: &mut Game, n: usize| (0..n).map(|_| (g.update(1.0 / 30.0, &Input::default()), skulls(g).len()).1).max();
+    // A swing pulls one off, sent after the ghost's quarry...
+    g.world.set_target(ghost, AVATAR);
+    g.world.play(&g.data, ghost, action::ATTACK, 6).expect("the ghost swings");
+    run(&mut g, 75);
+    let s = *skulls(&g).first().expect("a skull");
+    // ...which bursts at the Avatar on its next special frame.
+    let (mut it, a) = (g.world.get(s).unwrap(), g.world.get(AVATAR).unwrap());
+    (it.x, it.y, it.z) = (a.x + 64, a.y, a.z);
+    g.world.set(&g.data, s, it);
+    g.world.play(&g.data, s, action::COMBAT_STAND, 6);
+    run(&mut g, 5);
+    assert!(g.world.is_void(s), "it burst");
+    // Left to itself it sends more (from afar one swing in ten, while fewer than three are
+    // about); swinging over and over, never more than six about.
+    assert!(run(&mut g, 30 * 30).unwrap() > 0, "the ghost sent skulls itself");
+    let mut most = 0;
+    for _ in 0..12 {
+        g.world.play(&g.data, ghost, action::ATTACK, 6).expect("the ghost swings");
+        most = most.max(run(&mut g, 75).unwrap());
+    }
+    assert!(most <= 6, "six at most ({most})");
+}

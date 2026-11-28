@@ -132,11 +132,14 @@ struct App {
     mouse_jump: bool,
     /// Draw or put away the weapon (C, double right click on the Avatar).
     combat: bool,
-    /// Swing (left click in combat stance); kick (double right click); block (left held past a
-    /// double click's time, since `swung`).
+    /// In combat stance: swing (double left click), kick (double right click), block (left held
+    /// from a single press: `guard`; `last_left` is that press).
     attack: bool,
     kick: bool,
-    swung: Option<Instant>,
+    guard: bool,
+    last_left: Option<Instant>,
+    /// In combat, when a right press may start walking (after a double click's time).
+    right_wait: Option<Instant>,
     /// The last right press near the Avatar (half a double click).
     last_right: Option<Instant>,
     /// Earthquake: the view's shake this frame (game pixels).
@@ -295,7 +298,9 @@ impl App {
             combat: false,
             attack: false,
             kick: false,
-            swung: None,
+            guard: false,
+            last_left: None,
+            right_wait: None,
             last_right: None,
             shake: (0, 0),
             targeting: None,

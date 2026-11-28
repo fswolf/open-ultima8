@@ -48,8 +48,10 @@ pub fn teleport(c: &mut Ctx) -> u32 {
     }
     if map != c.host.map_num() {
         // Off to another map: gone from this one, but remember where (saving puts it there).
+        // Someone elsewhere going about their own map just moves there.
         c.update(|i| (i.x, i.y, i.z, i.mapnum) = (x, y, z, map as u8));
-        c.host.set_ethereal(id, true);
+        let home = c.host.home(id);
+        c.host.set_ethereal(id, home != Some(map));
         return 0;
     }
     if !c.host.here(id) && (2..256).contains(&id) {

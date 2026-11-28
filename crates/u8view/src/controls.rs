@@ -37,17 +37,23 @@ impl App {
     /// Movement: (facing, run, careful) from the pad's sticks or D-pad, else from the pointer's
     /// arrow while the right button (or the pad's RT) walks.
     pub(super) fn steering(&mut self) -> Option<pad::Walk> {
-        let tap = self.step_until.is_some_and(|t| Instant::now() < t);
+        let now = Instant::now();
+        let tap = self.step_until.is_some_and(|t| now < t);
         if !tap {
             self.step_until = None;
         }
+        // (In combat a right press waits out a double click's time first: it may be a kick.)
+        let waiting = self.right_wait.is_some_and(|t| now < t);
         let aim = self.pointer().map(|(s, r)| (mouse::facing(s), r == mouse::Reach::Long, r == mouse::Reach::Short));
-        pad::steer(self.pad.walk(), aim, self.right || tap || self.touch.walking())
+        pad::steer(self.pad.walk(), aim, !waiting && (self.right || tap) || self.touch.walking())
     }
 
     /// Single click: look at the item under the mouse; double click: use it (doors, talking…).
+    /// With the Avatar held still by a script, things in the world aren't looked at or used
+    /// (WORLD.C): a click only moves speech on (Beren's sentence can't be talked out of).
     pub(super) fn click(&mut self) {
         let ((gx, gy), (wx, wy), opts) = (self.mouse_game(), self.mouse_world(), self.view.opts);
+        let stasis = self.game.in_stasis();
         let (Some(ui), Some(scripts)) = (&mut self.ui, &mut self.game.scripts) else { return };
         if ui.click(gx, gy, &mut scripts.vm) {
             self.dirty = true;
@@ -57,6 +63,7 @@ impl App {
         let picked = match in_window {
             Some(gumps::Hit::Item(id)) => Some(id),
             Some(gumps::Hit::Window(_) | gumps::Hit::Gauge) => return,
+            None if stasis => None,
             None => self.painter.pick(&self.game.data, &mut self.game.world, wx, wy, opts),
         };
         let Some(id) = picked else {
@@ -89,10 +96,19 @@ impl App {
         self.dirty = true;
     }
 
+    /// Is `id` out in the world while a script holds the Avatar still (no using or taking it;
+    /// what's in an open window still can be)?
+    fn held_still(&self, id: ObjId) -> bool {
+        self.game.in_stasis() && self.game.world.container(id).is_none()
+    }
+
     /// Use `id` (a double click, the pad's X): open, talk, search a body; out of reach, the red
     /// cross for a moment.
     pub(super) fn use_thing(&mut self, id: ObjId) {
         self.pending_look = None;
+        if self.held_still(id) {
+            return;
+        }
         if self.game.can_use(id) {
             self.game.use_item(id);
         } else {
@@ -104,7 +120,7 @@ impl App {
     pub(super) fn left_button(&mut self, down: bool) {
         self.left = down;
         if !down {
-            (self.win_drag, self.swung) = (None, None);
+            (self.win_drag, self.guard) = (None, false);
             self.dirty |= std::mem::take(&mut self.stats_pressed);
         }
         if down && self.targeting.is_some() {
@@ -120,12 +136,15 @@ impl App {
             if self.right && self.controlling() {
                 self.both_buttons();
             } else if self.controlling() && self.game.in_combat() && !self.over_window() {
-                self.attack = true; // in combat stance a left click swings (held: blocks)
-                self.swung = Some(Instant::now());
-                self.left_jumped = true; // and isn't a click
+                // In combat stance (WORLD.C): a press blocks while held, a double click swings.
+                let now = Instant::now();
+                let double = self.last_left.is_some_and(|t| now - t < DOUBLE_CLICK);
+                (self.attack, self.guard) = (double, !double);
+                self.last_left = (!double).then_some(now);
+                self.left_jumped = true; // (and isn't a click)
             } else {
                 self.press = Some(self.mouse);
-                self.press_item = self.item_under_mouse();
+                self.press_item = self.item_under_mouse().filter(|&id| !self.held_still(id));
                 self.dragging = false;
             }
             return;
@@ -415,11 +434,19 @@ impl App {
                 } else {
                     self.kick = true;
                 }
-                self.last_right = None;
-                self.step_until = None;
+                (self.last_right, self.step_until, self.right_wait) = (None, None, None);
             } else {
-                self.step_until = Some(now + TAP_STEP);
-                self.last_right = (on_avatar || self.game.in_combat()).then_some(now);
+                let combat = self.game.in_combat();
+                self.right_wait = combat.then_some(now + DOUBLE_CLICK);
+                // (In combat the press turns him to the pointer at once, WORLD.C: a kick follows.)
+                let aim = self.pointer().filter(|p| combat && p.1 != mouse::Reach::Short).map(|p| mouse::facing(p.0));
+                if let (Some(d), Some(a)) = (aim, self.game.avatar.as_mut()) {
+                    if !a.busy() && !a.blocking() {
+                        a.dir = d;
+                    }
+                }
+                self.step_until = Some(now + TAP_STEP + if combat { DOUBLE_CLICK } else { Duration::ZERO });
+                self.last_right = (on_avatar || combat).then_some(now);
             }
         }
     }
@@ -559,7 +586,7 @@ impl App {
     /// walks or pinches instead).
     pub(super) fn cancel_press(&mut self) {
         (self.press, self.press_item, self.item_drag, self.win_drag) = (None, None, None, None);
-        (self.left, self.left_jumped, self.dragging, self.swung) = (false, false, false, None);
+        (self.left, self.left_jumped, self.dragging, self.guard) = (false, false, false, false);
         self.update_drag();
     }
 

@@ -32,7 +32,12 @@ fn changing_map_stops_scripts() {
     assert!(g.trigger(door, u8engine::usecode::event::USE));
     g.update(1.0 / 30.0, &Input::default());
     g.step_map(1);
-    assert!(!g.scripting(), "scripts from the old map must not run on the new one");
+    // (Only the new map's people's schedules, caught up on arriving.)
+    let left = g.vm().unwrap().describe();
+    assert!(
+        left.iter().all(|d| d.split(' ').nth(2).and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| n < 256)),
+        "{left:?}"
+    );
 }
 
 #[test]

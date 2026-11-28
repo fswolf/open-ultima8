@@ -13,6 +13,8 @@ use crate::usecode::{event, Pid};
 use crate::world::{ObjId, AVATAR};
 use u8data::anim::action;
 
+/// How far round a ghost its skulls count against swinging from afar (COMBATBR.C).
+const GHOST_SKULLS: i32 = 1024;
 /// How near (beyond touching) a fighter closing in walks to its quarry.
 const CLOSE: i32 = 16;
 /// How far (world units, either axis) someone in combat looks for an enemy.
@@ -403,12 +405,14 @@ impl Game {
         }
     }
 
-    /// Would a swing facing `dir` reach `t`? (Those who strike from afar always do.)
-    fn in_reach(&self, id: ObjId, dir: usize, t: ObjId) -> bool {
-        if self.monster(id).is_some_and(|m| m.ranged) {
+    /// Would a swing facing `dir` reach `t`? A ghost swings from afar one time in ten, while
+    /// fewer than three of its skulls are about (COMBATBR.C canHitTarget).
+    fn in_reach(&mut self, id: ObjId, dir: usize, t: ObjId) -> bool {
+        if (1..=self.reach(id, dir)).any(|r| self.swing_target(id, dir, r) == Some(t)) {
             return true;
         }
-        (1..=self.reach(id, dir)).any(|r| self.swing_target(id, dir, r) == Some(t))
+        let Some(it) = self.world.get(id).filter(|it| it.shape == crate::monsters::GHOST) else { return false };
+        self.world.roll(10) == 0 && self.near(crate::monsters::SKULL, &it, GHOST_SKULLS) < 3
     }
 
     /// How far `id`'s attack reaches facing `dir` (1 if its frames don't say).

@@ -96,11 +96,6 @@ pub struct Game {
     new_game: bool,
     /// Game hour the NPC schedules last ran for (None: run them on the next tick).
     scheduled: Option<u32>,
-    /// The hour each map's people were last scheduled for (a map not listed: `scheduled` as the
-    /// game was loaded). Arriving where an hourly run has been missed catches it up.
-    map_scheduled: HashMap<u16, Option<u32>>,
-    /// `scheduled` as the game started (what maps not yet scheduled are taken to have had).
-    loaded_scheduled: Option<u32>,
     tick: u32,
     tick_clock: f32,
     map_changed: bool,
@@ -139,6 +134,7 @@ impl Game {
             first
         };
         let mut world = World::build(&data, start);
+        world.entered = true;
         world.clear_flag(GUMP_OPEN); // a save's open windows aren't restored
         let ticks = data.clock.unwrap_or(NEW_GAME_TICKS);
         let stats = Stats::load(data.npcdata.as_deref());
@@ -172,8 +168,6 @@ impl Game {
             roof: (None, None),
             clock: ticks,
             scheduled: None,
-            map_scheduled: HashMap::new(),
-            loaded_scheduled: None,
             cache_in: true,
             new_game: false,
             tick: 0,
@@ -214,7 +208,7 @@ impl Game {
         // when the hour turns (as the original's scheduler does), not straight away.
         if slot.is_some() {
             let hour = Some(g.minutes() / 60);
-            (g.scheduled, g.loaded_scheduled) = (hour, hour);
+            g.scheduled = hour;
         }
         // What our side file kept (if it goes with this very save).
         if let Some(p) = slot.and_then(|n| u8data::find_file(root, &format!("SAVEGAME/U8SAVE.{n:03}")).ok()) {
@@ -397,6 +391,7 @@ impl Game {
         for id in self.world.tick_acting(&self.data) {
             self.fall(id);
         }
+        self.anim_calls();
         for id in self.world.animate(&self.data, self.tick) {
             if self.fast.contains(&self.world, id) {
                 self.trigger(id, event::ANIM);

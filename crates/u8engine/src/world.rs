@@ -241,6 +241,11 @@ pub struct World {
     lag: Option<(ObjId, (i32, i32, i32))>,
     /// Sounds of animation frames shown since last asked (the sound, who made it).
     sounds: Vec<(u16, ObjId, Option<bool>)>,
+    /// Special frames of creatures that do something on them (ANIMCALL.C): who, in what action.
+    pub(crate) calls: Vec<(ObjId, usize)>,
+    /// The Avatar has been on this map (else it's only been built: to find a teleport's
+    /// destination, or for scripts moving people about on it).
+    pub(crate) entered: bool,
     /// The action each actor last started (walking, standing, an animation).
     last_anim: HashMap<ObjId, usize>,
     /// The way they faced for it.
@@ -321,6 +326,8 @@ impl World {
             overlays: HashMap::new(),
             acting: vec![],
             sounds: vec![],
+            calls: vec![],
+            entered: false,
             lag: None,
             ethereal: vec![],
             last_anim: HashMap::new(),
@@ -529,10 +536,24 @@ impl World {
     /// whole map from its item cache, ITEMCACH.C dumpMapLevel), so coming back brings everyone
     /// into the fast area again (their enterFastArea: guards back on their rounds), and what
     /// they were acting out stops where it was (its process went with the map).
+    /// What's marked disposable on the map isn't kept either (dumpMapLevel writes the map back
+    /// without it: the body the execution leaves).
     pub(crate) fn left(&mut self) {
         self.entries.iter_mut().for_each(|e| e.fast = false);
         self.acting.clear();
         self.lag = None;
+        let gone: Vec<ObjId> = self.objects().filter(|&id| id >= 256 && self.disposable(id)).collect();
+        for id in gone {
+            self.take_contents(id);
+            self.remove(id);
+        }
+    }
+
+    /// On the map (not inside anything) and marked disposable: neither saved nor kept on leaving.
+    pub(crate) fn disposable(&self, id: ObjId) -> bool {
+        self.index(id).map(|i| &self.entries[i]).is_some_and(|e| {
+            e.origin == Origin::Movable && e.parent.is_none() && e.it.flags & item_flag::DISPOSABLE != 0
+        })
     }
 
     pub fn remove(&mut self, id: ObjId) {

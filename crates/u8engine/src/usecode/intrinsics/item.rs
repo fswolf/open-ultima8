@@ -440,6 +440,11 @@ pub fn look(c: &mut Ctx) -> u32 {
     trigger(c, event::LOOK)
 }
 pub fn use_item(c: &mut Ctx) -> u32 {
+    // (Someone fighting won't be used: ITEM.C Item::use.)
+    let id = c.this();
+    if id != crate::world::AVATAR && id < 256 && c.host.in_combat(id) && c.host.npc_dead(id) != Some(true) {
+        return 0;
+    }
     trigger(c, event::USE)
 }
 /// enterFastArea: brings it into the fast area now, and runs its event even if it was in
@@ -488,10 +493,21 @@ pub fn open_gump(c: &mut Ctx) -> u32 {
     0
 }
 
+/// closeGump: shut the item's window, and a container's, the windows of what's in it (they're
+/// used, so their scripts close them in turn: ITEM.C Item::closeGump).
 pub fn close_gump(c: &mut Ctx) -> u32 {
     let item = c.this();
+    let Some(it) = c.host.item(item) else { return 0 };
     c.update(|i| i.flags &= !GUMP_OPEN);
     c.vm.events.push_back(crate::usecode::UiEvent::CloseGump { item });
+    if it.flags & GUMP_OPEN != 0 && item != crate::world::AVATAR && c.family(&it) == family::CONTAINER {
+        for inner in c.host.contents(item) {
+            if c.host.item(inner).is_some_and(|i| i.flags & GUMP_OPEN != 0) {
+                let pid = c.vm.item_event(c.usecode, &*c.host, inner, event::USE);
+                event_now(c, pid);
+            }
+        }
+    }
     0
 }
 
