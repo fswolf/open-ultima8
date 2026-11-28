@@ -328,7 +328,8 @@ fn plaques_can_be_read() {
             g.take_events();
             g.trigger(p, event::USE);
             run(&mut g, 3, &Input::default());
-            let said = g.take_events().into_iter().any(|e| matches!(e, UiEvent::Read { text, .. } if !text.trim().is_empty()));
+            let said =
+                g.take_events().into_iter().any(|e| matches!(e, UiEvent::Read { text, .. } if !text.trim().is_empty()));
             assert!(said, "map {m} plaque {p} says nothing");
             read += 1;
         }
