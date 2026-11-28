@@ -2325,7 +2325,7 @@ checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 
 [[package]]
 name = "u8cmp"
-version = "0.6.13"
+version = "0.6.14"
 dependencies = [
  "image",
  "u8data",
@@ -2335,7 +2335,7 @@ dependencies = [
 
 [[package]]
 name = "u8data"
-version = "0.6.13"
+version = "0.6.14"
 dependencies = [
  "rustysynth",
  "thiserror 2.0.21",
@@ -2343,14 +2343,14 @@ dependencies = [
 
 [[package]]
 name = "u8engine"
-version = "0.6.13"
+version = "0.6.14"
 dependencies = [
  "u8data",
 ]
 
 [[package]]
 name = "u8render"
-version = "0.6.13"
+version = "0.6.14"
 dependencies = [
  "u8data",
  "u8engine",
@@ -2359,7 +2359,7 @@ dependencies = [
 
 [[package]]
 name = "u8tool"
-version = "0.6.13"
+version = "0.6.14"
 dependencies = [
  "anyhow",
  "image",
@@ -2370,7 +2370,7 @@ dependencies = [
 
 [[package]]
 name = "u8view"
-version = "0.6.13"
+version = "0.6.14"
 dependencies = [
  "ab_glyph",
  "anyhow",

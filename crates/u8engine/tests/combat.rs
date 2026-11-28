@@ -705,3 +705,119 @@ fn a_ghost_sends_skulls_that_burst() {
     }
     assert!(most <= 6, "six at most ({most})");
 }
+
+/// The Flame Sting sets fire where its blows land (ANIMCALL.C hitAnimCall): a flare 96 ahead of
+/// the Avatar, a fire field there 3 ticks on that burns whoever stands in it, gone after 90
+/// ticks as it dies down. A kick with it in hand sets nothing alight.
+#[test]
+#[ignore]
+fn the_flame_sting_sets_fire_where_it_strikes() {
+    use u8engine::equip::{worn, Slot};
+    let Some(mut g) = game(40) else { return };
+    let step = |g: &mut Game, input: Input, ticks: usize| {
+        (0..ticks).for_each(|_| {
+            g.update(1.0 / 30.0, &input);
+        })
+    };
+    let find = |g: &Game, s: u32| g.world.objects().find(|&id| g.world.get(id).is_some_and(|it| it.shape == s));
+    let Some(w) = worn(&g.data, &g.world, AVATAR, Slot::Weapon) else { panic!("a weapon in hand") };
+    let mut it = g.world.get(w).unwrap();
+    it.shape = 817;
+    g.world.set(&g.data, w, it);
+    let m = 7;
+    let her = g.world.get(m).unwrap();
+    let mut a = g.world.get(AVATAR).unwrap();
+    (a.x, a.y, a.z) = (her.x - 64, her.y, her.z);
+    g.world.set(&g.data, AVATAR, a);
+    g.avatar.as_mut().unwrap().dir = 2;
+    step(&mut g, Input { combat: true, ..Default::default() }, 1);
+    step(&mut g, Input::default(), 45);
+    // A kick lights nothing.
+    step(&mut g, Input { kick: true, ..Default::default() }, 1);
+    step(&mut g, Input::default(), 45);
+    assert!(find(&g, 480).is_none() && find(&g, 400).is_none(), "no fire from a kick");
+    // A blow does.
+    step(&mut g, Input { attack: true, ..Default::default() }, 1);
+    let flare = (0..30).find_map(|_| (step(&mut g, Input::default(), 1), find(&g, 480)).1).expect("a flare");
+    let at = g.world.get(flare).map(|f| (f.x, f.y, f.z)).unwrap();
+    assert_eq!(at, (a.x + 96, a.y, a.z), "96 ahead of him");
+    step(&mut g, Input::default(), 3);
+    let field = find(&g, 400).expect("a fire field");
+    assert_eq!(g.world.get(field).map(|f| (f.x, f.y, f.z)), Some(at));
+    // It burns whoever stands in it.
+    let guard = 50;
+    let mut p = g.world.get(guard).unwrap();
+    (p.x, p.y, p.z) = at;
+    g.world.set(&g.data, guard, p);
+    let hp = g.stats.get(guard).unwrap().hp;
+    step(&mut g, Input::default(), 80);
+    assert!(g.stats.get(guard).unwrap().hp < hp, "the guard was burnt");
+    // Then it dies down and is gone.
+    step(&mut g, Input::default(), 10);
+    assert!(find(&g, 400).is_none(), "the field's out after 90 ticks");
+    assert!(find(&g, 381).is_some(), "dying down");
+    step(&mut g, Input::default(), 30);
+    assert!(find(&g, 381).is_none() && find(&g, 480).is_none(), "all gone");
+}
+
+/// Bone Crusher cracks on every blow; Slayer's killing blow brings lightning and thunder
+/// (ANIMCALL.C hitAnimCall). Kicks do neither.
+#[test]
+#[ignore]
+fn bone_crusher_cracks_and_slayer_brings_lightning() {
+    use u8engine::equip::{worn, Slot};
+    use u8engine::usecode::UiEvent;
+    let Some(mut g) = game(40) else { return };
+    let step = |g: &mut Game, input: Input, ticks: usize| {
+        (0..ticks).for_each(|_| {
+            g.update(1.0 / 30.0, &input);
+        })
+    };
+    let sounds = |g: &mut Game| -> Vec<u16> {
+        g.take_events()
+            .into_iter()
+            .filter_map(|e| if let UiEvent::Sfx { sfx, .. } = e { Some(sfx) } else { None })
+            .collect()
+    };
+    let w = worn(&g.data, &g.world, AVATAR, Slot::Weapon).expect("a weapon in hand");
+    let wield = |g: &mut Game, shape: u32| {
+        let mut it = g.world.get(w).unwrap();
+        it.shape = shape;
+        g.world.set(&g.data, w, it);
+    };
+    let m = 7;
+    g.stats.get_mut(m).unwrap().immortal = false;
+    let her = g.world.get(m).unwrap();
+    let mut a = g.world.get(AVATAR).unwrap();
+    (a.x, a.y, a.z) = (her.x - 64, her.y, her.z);
+    g.world.set(&g.data, AVATAR, a);
+    g.avatar.as_mut().unwrap().dir = 2;
+    step(&mut g, Input { combat: true, ..Default::default() }, 1);
+    step(&mut g, Input::default(), 45);
+    // The sounds a blow brings, and whether the screen flashed white.
+    let blow = |g: &mut Game, input: Input| {
+        sounds(g);
+        g.stats.get_mut(m).unwrap().stunned = 999; // (every blow lands)
+        step(g, input, 1);
+        let (mut all, mut lit) = (vec![], false);
+        for _ in 0..45 {
+            step(g, Input::default(), 1);
+            all.extend(sounds(g));
+            lit |= g.vm().unwrap().fade.matrix()[3] > 0;
+        }
+        (all, lit)
+    };
+    wield(&mut g, 815);
+    assert!(blow(&mut g, Input { attack: true, ..Default::default() }).0.contains(&0x17), "Bone Crusher cracks");
+    assert!(!blow(&mut g, Input { kick: true, ..Default::default() }).0.contains(&0x17), "a kick doesn't");
+    // Slayer: a blow that doesn't kill, then one that does.
+    wield(&mut g, 816);
+    g.stats.get_mut(m).unwrap().hp = 120;
+    let thunder = |s: &[u16]| s.iter().any(|x| [0x5b, 0x5e, 0x60].contains(x));
+    let (s, lit) = blow(&mut g, Input { attack: true, ..Default::default() });
+    assert!(!thunder(&s) && !lit, "no lightning while she lives");
+    g.stats.get_mut(m).unwrap().hp = 1;
+    let (s, lit) = blow(&mut g, Input { attack: true, ..Default::default() });
+    assert!(g.stats.get(m).unwrap().dead, "the blow killed her");
+    assert!(thunder(&s) && lit, "thunder and lightning");
+}

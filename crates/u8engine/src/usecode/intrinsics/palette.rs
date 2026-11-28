@@ -52,7 +52,6 @@ pub fn to_transform(c: &mut Ctx) -> u32 {
     pid
 }
 
-/// A lightning flash: near-white, fading back.
 /// invertScreen: the screen turns upside down (or back); a process that ends when it has.
 pub fn invert_screen(c: &mut Ctx) -> u32 {
     let live = c.vm.inverter_pid.filter(|&p| c.vm.alive(p));
@@ -61,7 +60,8 @@ pub fn invert_screen(c: &mut Ctx) -> u32 {
     c.vm.inverter_pid = Some(pid);
     pid as u32
 }
+/// A lightning flash (PAL.C LightningBolt): every colour white, fading back 4 steps of 63 a tick.
 pub fn lightning(c: &mut Ctx) -> u32 {
     let to = c.vm.fade.settled();
-    run(c, solid(0xCF, 0xCF, 0xCF, 0x3F), to, fade::LIGHTNING_TICKS, fade::PRIORITY_LIGHTNING)
+    run(c, solid(255, 255, 255, 0), to, fade::LIGHTNING_TICKS, fade::PRIORITY_LIGHTNING)
 }

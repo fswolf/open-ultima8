@@ -74,6 +74,7 @@ pub struct Game {
     pub(crate) fireballs: Vec<crate::fireball::Fireball>,
     /// Effects playing out (see [`sprites`](crate::sprites)).
     pub(crate) sprites: Vec<crate::sprites::Sprite>,
+    pub(crate) flares: Vec<crate::sprites::Flare>,
     /// Things in the air (see [`gravity`](crate::gravity)).
     pub(crate) flights: Vec<crate::gravity::Flight>,
     /// People's strength, hit points… (NPCDATA, as play changes them).
@@ -163,6 +164,7 @@ impl Game {
             peace: None,
             fireballs: vec![],
             sprites: vec![],
+            flares: vec![],
             flights: vec![],
             camera: Camera::default(),
             roof: (None, None),

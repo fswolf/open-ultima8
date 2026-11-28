@@ -51,7 +51,7 @@ pub fn solid(r: u8, g: u8, b: u8, keep: u8) -> [i16; 12] {
 /// Ticks of a fade to or from black or white, and of a transform.
 pub const BLACK_TICKS: u32 = 30;
 pub const TRANSFORM_TICKS: u32 = 45;
-pub const LIGHTNING_TICKS: u32 = 10;
+pub const LIGHTNING_TICKS: u32 = 16; // (63 steps, 4 a tick)
 /// Fades to and from black and white outrank transforms; lightning gives way to anything.
 pub const PRIORITY_FADE: i32 = 0x7FFF;
 pub const PRIORITY_LIGHTNING: i32 = -1;

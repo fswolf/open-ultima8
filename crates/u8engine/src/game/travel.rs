@@ -57,6 +57,7 @@ impl Game {
         self.loiters.clear();
         self.rising.clear();
         self.sprites.clear(); // (their scripts went with the map)
+        self.flares.clear();
         self.flights.clear();
         self.footing.clear(); // a fresh look at what people stand on
         self.camera.reset(); // its scripts are gone; follow the Avatar on the new map

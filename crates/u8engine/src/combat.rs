@@ -36,6 +36,10 @@ const STAT_GROWTH: u32 = 650;
 
 /// How hard a struck thing is knocked (units a tick, each way and up).
 const KNOCK: i32 = 16;
+/// Weapons with an effect of their own (U8SHAPES).
+const BONE_CRUSHER: u32 = 815;
+const SLAYER: u32 = 816;
+const FLAME_STING: u32 = 817;
 /// Blood (U8SHAPES).
 const BLOOD: u32 = 620;
 
@@ -53,12 +57,33 @@ impl Game {
         let target = self.swing_target(who, dir, range);
         if let Some(t) = target {
             self.receive_hit(t, who, dir, 0, 0);
-            // (A skull that lands a blow bursts: ANIMCALL.C hitAnimCall.)
-            if self.world.get(who).is_some_and(|it| it.shape == crate::monsters::SKULL) {
-                self.skull_bursts(who);
+            // (ANIMCALL.C hitAnimCall: a skull that lands a blow bursts; the Avatar's weapon,
+            // not kicking, has its own effect.)
+            match self.world.get(who).map(|it| it.shape) {
+                Some(crate::monsters::SKULL) => self.skull_bursts(who),
+                Some(1) if self.avatar.as_ref().is_some_and(|a| a.last_action() != action::KICK) => {
+                    self.weapon_strikes(who, t, dir)
+                }
+                _ => {}
             }
         }
         target.is_some()
+    }
+
+    /// The effect of the weapon `who` holds when its blow reaches `struck`: Bone Crusher's
+    /// crack, Slayer's lightning when it kills, Flame Sting's fire (ANIMCALL.C hitAnimCall).
+    fn weapon_strikes(&mut self, who: ObjId, struck: ObjId, dir: usize) {
+        let held = equip::worn(&self.data, &self.world, who, Slot::Weapon).and_then(|w| self.world.get(w));
+        match held.map(|w| w.shape) {
+            Some(BONE_CRUSHER) => self.sfx(0x17, who),
+            Some(SLAYER) if self.is_person(struck) && self.stats.get(struck).is_some_and(|s| s.dead) => {
+                self.call_intrinsic(0xE1, &[]); // (lightningBolt)
+                let sfx = [0x5b, 0x5e, 0x60][self.world.roll(3) as usize];
+                self.sfx(sfx, who);
+            }
+            Some(FLAME_STING) => self.flame_sting(who, dir),
+            _ => {}
+        }
     }
 
     /// What a swing from `who` reaches: its box pushed `range` steps the way it faces.
