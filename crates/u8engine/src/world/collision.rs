@@ -294,6 +294,40 @@ impl World {
         self.step_from(id, (it.x, it.y, it.z), dx, dy, true, (WALK_STEP, WALK_STEP))
     }
 
+    /// Where a frame of an animation takes `id` from `from` facing `dir`, as playing it does
+    /// (`act_move`): a frame on the ground walks (climbing and dropping), one off it moves
+    /// through the air (a skull, a ghost's float). None if it won't go.
+    pub fn frame_step(
+        &self,
+        id: ObjId,
+        from: (i32, i32, i32),
+        f: &u8data::anim::AnimFrame,
+        dir: usize,
+        actors: bool,
+    ) -> Option<(i32, i32, i32)> {
+        let fwd = 4 * f.ddir as i32;
+        let (dx, dy) = (crate::geom::DIRS[dir].0 * fwd, crate::geom::DIRS[dir].1 * fwd);
+        if f.flags & u8data::anim::AnimFrame::ON_GROUND != 0 {
+            return if fwd == 0 {
+                Some(from)
+            } else {
+                self.step_from(id, from, dx, dy, actors, (WALK_STEP, WALK_STEP))
+            };
+        }
+        let idx = self.index(id)?;
+        let a = &self.entries[idx];
+        let start = a.bounds().shifted(from.0 - a.it.x, from.1 - a.it.y, from.2 - a.it.z);
+        let z = (from.2 + f.dz as i32).max(0);
+        let to = start.shifted(dx, dy, z - from.2);
+        let blocked = self
+            .near(to.x0, to.y0, to.x1, to.y1)
+            .filter(|&i| i != idx)
+            .map(|i| &self.entries[i])
+            .filter(|p| p.present() && p.traits.solid && !p.marker() && (actors || !p.traits.actor))
+            .any(|p| p.bounds().overlaps(&to) && !p.bounds().overlaps(&start));
+        (!blocked).then_some((to.x1, to.y1, z))
+    }
+
     /// [`try_move`](Self::try_move) as if `id` stood at `from`, climbing at most `up` and
     /// dropping at most `down`. With `actors` false, other people don't block (planning a
     /// route: they'll have moved by the time we get there).

@@ -4,7 +4,7 @@
 //! taking turns — so a route is a list of steps the walker can take exactly as planned. Other
 //! people are ignored unless `actors` (when re-planning around someone who's in the way).
 use crate::geom::DIRS;
-use crate::world::{anim_range, two_step, ObjId, World, WALK_STEP};
+use crate::world::{anim_range, two_step, ObjId, World};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use u8data::GameData;
@@ -108,8 +108,16 @@ pub fn find(
                 None => last == action && last_dir == Some(dir),
             };
             let ks = anim_range(anim.flags, frames.len(), node.first, again);
+            // (A frame off the ground rises or sinks by its own amount.)
+            let air = |k: usize| {
+                if frames[k].flags & u8data::anim::AnimFrame::ON_GROUND == 0 {
+                    frames[k].dz as i32
+                } else {
+                    0
+                }
+            };
             let fwd = |k: usize| 4 * frames[k].ddir as i32;
-            let step = |p: Pos, k: usize| (p.0 + ux * fwd(k), p.1 + uy * fwd(k), p.2);
+            let step = |p: Pos, k: usize| (p.0 + ux * fwd(k), p.1 + uy * fwd(k), p.2 + air(k));
             // Somewhere this step would end up (unobstructed) that's been reached already.
             if visited.has(ks.iter().fold(node.at, |p, &k| step(p, k))) {
                 continue;
@@ -117,14 +125,11 @@ pub fn find(
             let (mut at, mut blocked) = (node.at, false);
             let mut closest = (octile((at.0, at.1), goal), 0, at);
             for (taken, &k) in ks.iter().enumerate() {
-                if fwd(k) != 0 {
-                    let (dx, dy) = (ux * fwd(k), uy * fwd(k));
-                    match world.step_from(id, at, dx, dy, actors, (WALK_STEP, WALK_STEP)) {
-                        Some(q) => at = q,
-                        None => {
-                            blocked = true;
-                            break;
-                        }
+                match world.frame_step(id, at, &frames[k], dir, actors) {
+                    Some(q) => at = q,
+                    None => {
+                        blocked = true;
+                        break;
                     }
                 }
                 let d = octile((at.0, at.1), goal);

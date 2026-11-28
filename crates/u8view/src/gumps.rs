@@ -59,7 +59,9 @@ impl Win {
             && gd.typeflags.get(it.shape).family == u8data::typeflag::family::CONTAINER
     }
 
-    /// What's in the window, bottom first (on the paperdoll the backpack goes over the clothes).
+    /// What's in the window, bottom first. On the paperdoll the slots go weapon, legs, body,
+    /// head, arms, shield (CONTGUMP.C draws slot 5 down to 0: the shield over the rest), then
+    /// the backpack over the clothes.
     /// Editor-only things (a chest's TRAP marker) aren't, unless `editor` (ScummVM's ContainerGump).
     fn contents(&self, gd: &GameData, world: &World, editor: bool) -> Vec<ObjId> {
         let mut c = world.contents(self.item);
@@ -69,7 +71,9 @@ impl Win {
         if self.gump == PAPERDOLL {
             // Only what's worn: the original's paperdoll draws the slots, nothing else he holds.
             c.retain(|&id| world.get(id).is_some_and(|it| it.flags & u8engine::world::item_flag::EQUIPPED != 0));
-            c.sort_by_key(|&id| holds(gd, world, id));
+            let slot =
+                |id| world.get(id).and_then(|it| u8engine::equip::Slot::of(gd, it.shape)).map_or(0, |s| s as i32);
+            c.sort_by_key(|&id| (holds(gd, world, id), -slot(id)));
         }
         c
     }
@@ -370,6 +374,33 @@ mod tests {
         let win = Win { item: chest, gump: 0, at: (0, 0) };
         assert!(!win.contents(&gd, &world, false).contains(&trap));
         assert!(win.contents(&gd, &world, true).contains(&trap), "the editor view shows it");
+    }
+
+    /// The paperdoll draws the worn things weapon, legs, body, head, arms, then the shield over
+    /// them all (CONTGUMP.C: slots 5 down to 0), and the backpack last.
+    #[test]
+    #[ignore]
+    fn the_shield_is_drawn_over_the_rest() {
+        use u8engine::equip::Slot;
+        let Ok(dir) = std::env::var("U8_DATA") else { return };
+        let gd = GameData::load_fixed(std::path::Path::new(&dir)).unwrap();
+        let mut world = World::build(&gd, 40);
+        // (The test save's Avatar has no shield: one put on him.)
+        let shape = (1..2048).find(|&s| Slot::of(&gd, s) == Some(Slot::Shield)).unwrap();
+        let flags = u8engine::world::item_flag::EQUIPPED;
+        let shield = world.add(&gd, u8data::map::Item { shape, flags, ..Default::default() }, false);
+        world.move_inside(&gd, shield, u8engine::world::AVATAR, (0, 0));
+        let worn =
+            u8data::map::Item { flags: flags | u8engine::world::item_flag::CONTAINED, ..world.get(shield).unwrap() };
+        world.set(&gd, shield, worn);
+        let win = Win { item: u8engine::world::AVATAR, gump: PAPERDOLL, at: (0, 0) };
+        let slots: Vec<Option<Slot>> =
+            win.contents(&gd, &world, false).iter().map(|&id| Slot::of(&gd, world.get(id).unwrap().shape)).collect();
+        assert!(slots.contains(&Some(Slot::Shield)) && slots.len() >= 4, "geared: {slots:?}");
+        let worn: Vec<i32> = slots.iter().map_while(|s| s.map(|s| s as i32)).collect();
+        assert!(worn.windows(2).all(|w| w[0] > w[1]), "weapon first, shield last: {slots:?}");
+        assert_eq!(worn.last(), Some(&(Slot::Shield as i32)));
+        assert!(slots[worn.len()..].iter().all(Option::is_none), "the pack after: {slots:?}");
     }
 
     /// A bag's window opens beside the window it's in when there's room that covers no other

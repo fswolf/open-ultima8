@@ -121,59 +121,53 @@ impl World {
         Some(r)
     }
 
-    /// ScummVM's Item::canReach: `other` (or what holds it) within `range` of `id`'s box, and in
-    /// sight — from anchor to anchor, else from eye height to its middle, else to its top.
+    /// ITEM.C Item::canReach: `other` (or what holds it) touching `id`, or within `range` of its
+    /// box and in a clear line: corner to corner at a shared height, else from near the top of
+    /// `id`'s middle to the middle of `other`.
     pub fn can_reach(&self, id: ObjId, other: ObjId, range: i32) -> bool {
         let other = self.root(other);
         let (Some(a), Some(b)) = (self.abs_box(id), self.abs_box(other)) else { return false };
+        // Touching it, face, edge or corner (Item::touches): a plaque on a pillar's face.
+        let meets = |a0: i32, a1: i32, b0: i32, b1: i32| (a0 <= b1 && b0 <= a1, a0 == b1 || b0 == a1);
+        let axes = [meets(a.x0, a.x1, b.x0, b.x1), meets(a.y0, a.y1, b.y0, b.y1), meets(a.z0, a.z1, b.z0, b.z1)];
+        if axes.iter().all(|m| m.0) && axes.iter().any(|m| m.1) {
+            return true;
+        }
         if a.x0 - b.x1 > range || b.x0 - a.x1 > range || a.y0 - b.y1 > range || b.y0 - a.y1 > range {
             return false;
         }
         let me = [id, self.root(id)];
         let (dx, dy, dz) = (a.x1 - a.x0, a.y1 - a.y0, a.z1 - a.z0);
         let (ox, oy, oz) = (b.x1 - b.x0, b.y1 - b.y0, b.z1 - b.z0);
-        let mut from = (a.x1, a.y1, a.z0);
-        let mut to = (b.x1, b.y1, b.z0);
-        if to.2 > a.z0 && to.2 < a.z0 + dz {
+        let (mut from, mut to) = ((a.x1, a.y1, a.z0), (b.x1, b.y1, b.z0));
+        if from.2 < to.2 && from.2 + dz > to.2 {
             from.2 = to.2;
+        } else if from.2 < to.2 + oz {
+            to.2 = from.2;
         }
-        if self.in_sight(from, to, &me, other) {
+        if self.clear_line(from, to, &me, other) {
             return true;
         }
         from = (a.x1 - dx / 2, a.y1 - dy / 2, a.z0 + if dz > 16 { dz - 8 } else { 0 });
         to = (b.x1 - ox / 2, b.y1 - oy / 2, b.z0 + oz / 2);
-        if self.in_sight(from, to, &me, other) {
-            return true;
-        }
-        to.2 = b.z0 + oz;
-        self.in_sight(from, to, &me, other)
+        self.clear_line(from, to, &me, other)
     }
 
-    /// A 2×2×2 box swept from `from` to `to`: does it meet `other` before anything solid
-    /// (ignoring `me`)? Reaching the end without meeting either counts as seen.
-    fn in_sight(&self, from: (i32, i32, i32), to: (i32, i32, i32), me: &[ObjId], other: ObjId) -> bool {
+    /// Nothing solid in the way of a point going from `from` to `to` (MOTRAK.C isClear with no
+    /// shape), `me` and `other` left out. A point is stopped only inside something: strictly
+    /// between its sides across, from its base up to its top, so a line ending on a wall's face
+    /// (where a plaque hangs) isn't blocked by the wall.
+    fn clear_line(&self, from: (i32, i32, i32), to: (i32, i32, i32), me: &[ObjId], other: ObjId) -> bool {
         let d = (to.0 - from.0, to.1 - from.1, to.2 - from.2);
-        let steps = (d.0.abs().max(d.1.abs()).max(d.2.abs()) / 2).max(1);
-        for k in 0..=steps {
+        let steps = d.0.abs().max(d.1.abs()).max(d.2.abs()).max(1);
+        (0..=steps).all(|k| {
             let p = (from.0 + d.0 * k / steps, from.1 + d.1 * k / steps, from.2 + d.2 * k / steps);
-            let probe = Bounds { x0: p.0 - 2, y0: p.1 - 2, z0: p.2, x1: p.0, y1: p.1, z1: p.2 + 2 };
-            let (mut seen, mut blocked) = (false, false);
-            for j in self.near(probe.x0, probe.y0, probe.x1, probe.y1) {
-                let e = &self.entries[j];
-                let id = self.ids[j];
-                if !e.present() || me.contains(&id) || !e.bounds().overlaps(&probe) {
-                    continue;
-                }
-                seen |= id == other;
-                blocked |= e.traits.solid && !e.marker();
-            }
-            if seen {
-                return true;
-            }
-            if blocked {
-                return false;
-            }
-        }
-        true
+            self.near(p.0, p.1, p.0, p.1).all(|j| {
+                let (e, id) = (&self.entries[j], self.ids[j]);
+                let b = e.bounds();
+                let inside = b.x0 < p.0 && p.0 < b.x1 && b.y0 < p.1 && p.1 < b.y1 && b.z0 <= p.2 && p.2 < b.z1;
+                !inside || !e.present() || !e.traits.solid || e.marker() || id == other || me.contains(&id)
+            })
+        })
     }
 }

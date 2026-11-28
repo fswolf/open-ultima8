@@ -103,6 +103,9 @@ pub fn load_fixed(d: &[u8], globs: &Globs, tf: &TypeFlags) -> Vec<Item> {
     load_fixed_with_contents(d, globs, tf).into_iter().map(|(it, _)| it).collect()
 }
 
+/// Flags of what a glob egg expands to (fast-only 0x80, disposable 0x02).
+pub const GLOB_FLAGS: u16 = 0x82;
+
 /// FIXED.DAT map entry like NONFIXED (containers followed by their contents, nested by depth),
 /// with glob eggs expanded after each egg.
 pub fn load_fixed_with_contents(d: &[u8], globs: &Globs, tf: &TypeFlags) -> Vec<(Item, Vec<u8>)> {
@@ -111,8 +114,11 @@ pub fn load_fixed_with_contents(d: &[u8], globs: &Globs, tf: &TypeFlags) -> Vec<
         if tf.get(it.shape).family == family::GLOBEGG {
             for g in globs.0.get(it.quality as usize).into_iter().flatten() {
                 // (ScummVM's GlobEgg: the egg's 512-chunk, 2 units a step, plus 1; without it
-                // glob walls sit a unit off and overlap doors and lifts beside them.)
+                // glob walls sit a unit off and overlap doors and lifts beside them.) Marked
+                // fast-only and disposable, as GLOB.C expand's 0x82: scripts tell them from the
+                // map's own (GLOBSWAP clears a room of all but these).
                 let g = Item {
+                    flags: GLOB_FLAGS,
                     x: (it.x & !0x1FF) + 2 * g.x as i32 + 1,
                     y: (it.y & !0x1FF) + 2 * g.y as i32 + 1,
                     z: it.z + g.z as i32,

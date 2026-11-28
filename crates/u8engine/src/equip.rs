@@ -208,10 +208,11 @@ pub fn worn_z(gd: &GameData, shape: u32) -> i32 {
 }
 
 /// Where and how the paperdoll shows a worn thing: its slot's spot (whatever position was
-/// saved) and its worn look, the frame after its ground frame (armour comes in such pairs).
+/// saved) and its worn look, its frame with the low bit set (CONTGUMP.C: frame | 1; armour
+/// comes in ground and worn pairs).
 pub fn paperdoll_look(gd: &GameData, it: &u8data::map::Item) -> Option<((i32, i32), u32)> {
     let slot = Slot::of(gd, it.shape).filter(|_| it.flags & item_flag::EQUIPPED != 0)?;
-    let worn = gd.shapes.frame(it.shape, it.frame + 1).map_or(it.frame, |_| it.frame + 1);
+    let worn = gd.shapes.frame(it.shape, it.frame | 1).map_or(it.frame, |_| it.frame | 1);
     Some((slot.spot(), worn))
 }
 

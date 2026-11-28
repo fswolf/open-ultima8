@@ -675,15 +675,18 @@ fn a_ghost_sends_skulls_that_burst() {
     // A swing pulls one off, sent after the ghost's quarry...
     g.world.set_target(ghost, AVATAR);
     g.world.play(&g.data, ghost, action::ATTACK, 6).expect("the ghost swings");
-    run(&mut g, 75);
-    let s = *skulls(&g).first().expect("a skull");
-    // ...which bursts at the Avatar on its next special frame.
-    let (mut it, a) = (g.world.get(s).unwrap(), g.world.get(AVATAR).unwrap());
-    (it.x, it.y, it.z) = (a.x + 64, a.y, a.z);
-    g.world.set(&g.data, s, it);
-    g.world.play(&g.data, s, action::COMBAT_STAND, 6);
-    run(&mut g, 5);
-    assert!(g.world.is_void(s), "it burst");
+    let s = (0..75).find_map(|_| (run(&mut g, 1), skulls(&g).first().copied()).1).expect("a skull");
+    // ...which flies after him, floating (its frames aren't on the ground: no gravity, ANIMPRIM.C),
+    // and bursts at him.
+    let z = g.world.get(s).unwrap().z;
+    for _ in 0..8 * 30 {
+        if g.world.is_void(s) {
+            break;
+        }
+        assert!(g.world.get(s).unwrap().z >= z, "it floats");
+        run(&mut g, 1);
+    }
+    assert!(g.world.is_void(s), "it came to him and burst");
     // Left to itself it sends more (from afar one swing in ten, while fewer than three are
     // about); swinging over and over, never more than six about.
     assert!(run(&mut g, 30 * 30).unwrap() > 0, "the ghost sent skulls itself");

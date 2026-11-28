@@ -214,12 +214,20 @@ impl Game {
             }
             if self.fast_only(id) {
                 self.put_away(id); // a hatched creature: gone again
-            } else if id >= 256 && self.world.get(id).is_some_and(|it| it.flags & item_flag::FAST_ONLY != 0) {
+            } else if id >= 256 && self.fast_only_thing(id) {
                 self.world.remove(id); // pieces of a burst, and the like
             } else {
                 self.trigger(id, event::LEAVE_FAST_AREA);
             }
         }
+    }
+
+    /// A thing gone once out of the fast area: fast-only, but not a glob egg's (the original
+    /// drops those with their region and expands the egg again when it comes back; ours stay).
+    fn fast_only_thing(&self, id: ObjId) -> bool {
+        let Some(i) = self.world.index(id) else { return false };
+        let e = self.world.entry(i);
+        e.it.flags & item_flag::FAST_ONLY != 0 && !e.glob
     }
 
     /// A script sent the Avatar to `at` on this map: the fast area goes with it there and then

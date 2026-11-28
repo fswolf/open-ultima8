@@ -304,3 +304,50 @@ fn darts_stick_in_the_board_and_sting_people() {
     let said = throw(&mut g, 30267, who);
     assert!(said.iter().any(|(i, t)| *i == who && (t.contains("watch it") || t.contains("Go play"))), "{said:?}");
 }
+
+/// Every plaque on the maps that have them gives its words when used, and the ones the reach
+/// rule kept from the player read once he walks up: those on the Upper Catacombs' pillar faces
+/// (map 50), on Tenebrae's walls (maps 40, 41) and one hung a unit off its wall. ITEM.C
+/// canReach: touching, or a clear line (a point is stopped only inside something, so a line
+/// ending on the wall's face where the plaque hangs isn't blocked by the wall).
+#[test]
+#[ignore]
+fn plaques_can_be_read() {
+    use u8engine::usecode::{event, UiEvent};
+    let dir = PathBuf::from(std::env::var("U8_DATA").unwrap());
+    let Ok(mut g) = Game::open(&dir, Some(0), Some(3)) else { return };
+    g.set_view(640.0, 400.0);
+    let run = |g: &mut Game, n: usize, input: &Input| (0..n).for_each(|_| _ = g.update(1.0 / 30.0, input));
+    run(&mut g, 3, &Input::default());
+    let mut read = 0;
+    for m in [6, 12, 14, 37, 40, 41, 50, 51, 54, 57, 60] {
+        g.put_avatar(m, (0, 0, 0));
+        let plaques: Vec<u16> =
+            g.world.objects().filter(|&id| g.world.get(id).is_some_and(|it| matches!(it.shape, 599 | 614))).collect();
+        for p in plaques {
+            g.take_events();
+            g.trigger(p, event::USE);
+            run(&mut g, 3, &Input::default());
+            let said = g.take_events().into_iter().any(|e| matches!(e, UiEvent::Read { text, .. } if !text.trim().is_empty()));
+            assert!(said, "map {m} plaque {p} says nothing");
+            read += 1;
+        }
+    }
+    assert_eq!(read, 60, "all the plaques");
+    // Walked up to (from a few steps off, facing them), they're in reach.
+    let walks = [
+        (50, 5598, (5700, 2719, 48), 6),
+        (50, 5599, (5503, 2900, 48), 0),
+        (41, 4611, (13887, 3250, 48), 0),
+        (41, 19521, (19071, 13450, 48), 0),
+        (40, 7265, (12100, 7136, 48), 6),
+        (50, 18339, (11450, 8856, 48), 6),
+    ];
+    for (m, p, start, dir) in walks {
+        g.put_avatar(m, start);
+        run(&mut g, 5, &Input::default());
+        run(&mut g, 60, &Input { dir: Some(dir), ..Default::default() });
+        run(&mut g, 20, &Input::default());
+        assert!(g.can_use(p), "map {m} plaque {p} out of reach");
+    }
+}

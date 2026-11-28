@@ -198,11 +198,7 @@ impl World {
         let mut at = (it.x, it.y, it.z);
         let ks = self.frames_to_play(id, action, dir, a.flags, frames.len());
         for k in ks.into_iter().take(if steps == 0 { usize::MAX } else { steps }) {
-            let fwd = 4 * frames[k].ddir as i32;
-            if fwd != 0 {
-                let (dx, dy) = (crate::geom::DIRS[dir].0 * fwd, crate::geom::DIRS[dir].1 * fwd);
-                at = self.step_from(id, at, dx, dy, true, (WALK_STEP, WALK_STEP))?;
-            }
+            at = self.frame_step(id, at, &frames[k], dir, true)?;
         }
         Some(at)
     }
@@ -378,8 +374,15 @@ impl World {
                 if let Some((action, dir)) = a.then {
                     next.push((a.id, action, dir));
                 }
-                let z = self.get(a.id).map_or(0, |it| it.z);
-                if !a.backwards && self.floor_under(a.id).is_none_or(|f| f < z) {
+                // (Only a step on the ground can leave him unsupported: ANIMPRIM.C checks gravity
+                // for such frames alone, so a ghost or a skull floats on.)
+                let it = self.get(a.id);
+                let last = it.and_then(|it| {
+                    gd.anims.get(it.shape, a.action)?.frames.get(a.dir)?.get(*a.frames.last()?).copied()
+                });
+                let ground = last.is_some_and(|f| f.flags & u8data::anim::AnimFrame::ON_GROUND != 0);
+                let z = it.map_or(0, |it| it.z);
+                if ground && !a.backwards && self.floor_under(a.id).is_none_or(|f| f < z) {
                     aloft.push(a.id);
                 }
                 return false;

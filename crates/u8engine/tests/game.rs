@@ -756,3 +756,43 @@ fn a_false_floor_gives_way_underfoot() {
     assert!(g.world.get(floor).is_none() && g.world.get(marker).is_none(), "the floor gave way");
     assert!(g.world.get(AVATAR).unwrap().z < 48, "and he fell");
 }
+
+/// GLOBSWAP rooms in the Upper Catacombs (map 50) keep their floors: a glob egg's things are
+/// fast-only and disposable (GLOB.C, 0x82), and GLOBSWAP clears its room of everything but
+/// those before copying its pattern in. Ours were plain, so the floors went and left holes.
+/// Before the Skull of Quakes and after (postEarthQuake picks the other pattern).
+#[test]
+#[ignore]
+fn glob_swapped_rooms_keep_their_floors() {
+    let dir = PathBuf::from(std::env::var("U8_DATA").unwrap());
+    let Ok(mut g) = Game::open(&dir, Some(0), Some(3)) else { return };
+    g.set_view(640.0, 400.0);
+    let run = |g: &mut Game| (0..10).for_each(|_| _ = g.update(1.0 / 30.0, &Input::default()));
+    run(&mut g);
+    g.put_avatar(50, (14212, 12684, 64));
+    run(&mut g);
+    let swaps: Vec<(i32, i32, i32)> = g
+        .world
+        .objects()
+        .filter_map(|id| g.world.get(id).filter(|it| it.shape == 73 && it.quality == 49).map(|it| (it.x, it.y, it.z)))
+        .collect();
+    assert!(swaps.len() > 10, "the catacombs' swapping rooms");
+    let globs = |g: &Game, (x, y): (i32, i32)| {
+        let room = |it: &u8data::map::Item| (it.x & 0x7e00, it.y & 0x7e00) == (x & 0x7e00, y & 0x7e00);
+        g.world
+            .objects()
+            .filter(|&id| g.world.entry(g.world.index(id).unwrap()).glob && room(&g.world.get(id).unwrap()))
+            .count()
+    };
+    let before: Vec<usize> = swaps.iter().map(|&(x, y, _)| globs(&g, (x, y))).collect();
+    assert!(before.iter().filter(|&&n| n > 0).count() > 10, "{before:?}");
+    for quake in [0, 1] {
+        g.vm().unwrap().set_global_bits(0x12, 1, quake); // postEarthQuake
+        for &(x, y, z) in &swaps {
+            g.put_avatar(50, (x, y, z));
+            run(&mut g);
+        }
+        let after: Vec<usize> = swaps.iter().map(|&(x, y, _)| globs(&g, (x, y))).collect();
+        assert_eq!(after, before, "postEarthQuake {quake}");
+    }
+}
