@@ -5,7 +5,6 @@
 use super::*;
 use crate::world::WALK_STEP;
 
-const LOOPING: u16 = 0x04;
 /// Shifts aside tried for a blocked walk, run or careful step: 16, 32 and 48, left first. (The
 /// original tries a walk or run turned a way before the 48s; a turned run veers off for a whole
 /// stride, up to 160 off his line, so here every shift comes first.)
@@ -66,8 +65,7 @@ impl Avatar {
                 action,
                 dir,
                 flags: a.flags,
-                // (Doing it again, a looping one goes on from its second frame.)
-                frames: anim_range(a.flags, size, self.first, self.last.0 == action && a.flags & LOOPING != 0),
+                frames: anim_range(a.flags, size, self.first, self.last.0 == action),
                 step: 0,
                 wait: 0.0,
                 pace: (a.repeat as f32 + 1.0) / 30.0,
@@ -109,7 +107,7 @@ impl Avatar {
     ) -> Result<bool, usize> {
         let a = world.get(AVATAR).and_then(|it| gd.anims.get(it.shape, action)).ok_or(0usize)?;
         let frames = a.frames.get(dir).ok_or(0usize)?;
-        let again = self.last.0 == action && a.flags & LOOPING != 0;
+        let again = self.last.0 == action;
         for (n, k) in anim_range(a.flags, frames.len(), self.first, again).into_iter().enumerate() {
             let fwd = 4 * frames.get(k).map_or(0, |f| f.ddir as i32);
             let side = drift.iter().find(|d| d.0 == n).map_or((0, 0), |d| d.1);
@@ -142,7 +140,7 @@ impl Avatar {
         let blocked = self.trial(gd, world, action, dir, start, &[]).err()?;
         let a = gd.anims.get(world.get(AVATAR)?.shape, action)?;
         let frames = a.frames.get(dir)?;
-        let again = self.last.0 == action && a.flags & LOOPING != 0;
+        let again = self.last.0 == action;
         let moving: Vec<usize> = anim_range(a.flags, frames.len(), self.first, again)
             .into_iter()
             .enumerate()

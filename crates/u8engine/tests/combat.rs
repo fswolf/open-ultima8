@@ -678,15 +678,23 @@ fn a_ghost_sends_skulls_that_burst() {
     let s = (0..75).find_map(|_| (run(&mut g, 1), skulls(&g).first().copied()).1).expect("a skull");
     // ...which flies after him, floating (its frames aren't on the ground: no gravity, ANIMPRIM.C),
     // and bursts at him.
+    // Each advance plays both its frames, the still one too (ANIMPRIM.C figureStartingPhase:
+    // only a looping action skips its frame 0 when done again), so it comes no faster than its
+    // longest stride, 48 in 4 ticks: slower than he runs.
     let z = g.world.get(s).unwrap().z;
+    let (mut ticks, mut flown, mut at) = (0, 0, g.world.get(s).map(|it| (it.x, it.y)).unwrap());
     for _ in 0..8 * 30 {
         if g.world.is_void(s) {
             break;
         }
-        assert!(g.world.get(s).unwrap().z >= z, "it floats");
+        let it = g.world.get(s).unwrap();
+        assert!(it.z >= z, "it floats");
+        (flown, at) = (flown + (it.x - at.0).abs().max((it.y - at.1).abs()), (it.x, it.y));
+        ticks += 1;
         run(&mut g, 1);
     }
     assert!(g.world.is_void(s), "it came to him and burst");
+    assert!(flown <= 12 * ticks, "flown {flown} in {ticks} ticks");
     // Left to itself it sends more (from afar one swing in ten, while fewer than three are
     // about); swinging over and over, never more than six about.
     assert!(run(&mut g, 30 * 30).unwrap() > 0, "the ghost sent skulls itself");

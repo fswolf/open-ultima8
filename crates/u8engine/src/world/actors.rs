@@ -27,10 +27,11 @@ pub(super) struct Acting {
     pub(super) then: Option<(usize, usize)>,
 }
 
-/// The frames an action of `size` frames plays (ScummVM's AnimAction::getAnimRange and
-/// AnimationTracker::getNextFrame): a two-step action (walking, running) plays one step — the
-/// first half when `first_step`, else the second — and a looping one never shows its frame 0
-/// once under way; doing the same thing the same way `again` skips the first frame.
+/// The frames an action of `size` frames plays (ANIMPRIM.C figureStartingPhase and process): a
+/// two-step action (walking, running) plays one step — the first half when `first_step`, else
+/// the second — and a looping one never shows its frame 0 once under way, so done `again` (the
+/// last action was this one, whichever way) it starts on its second frame. Any other action
+/// plays from its frame 0 every time.
 pub fn anim_range(flags: u16, size: usize, first_step: bool, again: bool) -> Vec<usize> {
     let looping = flags & LOOPING != 0;
     let (start, end) = if flags & TWO_STEP != 0 {
@@ -38,7 +39,7 @@ pub fn anim_range(flags: u16, size: usize, first_step: bool, again: bool) -> Vec
             true => (if looping { size - 1 } else { 0 }, size / 2),
             false => (size / 2, if looping { size - 1 } else { size }),
         }
-    } else if again && size > 1 {
+    } else if looping && again && size > 1 {
         (1, size)
     } else {
         (0, size)
@@ -150,7 +151,7 @@ impl World {
         let mut it = self.get(id)?;
         let before = Some(it);
         let a = gd.anims.get(it.shape, action)?;
-        let mut frames = self.frames_to_play(id, action, dir, a.flags, a.frames.get(dir)?.len());
+        let mut frames = self.frames_to_play(id, action, a.flags, a.frames.get(dir)?.len());
         let cut = steps > 0 && steps < frames.len();
         if cut {
             frames.truncate(steps);
@@ -196,7 +197,7 @@ impl World {
         let a = gd.anims.get(it.shape, action)?;
         let frames = a.frames.get(dir)?;
         let mut at = (it.x, it.y, it.z);
-        let ks = self.frames_to_play(id, action, dir, a.flags, frames.len());
+        let ks = self.frames_to_play(id, action, a.flags, frames.len());
         for k in ks.into_iter().take(if steps == 0 { usize::MAX } else { steps }) {
             at = self.frame_step(id, at, &frames[k], dir, true)?;
         }
@@ -224,9 +225,8 @@ impl World {
         self.last_dir.insert(id, dir);
     }
 
-    fn frames_to_play(&self, id: ObjId, action: usize, dir: usize, flags: u16, size: usize) -> Vec<usize> {
-        let again = self.last_anim(id) == action && self.last_dir.get(&id) == Some(&dir);
-        anim_range(flags, size, self.first_step.contains(&id), again)
+    fn frames_to_play(&self, id: ObjId, action: usize, flags: u16, size: usize) -> Vec<usize> {
+        anim_range(flags, size, self.first_step.contains(&id), self.last_anim(id) == action)
     }
 
     /// Play `action` last frame first, in place, ending on its first frame; `id`'s last action

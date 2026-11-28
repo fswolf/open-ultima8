@@ -82,7 +82,7 @@ pub fn find(
     let it = world.get(id)?;
     let anim = gd.anims.get(it.shape, action)?;
     let reached = |p: Pos| (p.0 - goal.0).abs().max((p.1 - goal.1).abs()) <= reach;
-    let (last, last_dir) = (world.last_anim(id), world.last_dir(id));
+    let last = world.last_anim(id);
     let start = Node { at: (it.x, it.y, it.z), first: world.first_step(id), dir: None, cost: 0, parent: 0, frames: 0 };
     let mut nodes = vec![start];
     let mut open = BinaryHeap::new();
@@ -103,11 +103,8 @@ pub fn find(
         }
         for (dir, &(ux, uy)) in DIRS.iter().enumerate() {
             let Some(frames) = anim.frames.get(dir) else { continue };
-            let again = match node.dir {
-                Some(d) => d == dir,
-                None => last == action && last_dir == Some(dir),
-            };
-            let ks = anim_range(anim.flags, frames.len(), node.first, again);
+            // (After the first step the last action is always this one.)
+            let ks = anim_range(anim.flags, frames.len(), node.first, node.dir.is_some() || last == action);
             // (A frame off the ground rises or sinks by its own amount.)
             let air = |k: usize| {
                 if frames[k].flags & u8data::anim::AnimFrame::ON_GROUND == 0 {
