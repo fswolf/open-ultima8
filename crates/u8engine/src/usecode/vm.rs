@@ -118,6 +118,8 @@ pub struct Vm {
 pub const PROC_TYPE_ALL: u16 = 6;
 /// Process type of an actor's animations (the original's AnimPrimitive; the scripts' PT_ANIM).
 pub const ANIM_PROC: u16 = 0xF0;
+/// Process type of a thing in flight (the original's GravityTracker).
+pub const GRAVITY: u16 = 0x203;
 /// Process type of a walk (the original's PathFinder).
 pub const PATHFINDER: u16 = 0x204;
 /// What someone does of their own accord (the original's Loiter, scripts' routines: PT_ACTIVITY).

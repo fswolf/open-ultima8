@@ -339,8 +339,7 @@ pub fn legal_move_to_point(c: &mut Ctx) -> u32 {
     let Some(from) = c.item() else { return 0 };
     let Some((clear, before, now)) = c.host.collide_move(id, to, abort) else { return 0 };
     // What it ends up in or on is struck (gotHit; the mover's hit), what it left is let go.
-    let (dx, dy, dz) = ((to.0 - from.x).abs() / 4, (to.1 - from.y).abs() / 4, (to.2 - from.z).abs());
-    let force = ((dx + dy + dz + dy.max(dz)) / 2) as i16; // (ScummVM's, y and z only in the max)
+    let force = crate::touch::force((to.0 - from.x, to.1 - from.y, to.2 - from.z));
     let args = |o: ObjId| [o.to_le_bytes(), force.to_le_bytes()].concat();
     for &o in &now {
         event_on(c, o, event::GOT_HIT, &args(id));

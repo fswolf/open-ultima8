@@ -255,3 +255,52 @@ fn a_jump_into_a_teleporter_arrives_standing() {
     let stand = u8engine::avatar::anim_frame(&g.data, it.shape, action::STAND, dir, 0).unwrap().0;
     assert_eq!(it.frame, stand, "standing");
 }
+
+/// A dart thrown (DART's use: pick a target, then shoot) and what it strikes gets its `hit`
+/// event, as ScummVM's collideMove tells what a missile runs into: at the dartboard it sticks
+/// (DART's hit: hanging, its frame for the board), at someone they say so ("Hey, watch it!" or
+/// "Go play somewhere else!").
+#[test]
+#[ignore]
+fn darts_stick_in_the_board_and_sting_people() {
+    use u8engine::usecode::{event, UiEvent};
+    use u8engine::world::item_flag::HANGING;
+    let throw = |g: &mut Game, dart: u16, at: u16| {
+        let mut said = vec![];
+        g.trigger(dart, event::USE);
+        for _ in 0..4 * 30 {
+            g.update(1.0 / 30.0, &Input::default());
+            for e in g.take_events() {
+                match e {
+                    UiEvent::Target { pid } => g.vm().unwrap().finish(pid, at as u32),
+                    UiEvent::Bark { pid, item, text } => {
+                        said.push((item, text));
+                        g.vm().unwrap().finish(pid, 0);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        said
+    };
+    let Some(mut g) = saved(1) else { return };
+    g.set_view(640.0, 400.0);
+    g.put_avatar(39, (0, 0, 0));
+    g.set_minutes(600);
+    // The board in the Tenebrae tavern, on its wall, and a dart lying by it.
+    let (board, dart) = (17605, 30265);
+    g.put_avatar(39, (15615, 11967, 48));
+    let free = |g: &Game| g.world.get(dart).unwrap().flags & HANGING == 0;
+    assert!(free(&g));
+    throw(&mut g, dart, board);
+    let d = g.world.get(dart).unwrap();
+    assert!(!free(&g), "it sticks in the board: {d:?}");
+    // At someone standing by.
+    let who =
+        (2..256).find(|&n| g.world.get(n).is_some_and(|p| (p.x - 15615).abs() < 600 && (p.y - 11967).abs() < 600));
+    let who = who.expect("someone in the tavern");
+    let p = g.world.get(who).unwrap();
+    g.put_avatar(39, (p.x + 160, p.y, p.z));
+    let said = throw(&mut g, 30267, who);
+    assert!(said.iter().any(|(i, t)| *i == who && (t.contains("watch it") || t.contains("Go play"))), "{said:?}");
+}

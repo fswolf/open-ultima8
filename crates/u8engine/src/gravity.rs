@@ -5,7 +5,7 @@
 use crate::combat::dmg;
 use crate::game::Game;
 use crate::geom::dir_towards;
-use crate::usecode::Pid;
+use crate::usecode::{event, Pid};
 use crate::world::{item_flag, ObjId};
 use u8data::{anim::action, typeflag::flag};
 
@@ -85,7 +85,7 @@ impl Game {
                 self.finish_all(f.pids);
             }
         }
-        let mut landed = vec![];
+        let (mut landed, mut struck) = (vec![], vec![]);
         flights.retain_mut(|f| {
             let Some(it) = self.world.get(f.id).filter(|_| !self.world.is_void(f.id)) else {
                 landed.push((f.id, 0, std::mem::take(&mut f.pids)));
@@ -101,6 +101,7 @@ impl Game {
                 f.v.2 -= f.gravity; // free flight
                 return true;
             };
+            struck.push((f.id, hit));
             if dirs & 4 != 0 && f.v.2 < 0 {
                 // Came down on something.
                 let actor = it.npc != 0;
@@ -161,13 +162,40 @@ impl Game {
         flights.append(&mut self.flights); // any started meanwhile
         self.flights = flights;
         for (id, from, before) in starts {
-            if let Some(it) = self.world.get(id).filter(|it| (it.x, it.y, it.z) != from) {
-                self.touched(id, &before, (it.x - from.0, it.y - from.1, it.z - from.2));
+            let Some(it) = self.world.get(id) else { continue };
+            let d = (it.x - from.0, it.y - from.1, it.z - from.2);
+            // What stopped it is struck first (MOTRAK.C makeItSo: hit and gotHit, but a pile
+            // running into a pile of its own kind), then what it newly touches.
+            let hit = struck.iter().find(|s| s.0 == id).map(|s| s.1).filter(|&h| !self.same_pile(id, h));
+            if let Some(h) = hit {
+                let args = |o: ObjId| [o.to_le_bytes(), crate::touch::force(d).to_le_bytes()].concat();
+                self.trigger_with(id, event::HIT, &args(h));
+                self.trigger_with(h, event::GOT_HIT, &args(id));
+            }
+            if d != (0, 0, 0) {
+                let before: Vec<ObjId> = before.into_iter().chain(hit).collect();
+                self.touched(id, &before, d);
             }
         }
         for (id, height, pids) in landed {
             self.landed(id, height);
             self.finish_all(pids);
+        }
+    }
+
+    /// Two piles of the same thing (they'd merge, not strike: MOTRAK.C).
+    fn same_pile(&self, a: ObjId, b: ObjId) -> bool {
+        use u8data::typeflag::family;
+        let (Some(x), Some(y)) = (self.world.get(a), self.world.get(b)) else { return false };
+        x.shape == y.shape && matches!(self.data.typeflags.get(x.shape).family, family::QUANTITY | family::REAGENT)
+    }
+
+    /// `id`'s flight ends where it is: its GravityTracker killed, which counts as failed, so
+    /// nobody lands or is hurt by it (GRAVITY.C's destructor); whoever waited on it goes on.
+    pub(crate) fn stop_flight(&mut self, id: ObjId) {
+        if let Some(i) = self.flights.iter().position(|f| f.id == id) {
+            let f = self.flights.remove(i);
+            self.finish_all(f.pids);
         }
     }
 

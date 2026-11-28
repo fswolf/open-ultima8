@@ -66,6 +66,9 @@ pub fn reset_ref(c: &mut Ctx) -> u32 {
     let (item, ty) = (c.arg2(0), c.arg2(2));
     let pid = c.pid;
     c.vm.kill_item_procs(item, ty, pid);
+    if matches!(ty, crate::usecode::vm::GRAVITY | crate::usecode::vm::PROC_TYPE_ALL) && item != 0 {
+        c.vm.requests.push(Request::StopFlight(item));
+    }
     if ty == crate::usecode::vm::ANIM_PROC && item != 0 {
         let behind = |r: &Request| matches!(r, Request::Hit { target, .. } if *target == item);
         if c.vm.requests.iter().any(behind) {

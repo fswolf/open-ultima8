@@ -106,6 +106,9 @@ pub enum Request {
     Hurl { id: ObjId, v: (i32, i32, i32), gravity: i32, pid: Pid },
     /// fall: drop, if nothing holds it up.
     Fall(ObjId),
+    /// resetRef of a thing's gravity (process type 0x203): it stops in the air where it is (a
+    /// dart in the board), nobody landing.
+    StopFlight(ObjId),
     /// explode: blow up (and go, if `destroy`), hurting what's near.
     Explode { id: ObjId, destroy: bool },
     /// igniteChaos(x, y): set off the oil flasks lying about there.

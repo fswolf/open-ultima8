@@ -14,17 +14,21 @@ fn step(a: (i32, i32, i32), b: (i32, i32, i32)) -> bool {
     (a.0 - b.0).abs().max((a.1 - b.1).abs()).max((a.2 - b.2).abs()) <= MOST_IN_A_TICK
 }
 
+/// How hard a move of (dx, dy, dz) strikes what it meets (MOTRAK.C makeItSo).
+pub(crate) fn force((dx, dy, dz): (i32, i32, i32)) -> i16 {
+    let (x, y, z) = ((dx >> 2).abs(), (dy >> 2).abs(), dz.abs());
+    ((x + y + z + x.max(y).max(z)) / 2) as i16
+}
+
 /// Where someone last was, and what they touched there.
 pub(crate) type Footing = ((i32, i32, i32), Vec<ObjId>);
 
 impl Game {
     /// `id` moved by (dx, dy, dz) from where it touched `before`: the events. Returns what it
     /// touches now.
-    pub(crate) fn touched(&mut self, id: ObjId, before: &[ObjId], (dx, dy, dz): (i32, i32, i32)) -> Vec<ObjId> {
+    pub(crate) fn touched(&mut self, id: ObjId, before: &[ObjId], d: (i32, i32, i32)) -> Vec<ObjId> {
         let now = self.world.contacts(id);
-        // ScummVM's hit force (its maximum takes y and z only).
-        let (x, y, z) = (dx.abs() / 4, dy.abs() / 4, dz.abs());
-        let force = ((x + y + z + y.max(z)) / 2) as i16;
+        let force = force(d);
         let args = |o: ObjId| [o.to_le_bytes(), force.to_le_bytes()].concat();
         for &o in now.iter().filter(|o| !before.contains(o)) {
             self.trigger_with(o, event::GOT_HIT, &args(id));

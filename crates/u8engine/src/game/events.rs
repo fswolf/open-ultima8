@@ -115,6 +115,7 @@ impl Game {
                 }
                 Request::Hurl { id, v, gravity, pid } => self.hurl(id, v, gravity, Some(pid)),
                 Request::Fall(id) => self.fall(id),
+                Request::StopFlight(id) => self.stop_flight(id),
                 Request::Explode { id, destroy } => self.explode(id, destroy),
                 Request::Ignite { x, y } => self.ignite(x, y),
                 // A new map: its scripts start afresh, the rest was for the old one.
