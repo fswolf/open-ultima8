@@ -274,7 +274,7 @@ scenery), `people.rs`, `items.rs`, `combat.rs`, `attacks.rs` (how people answer 
   `gumps.rs` is item windows (opened by scripts' `Item::openGump`: bags, chests, the paperdoll),
   `art.rs` the original's window art (U8GUMPS.FLX) and item areas (GUMPAGE.DAT), shared with the
   menus. `ui.rs` shows barks, conversation choices (numbered panel or the original's bulleted style)
-  and notices, and `ui/readable.rs` books, scrolls, graves and plaques; book and scroll text is in `pagefont.rs`, and `cover.rs` adds a book's
+  and notices (speech and replies optionally in the readable type, `Words`, set again at the overlay's resolution), and `ui/readable.rs` books, scrolls, graves and plaques; book and scroll text and the readable speech type are in `pagefont.rs`, and `cover.rs` adds a book's
   leather cover and turned-up page corners to the original's art. `menu.rs` is the original's book menus drawn with its own art (U8GUMPS.FLX
   35 book, 32 logo, 37 menu entries): main menu, the diary (Read loads, Write saves: Entry n is slot n - 1, Entry 1 the
   beginning, six to a spread, gumps 46 "Entry", 36 numbers, 34 page corners), the quit question

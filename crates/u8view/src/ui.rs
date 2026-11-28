@@ -56,17 +56,63 @@ pub enum Style {
 }
 
 /// An option rendered plain and highlighted.
-type Choice = (TextImage, TextImage);
+type Choice = (Words, Words);
+
+/// The readable type's sizes (game pixels to the em; Settings: Speech size), and how wide its
+/// speech is let run: as many letters a line as the original's 194.
+pub const SPEECH_SIZES: [(&str, f32); 4] = [("small", 9.0), ("medium", 11.0), ("large", 13.0), ("huge", 16.0)];
+const fn speech_width(size: f32) -> u32 {
+    (BARK_WIDTH as f32 * size / 11.0) as u32
+}
+
+/// Words on the overlay: in a game font (`ink` None), or in the readable type in that colour,
+/// then drawn at the screen's own resolution (`ss`, the one it was last set for).
+struct Words {
+    lines: Vec<String>,
+    ink: Option<[u8; 3]>,
+    img: TextImage,
+    ss: u32,
+}
+
+impl Words {
+    fn game(img: TextImage) -> Self {
+        Self { lines: vec![], ink: None, img, ss: 1 }
+    }
+
+    /// Its size in game pixels.
+    fn size(&self) -> (i32, i32) {
+        let s = self.ss as i32;
+        ((self.img.w as i32 + s - 1) / s, (self.img.h as i32 + s - 1) / s)
+    }
+
+    /// Set again in the readable type at the overlay's resolution, if that's changed.
+    fn fit(&mut self, font: Option<&PageFont>, ss: u32) {
+        if let (Some(ink), Some(f)) = (self.ink, font) {
+            if self.ss != ss {
+                (self.img, self.ss) = (f.render_outlined(&self.lines, ss, ink), ss);
+            }
+        }
+    }
+
+    /// Draw it at game pixel (x, y); a game font `ringed` gets a dark outline.
+    fn draw(&self, canvas: &mut Canvas, ss: u32, x: i32, y: i32, ringed: bool) {
+        match self.ink {
+            Some(_) => text::draw_blended(canvas, &self.img, x * ss as i32, y * ss as i32),
+            None if ringed => text::draw(canvas, ss, &self.img, x, y),
+            None => text::draw_plain(canvas, ss, &self.img, x, y),
+        }
+    }
+}
 
 enum Panel {
     Bark {
         pid: Pid,
         item: u16,
-        img: TextImage,
+        img: Words,
         /// Game time this page stays up for.
         left: Duration,
         /// The pages still to come, each with its time (long speech, as the original pages it).
-        more: VecDeque<(TextImage, Duration)>,
+        more: VecDeque<(Words, Duration)>,
         /// Where this page went, from the point over the speaker (see [`place_bark`]); it then
         /// moves with the speaker. None: not placed yet.
         off: Option<(i32, i32)>,
@@ -92,15 +138,52 @@ enum Panel {
 pub struct ScriptUi {
     fonts: Fonts,
     type_font: PageFont,
+    /// Speech and replies in the readable type (None: the game's fonts), and its size.
+    speech: Option<PageFont>,
+    pub speech_size: usize,
     panels: Vec<Panel>,
     pub style: Style,
 }
 
 impl ScriptUi {
     pub fn new(fonts: Fonts) -> Self {
-        Self { fonts, type_font: PageFont::new(), panels: vec![], style: Style::Modern }
+        Self { fonts, type_font: PageFont::new(), speech: None, speech_size: 1, panels: vec![], style: Style::Modern }
     }
 
+    /// Speech and replies in the readable type (`on`) at one of [`SPEECH_SIZES`], or in the
+    /// game's fonts, from the next words said.
+    pub fn set_speech(&mut self, on: bool, size: usize) {
+        self.speech_size = size.min(SPEECH_SIZES.len() - 1);
+        self.speech = on.then(|| PageFont::speech(SPEECH_SIZES[self.speech_size].1));
+    }
+
+    /// Is speech set in the readable type (drawn at the screen's resolution)?
+    pub fn typed(&self) -> bool {
+        self.speech.is_some()
+    }
+
+    /// The colour a game font's letters are (the commonest one but its black outline).
+    fn ink(&self, font: usize, pal: &Palette) -> [u8; 3] {
+        let img = self.fonts.render_set(font, &["MWHOEA".to_string()], pal, 0, false);
+        let mut seen = std::collections::HashMap::new();
+        for p in img.rgba.chunks(4).filter(|p| p[3] > 0 && p[..3] != [0, 0, 0]) {
+            *seen.entry([p[0], p[1], p[2]]).or_insert(0) += 1;
+        }
+        seen.into_iter().max_by_key(|&(c, n)| (n, c)).map_or([255; 3], |(c, _)| c)
+    }
+
+    /// One line in game font `font` (`set`: as speech is set, else as the numbered replies), or
+    /// in the readable type in its colour.
+    fn words(&self, font: usize, line: String, pal: &Palette, set: bool) -> Words {
+        match &self.speech {
+            Some(f) => {
+                let (lines, ink) = (vec![line], self.ink(font, pal));
+                Words { img: f.render_outlined(&lines, 1, ink), lines, ink: Some(ink), ss: 1 }
+            }
+            None if set => Words::game(self.fonts.render_set(font, &[line], pal, 0, false)),
+            None => Words::game(self.fonts.render(font, &[line], pal, None)),
+        }
+    }
     pub fn toggle_style(&mut self) {
         self.style = if self.style == Style::Modern { Style::Classic } else { Style::Modern };
     }
@@ -127,33 +210,20 @@ impl ScriptUi {
                 let mut pages: VecDeque<_> = self.bark_pages(font, text.trim(), pal, spoken).into();
                 let (img, left) = pages
                     .pop_front()
-                    .unwrap_or_else(|| (self.fonts.render_set(font, &[], pal, 0, false), Duration::ZERO));
+                    .unwrap_or_else(|| (Words::game(self.fonts.render_set(font, &[], pal, 0, false)), Duration::ZERO));
                 self.panels.push(Panel::Bark { pid, item, img, left, more: pages, off: None });
             }
             UiEvent::Ask { pid, options, .. } => {
-                let choices = |fonts: &Fonts, (a, b): (usize, usize)| -> Vec<Choice> {
-                    options
-                        .iter()
-                        .enumerate()
-                        .map(|(i, o)| {
-                            let t = vec![format!("{}. {}", i + 1, o.trim())];
-                            (fonts.render(a, &t, pal, None), fonts.render(b, &t, pal, None))
-                        })
-                        .collect()
-                };
-                let imgs = choices(&self.fonts, (OPTION_FONT, OPTION_HOVER_FONT));
-                // The original's: "@ " (its bullet) and the answer, in the Avatar's speech font.
-                let classic = options
-                    .iter()
-                    .map(|o| {
-                        let t = [format!("@ {}", o.trim())];
-                        let f = &self.fonts;
-                        (
-                            f.render_set(CLASSIC_FONT, &t, pal, 0, false),
-                            f.render_set(CLASSIC_HOVER_FONT, &t, pal, 0, false),
-                        )
-                    })
-                    .collect();
+                let choices =
+                    |(a, b): (usize, usize), set: bool, line: &dyn Fn(usize, &str) -> String| -> Vec<Choice> {
+                        let one = |f, i, o: &String| self.words(f, line(i, o.trim()), pal, set);
+                        options.iter().enumerate().map(|(i, o)| (one(a, i, o), one(b, i, o))).collect()
+                    };
+                let imgs = choices((OPTION_FONT, OPTION_HOVER_FONT), false, &|i, o| format!("{}. {o}", i + 1));
+                // The original's: "@ " (its bullet, a dot in the readable type) and the answer,
+                // in the Avatar's speech font.
+                let bullet = if self.typed() { "\u{2022}" } else { "@" };
+                let classic = choices((CLASSIC_FONT, CLASSIC_HOVER_FONT), true, &|_, o| format!("{bullet} {o}"));
                 self.panels.push(Panel::Ask {
                     pid,
                     options,
@@ -189,14 +259,9 @@ impl ScriptUi {
     /// time (measured in DOS at text speed 5: about 2.9 s plus 16 ms a letter: "Hello there."
     /// 3.2 s, 81 letters 4.2 s); in the modern one at least ~70 ms a letter to read it, up to
     /// 8 s. Recorded speech keeps each page up for its share of it (the last 0.3 s longer).
-    fn bark_pages(&self, font: usize, text: &str, pal: &Palette, spoken: Option<f32>) -> Vec<(TextImage, Duration)> {
-        let mut pages = vec![];
-        let mut rest = text;
-        while !rest.is_empty() || pages.is_empty() {
-            let (lines, used) = self.fonts.typeset(font, rest, BARK_WIDTH, BARK_HEIGHT, false, false);
-            // (At least a letter, so it always moves on; never inside a multi-byte one.)
-            let used = (used.max(1)..=rest.len()).find(|&i| rest.is_char_boundary(i)).unwrap_or(rest.len());
-            let n = rest[..used].trim().len() as u64;
+    /// In the readable type: the same, five lines a page as wide as its size lets them run.
+    fn bark_pages(&self, font: usize, text: &str, pal: &Palette, spoken: Option<f32>) -> Vec<(Words, Duration)> {
+        let time = |n: u64| {
             let mut ms = 2900 + 16 * n;
             if self.style == Style::Modern {
                 ms = ms.max((n * 70).min(8000));
@@ -204,7 +269,27 @@ impl ScriptUi {
             if let Some(s) = spoken {
                 ms = ms.max((s * 1000.0) as u64 * n / text.len().max(1) as u64);
             }
-            pages.push((self.fonts.render_set(font, &lines, pal, 0, false), Duration::from_millis(ms)));
+            Duration::from_millis(ms)
+        };
+        let mut pages = vec![];
+        if let Some(f) = &self.speech {
+            let ink = self.ink(font, pal);
+            let mut set = f.speech_pages(text, speech_width(f.size()), 5);
+            if set.is_empty() {
+                set.push((vec![], "")); // (nothing said still stays its while, as the original's)
+            }
+            for (lines, took) in set {
+                let img = f.render_outlined(&lines, 1, ink);
+                pages.push((Words { lines, ink: Some(ink), img, ss: 1 }, time(took.trim().len() as u64)));
+            }
+        }
+        let mut rest = text;
+        while self.speech.is_none() && (!rest.is_empty() || pages.is_empty()) {
+            let (lines, used) = self.fonts.typeset(font, rest, BARK_WIDTH, BARK_HEIGHT, false, false);
+            // (At least a letter, so it always moves on; never inside a multi-byte one.)
+            let used = (used.max(1)..=rest.len()).find(|&i| rest.is_char_boundary(i)).unwrap_or(rest.len());
+            let n = rest[..used].trim().len() as u64;
+            pages.push((Words::game(self.fonts.render_set(font, &lines, pal, 0, false)), time(n)));
             rest = rest[used..].trim_start();
             if lines.is_empty() {
                 break;
@@ -431,6 +516,16 @@ impl ScriptUi {
         rect_of: impl Fn(u16) -> Option<[i32; 4]>,
     ) {
         let (vw, vh) = (vw as i32, vh as i32);
+        let font = self.speech.as_ref();
+        for p in &mut self.panels {
+            match p {
+                Panel::Bark { img, .. } => img.fit(font, ss),
+                Panel::Ask { imgs, classic, .. } => {
+                    imgs.iter_mut().chain(classic.iter_mut()).for_each(|(a, b)| (a.fit(font, ss), b.fit(font, ss)).1)
+                }
+                _ => {}
+            }
+        }
         // Keep a w×h box inside the view (left/top edge wins if it can't fit).
         let fit = |v: i32, size: i32, room: i32| v.min(room - size - 2).max(2);
         // Speech: pages already placed keep their place by their speaker; new ones find theirs
@@ -439,7 +534,7 @@ impl ScriptUi {
         for p in &mut self.panels {
             let Panel::Bark { item, img, off: off @ None, .. } = p else { continue };
             let Some(r) = rect_of(*item) else { continue };
-            let (w, h) = (img.w as i32, img.h as i32);
+            let (w, h) = img.size();
             let at = if r[2] == 0 && r[3] == 0 {
                 (r[0] - w / 2, r[1] - h) // (nobody to stand over: the Guardian, low in the middle)
             } else {
@@ -453,24 +548,31 @@ impl ScriptUi {
             match p {
                 Panel::Bark { img, .. } => {
                     let Some([x, y, ..]) = spot else { continue };
-                    text::draw_plain(canvas, ss, img, x, y); // speech fonts carry their own outline
+                    img.draw(canvas, ss, x, y, false); // speech fonts carry their own outline
                 }
                 Panel::Ask { classic, rects, hover, .. } if self.style == Style::Classic => {
                     // As ScummVM's AskGump: left to right 4 apart, a new row past 160 wide, rows
                     // a line apart; over the Avatar's head as its speech would be (below its
                     // feet if that's off the top, as DOS does), kept on screen.
-                    let skip = self.fonts.line_skip(CLASSIC_FONT) as i32;
+                    // (In the readable type: rows its own height apart, as wide as its size runs.)
+                    let (skip, most) = match font {
+                        Some(f) => {
+                            (classic.first().map_or(0, |c| c.0.size().1), speech_width(f.size()) as i32 * 160 / 194)
+                        }
+                        None => (self.fonts.line_skip(CLASSIC_FONT) as i32, CLASSIC_WIDTH),
+                    };
                     let mut at = Vec::with_capacity(classic.len());
                     let (mut px, mut py, mut w) = (0, 0, 0);
                     for (a, _) in classic.iter() {
-                        if px > 0 && px + a.w as i32 > CLASSIC_WIDTH {
+                        let aw = a.size().0;
+                        if px > 0 && px + aw > most {
                             (px, py) = (0, py + skip);
                         }
                         at.push((px, py));
-                        w = w.max(px + a.w as i32);
-                        px += a.w as i32 + 4;
+                        w = w.max(px + aw);
+                        px += aw + 4;
                     }
-                    let h = py + classic.last().map_or(0, |(a, _)| a.h as i32);
+                    let h = py + classic.last().map_or(0, |(a, _)| a.size().1);
                     let (x0, y0) = match rect_of(AVATAR) {
                         Some(r) if r[1] - h >= 0 => (r[0] + r[2] / 2 - w / 2, r[1] - h),
                         Some(r) => (r[0] + r[2] / 2 - w / 2, r[1] + r[3] + 4),
@@ -480,20 +582,21 @@ impl ScriptUi {
                     rects.clear();
                     for (k, ((a, b), (dx, dy))) in classic.iter().zip(at).enumerate() {
                         let (x, y) = (x0 + dx, y0 + dy);
-                        text::draw_plain(canvas, ss, if *hover == Some(k) { b } else { a }, x, y);
-                        rects.push([x, y, a.w as i32, a.h as i32]);
+                        if *hover == Some(k) { b } else { a }.draw(canvas, ss, x, y, false);
+                        let (aw, ah) = a.size();
+                        rects.push([x, y, aw, ah]);
                     }
                 }
                 Panel::Ask { imgs, rects, hover, .. } => {
-                    let h: i32 = imgs.iter().map(|(a, _)| a.h as i32 + 1).sum();
-                    let w = imgs.iter().map(|(a, _)| a.w as i32).max().unwrap_or(0);
+                    let h: i32 = imgs.iter().map(|(a, _)| a.size().1 + 1).sum();
+                    let w = imgs.iter().map(|(a, _)| a.size().0).max().unwrap_or(0);
                     let (x0, mut y) = ((vw - w) / 2, low(h, vh));
                     text::shade(canvas, ss, [x0 - 6, y - 4, w + 12, h + 8]);
                     rects.clear();
                     for (k, (a, b)) in imgs.iter().enumerate() {
-                        text::draw(canvas, ss, if *hover == Some(k) { b } else { a }, x0, y);
-                        rects.push([x0, y, w, a.h as i32 + 1]);
-                        y += a.h as i32 + 1;
+                        if *hover == Some(k) { b } else { a }.draw(canvas, ss, x0, y, true);
+                        rects.push([x0, y, w, a.size().1 + 1]);
+                        y += a.size().1 + 1;
                     }
                 }
                 Panel::Notice { img, .. } => notice(canvas, ss, vw, img),
@@ -508,7 +611,8 @@ impl ScriptUi {
 fn bark_rect(p: &Panel, rect_of: &impl Fn(u16) -> Option<[i32; 4]>) -> Option<[i32; 4]> {
     let Panel::Bark { item, img, off: Some(off), .. } = p else { return None };
     let r = rect_of(*item)?;
-    Some([r[0] + r[2] / 2 + off.0, r[1] + off.1, img.w as i32, img.h as i32])
+    let (w, h) = img.size();
+    Some([r[0] + r[2] / 2 + off.0, r[1] + off.1, w, h])
 }
 
 /// Where a page of speech `size` big goes, as the original places it (BARK.C findPlace): of

@@ -1,21 +1,33 @@
-//! Book and scroll text in a modern typeface (EB Garamond, SIL OFL: assets/OFL.txt), laid out
-//! as the original lays its pages out but drawn at the screen's own resolution so it reads
-//! easily. Sizes are in game pixels; layout is in 1/64ths of one so it's the same at any scale.
+//! Text in a modern typeface, laid out as the original lays its text out but drawn at the
+//! screen's own resolution so it reads easily: books and scrolls in EB Garamond, speech (when
+//! chosen) in Atkinson Hyperlegible (both SIL OFL: assets/OFL.txt). Sizes are in game pixels;
+//! layout is in 1/64ths of one so it's the same at any scale.
 use ab_glyph::{point, Font, FontRef, GlyphId, PxScale, ScaleFont};
 use u8data::font::{typeset, TextImage};
 
 static TTF: &[u8] = include_bytes!("../assets/EBGaramond08-Regular.ttf");
+static SPEECH_TTF: &[u8] = include_bytes!("../assets/AtkinsonHyperlegible-Bold.ttf");
 /// Text size (em), and ink: a dark brown-black.
 const SIZE: f32 = 9.0;
 const INK: [u8; 3] = [38, 26, 20];
 /// Fixed-point units per game pixel.
 const UNIT: f32 = 64.0;
 
-pub struct PageFont(FontRef<'static>);
+pub struct PageFont(FontRef<'static>, f32);
 
 impl PageFont {
     pub fn new() -> Self {
-        Self(FontRef::try_from_slice(TTF).expect("bundled font"))
+        Self(FontRef::try_from_slice(TTF).expect("bundled font"), SIZE)
+    }
+
+    /// Its size, game pixels to the em.
+    pub fn size(&self) -> f32 {
+        self.1
+    }
+
+    /// The speech type, `size` game pixels to the em.
+    pub fn speech(size: f32) -> Self {
+        Self(FontRef::try_from_slice(SPEECH_TTF).expect("bundled font"), size)
     }
 
     fn glyphs<'a>(&'a self, s: &'a str) -> impl Iterator<Item = GlyphId> + 'a {
@@ -37,33 +49,72 @@ impl PageFont {
 
     /// Line height and spacing, in game pixels.
     fn lines(&self) -> (f32, f32) {
-        let f = self.0.as_scaled(PxScale::from(SIZE));
+        let f = self.0.as_scaled(PxScale::from(self.1));
         (f.ascent() - f.descent(), f.ascent() - f.descent() + f.line_gap())
     }
 
     /// The pages `text` fills, `page` (w, h) game pixels each — `*` starts a new one.
     pub fn pages(&self, text: &str, page: (u32, u32)) -> Vec<Vec<String>> {
-        let w = |s: &[u8]| (self.width(&String::from_utf8_lossy(s), SIZE) * UNIT).ceil() as u32;
+        self.layout(text, page.0, page.1 as f32 * UNIT, true).into_iter().map(|p| p.0).collect()
+    }
+
+    /// Speech's pages, `width` game pixels wide and `rows` lines high (`*` and `~` break lines),
+    /// each with the text it took.
+    pub fn speech_pages<'a>(&self, text: &'a str, width: u32, rows: u32) -> Vec<(Vec<String>, &'a str)> {
+        let (h, skip) = self.lines();
+        self.layout(text, width, (h + skip * (rows.max(1) - 1) as f32) * UNIT, false)
+    }
+
+    fn layout<'a>(&self, text: &'a str, width: u32, height: f32, paging: bool) -> Vec<(Vec<String>, &'a str)> {
+        let w = |s: &[u8]| (self.width(&String::from_utf8_lossy(s), self.1) * UNIT).ceil() as u32;
         let (h, skip) = self.lines();
         let units = ((h * UNIT) as u32, (skip * UNIT) as u32);
-        let size = (page.0 * UNIT as u32, Some(page.1 * UNIT as u32));
+        let size = (width * UNIT as u32, Some(height.ceil() as u32));
         let mut pages = vec![];
         let mut rest = text;
         while !rest.is_empty() {
-            let (lines, used) = typeset(rest, w, units, size, true, false);
-            pages.push(lines);
+            let (lines, used) = typeset(rest, w, units, size, paging, false);
             let mut used = used.clamp(1, rest.len());
             while !rest.is_char_boundary(used) {
                 used += 1;
             }
+            pages.push((lines, &rest[..used]));
             rest = &rest[used..];
+            if !paging {
+                rest = rest.trim_start();
+            }
         }
         pages
     }
 
     /// A page's lines drawn at `ss` screen pixels per game pixel: ink colour, coverage as alpha.
     pub fn render(&self, lines: &[String], ss: u32) -> TextImage {
-        self.render_ink(lines, SIZE, ss, INK)
+        self.render_ink(lines, self.1, ss, INK)
+    }
+
+    /// Lines in `ink` ringed in black (about half a game pixel), to read over the map.
+    pub fn render_outlined(&self, lines: &[String], ss: u32, ink: [u8; 3]) -> TextImage {
+        let t = self.render_ink(lines, self.1, ss, ink);
+        let r = (ss as f32 * 0.6).round().max(1.0) as i32;
+        let (w, h) = (t.w as i32 + 2 * r, t.h as i32 + 2 * r);
+        let a = |x: i32, y: i32| match (0..t.w as i32).contains(&x) && (0..t.h as i32).contains(&y) {
+            true => t.rgba[((y * t.w as i32 + x) * 4 + 3) as usize] as u32,
+            false => 0,
+        };
+        let mut rgba = vec![0u8; (w * h * 4) as usize];
+        for (i, px) in rgba.chunks_exact_mut(4).enumerate() {
+            let (x, y) = (i as i32 % w - r, i as i32 / w - r);
+            let ring =
+                (-r..=r).flat_map(|dy| (-r..=r).map(move |dx| (dx, dy))).filter(|(dx, dy)| dx * dx + dy * dy <= r * r);
+            let (f, o) = (a(x, y), ring.map(|(dx, dy)| a(x + dx, y + dy)).max().unwrap_or(0));
+            let alpha = f.max(o);
+            if alpha > 0 {
+                // (the type over its black ring: its colour weighed by its own coverage)
+                let c = ink.map(|c| (c as u32 * f / alpha) as u8);
+                px.copy_from_slice(&[c[0], c[1], c[2], alpha as u8]);
+            }
+        }
+        TextImage { w: w as u32, h: h as u32, rgba }
     }
 
     /// Lines at `size` game pixels per em, in `ink` (the settings panel's light type).
@@ -71,7 +122,7 @@ impl PageFont {
         let px = size * ss as f32;
         let f = self.0.as_scaled(PxScale::from(px));
         let (_, skip) = self.lines();
-        let skip = skip * size / SIZE * ss as f32;
+        let skip = skip * size / self.1 * ss as f32;
         let w = lines.iter().map(|l| self.width(l, px).ceil() as u32).max().unwrap_or(0).max(1) + 2;
         let h = (skip * lines.len().max(1) as f32 - skip + f.ascent() - f.descent()).ceil() as u32 + 2;
         let mut rgba = vec![0u8; (w * h * 4) as usize];

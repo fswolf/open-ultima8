@@ -74,11 +74,11 @@ fn speech_pages_and_stays_as_long_as_the_originals() {
     let short = ui.bark_pages(8, "Hello there.", &pal, None);
     assert_eq!(short.len(), 1);
     assert!((3.0..3.3).contains(&short[0].1.as_secs_f32()), "{:?}", short[0].1);
-    assert_eq!(short[0].0.h, 11, "one line");
+    assert_eq!(short[0].0.img.h, 11, "one line");
     let long = "So many words that they won't fit in the speech box at once, it has to turn its page. ".repeat(4);
     let pages = ui.bark_pages(8, long.trim(), &pal, None);
-    assert!(pages.len() >= 2 && pages.iter().all(|(img, _)| img.h <= BARK_HEIGHT), "{}", pages.len());
-    assert_eq!(pages[0].0.h, 4 * 10 + 11, "five lines, 10 apart");
+    assert!(pages.len() >= 2 && pages.iter().all(|(img, _)| img.img.h <= BARK_HEIGHT), "{}", pages.len());
+    assert_eq!(pages[0].0.img.h, 4 * 10 + 11, "five lines, 10 apart");
     ui.push(UiEvent::Bark { pid: 1, item: 2, text: long.clone() }, &pal, None, None);
     let first = match &ui.panels[0] {
         Panel::Bark { more, .. } => more.len(),
@@ -307,4 +307,55 @@ fn speech_moves_with_its_speaker() {
     assert_eq!((b[0] - a[0], b[1] - a[1]), (30, 10), "moved with him");
     let c = at([-400, -300, 20, 50]);
     assert_eq!((c[0] - a[0], c[1] - a[1]), (-550, -400), "off the view with him, not stuck at its edge");
+}
+
+/// Speech in the readable type (Settings: Speech type, size): five lines a page as wide as the
+/// size lets them run, set crisp at the screen's resolution in the speaker's colour with a dark
+/// ring; bigger sizes bigger; replies too; and back to the game's fonts when turned off.
+#[test]
+#[ignore]
+fn readable_speech_is_crisp_in_the_speakers_colour() {
+    let Some(Data { fonts, pal, .. }) = data() else { return };
+    let mut ui = ScriptUi::new(fonts);
+    ui.set_speech(true, 1);
+    let long = "So many words that they won't fit in the speech box at once, it has to turn its page. ".repeat(4);
+    let pages = ui.bark_pages(7, long.trim(), &pal, None);
+    assert!(pages.len() >= 2 && pages.iter().all(|(w, _)| w.lines.len() <= 5 && w.ink == Some([48, 255, 48])));
+    let all: String = pages.iter().flat_map(|(w, _)| w.lines.clone()).collect::<Vec<_>>().join(" ");
+    assert_eq!(all.split_whitespace().count(), long.split_whitespace().count(), "no word lost between pages");
+    // Drawn at 3 screen pixels a game pixel: set again at that resolution, smooth, ringed.
+    ui.push(
+        UiEvent::Bark { pid: 1, item: 2, text: "Hello there, Avatar. Welcome to Tenebrae!".into() },
+        &pal,
+        None,
+        None,
+    );
+    let opts = ["Who are you?", "What is your duty?", "Bye"].map(String::from).to_vec();
+    ui.style = Style::Classic;
+    ui.push(UiEvent::Ask { pid: 2, item: 1, options: opts }, &pal, None, None);
+    let mut px = vec![0u8; 960 * 600 * 4];
+    ui.draw(&mut Canvas::new(&mut px, 960, 600), 3, (320, 200), |id| {
+        Some([160, if id == 1 { 150 } else { 80 }, 0, 30])
+    });
+    let Panel::Bark { img, .. } = &ui.panels[0] else { panic!() };
+    assert_eq!(img.ss, 3);
+    let (w, h) = img.size();
+    assert!(img.img.rgba.chunks(4).any(|p| p[3] == 255 && p[..3] == [48, 255, 48]), "green type");
+    assert!(img.img.rgba.chunks(4).any(|p| p[3] == 255 && p[..3] == [0, 0, 0]), "a dark ring");
+    assert!(img.img.rgba.chunks(4).any(|p| p[3] > 0 && p[3] < 255), "smooth edges");
+    let Panel::Ask { rects, classic, .. } = &ui.panels[1] else { panic!() };
+    assert_eq!(rects.len(), 3);
+    assert!(classic[0].0.lines[0].starts_with('\u{2022}'), "a bullet");
+    if let Ok(out) = std::env::var("U8_SHOTS") {
+        let mut ppm = b"P6 960 600 255\n".to_vec();
+        px.chunks(4).for_each(|p| ppm.extend(&p[..3]));
+        std::fs::write(format!("{out}/speech_readable.ppm"), ppm).unwrap();
+    }
+    // Bigger: taller lines.
+    ui.set_speech(true, 3);
+    let big = ui.bark_pages(7, "Hello there, Avatar. Welcome to Tenebrae!", &pal, None);
+    assert!(big[0].0.size().1 > h && big[0].0.size().0 > w / 2, "{:?} vs {:?}", big[0].0.size(), (w, h));
+    // Off: the game's own font again.
+    ui.set_speech(false, 3);
+    assert!(ui.bark_pages(7, "Hello.", &pal, None)[0].0.ink.is_none());
 }

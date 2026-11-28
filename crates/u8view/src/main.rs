@@ -244,6 +244,8 @@ struct App {
     overlay_ss: u32,
     /// The world's sprites are xBRZ'd (else plain pixels) at `cache.scale`.
     world_xbrz: bool,
+    /// The same for the overlay's sprites (things in windows, the carried thing).
+    ui_xbrz: bool,
     zooming: bool,
     /// Part of a wheel notch (touchpads) not yet zoomed by; whether the overlay has anything.
     wheel: f32,
@@ -362,6 +364,7 @@ impl App {
             frame_ss: 1,
             overlay_ss: 1,
             world_xbrz: false,
+            ui_xbrz: false,
             zooming: false,
             wheel: 0.0,
             overlay_shown: false,

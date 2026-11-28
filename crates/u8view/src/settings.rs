@@ -11,6 +11,9 @@ pub struct Settings {
     pub scale: u32,
     pub zoom: f32,
     pub classic_text: bool,
+    /// Speech and replies in the readable type (ours), at one of `ui::SPEECH_SIZES`.
+    pub speech_font: bool,
+    pub speech_size: usize,
     pub music: bool,
     pub effects: bool,
     /// Footsteps heard.
@@ -56,6 +59,8 @@ impl Default for Settings {
             scale: 0,
             zoom: 0.0,
             classic_text: false,
+            speech_font: false,
+            speech_size: 1,
             music: true,
             effects: true,
             footsteps: true,
@@ -116,6 +121,8 @@ impl Settings {
                 "zoom" => zoom = v.parse::<f32>().ok().filter(|z| z.is_finite()),
                 "version" => v2 = v.parse::<u32>().is_ok_and(|n| n >= 2),
                 "classic_text" => s.classic_text = on,
+                "speech_font" => s.speech_font = on,
+                "speech_size" => s.speech_size = v.parse::<usize>().map_or(s.speech_size, |n| n.min(3)),
                 "music" => s.music = on,
                 "effects" => s.effects = on,
                 "footsteps" => s.footsteps = on,
@@ -156,7 +163,8 @@ impl Settings {
             "# Open Ultima8 settings (written by the game; edit while it isn't running)\n\
              version = 2\nupscaler = {}\nscale = {}\nzoom = {:.2}\nclassic_text = {}\nmusic = {}\neffects = {}\nfootsteps = {}\nvolume = {:.1}\nambience = {:.1}\n\
              cutaway = {}\nsmooth_camera = {}\nfullscreen = {}\nleft_handed = {}\ngamma = {:.1}\ncolour_fix = {}\ncheats = {}\nrestored = {}\n\
-             discord = {}\ndata = {}\nfinished = {}\npad = {}\npad_speed = {:.1}\npad_deadzone = {:.2}\nswap_sticks = {}\ntouch_buttons = {}\nlanguage = {}\n",
+             discord = {}\ndata = {}\nfinished = {}\npad = {}\npad_speed = {:.1}\npad_deadzone = {:.2}\nswap_sticks = {}\ntouch_buttons = {}\nlanguage = {}\n\
+             speech_font = {}\nspeech_size = {}\n",
             self.upscaler,
             self.scale,
             self.zoom,
@@ -182,7 +190,9 @@ impl Settings {
             self.pad_deadzone,
             self.swap_sticks,
             self.touch_buttons,
-            self.language
+            self.language,
+            self.speech_font,
+            self.speech_size
         )
     }
 
@@ -240,6 +250,8 @@ mod tests {
             language: "G".into(),
             restored: true,
             footsteps: false,
+            speech_font: true,
+            speech_size: 3,
             ..Default::default()
         };
         assert_eq!(Settings::parse(&s.to_text()), s);

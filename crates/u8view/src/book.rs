@@ -33,6 +33,7 @@ impl App {
         }
         if let Some(ui) = &mut self.ui {
             ui.style = if s.classic_text { ui::Style::Classic } else { ui::Style::Modern };
+            ui.set_speech(s.speech_font, s.speech_size);
         }
         #[cfg(feature = "audio")]
         if let Some(a) = &mut self.audio {
@@ -55,6 +56,8 @@ impl App {
             touch_buttons: self.touch.buttons,
             zoom: if self.auto_zoom { 0.0 } else { (v.zoom_to * 100.0).round() / 100.0 },
             classic_text: self.ui.as_ref().is_some_and(|u| u.style == ui::Style::Classic),
+            speech_font: self.ui.as_ref().map_or(self.settings.speech_font, |u| u.typed()),
+            speech_size: self.ui.as_ref().map_or(self.settings.speech_size, |u| u.speech_size),
             cutaway: v.cutaway,
             smooth_camera: v.smooth,
             fullscreen: self.fullscreen,
@@ -263,6 +266,8 @@ impl App {
                 let classic = self.ui.as_ref().is_some_and(|u| u.style == ui::Style::Classic);
                 ("Replies", if classic { "classic" } else { "numbered" }.into())
             }
+            SpeechFont => ("Speech type", if self.ui.as_ref()?.typed() { "readable" } else { "original" }.into()),
+            SpeechSize => ("Speech size", ui::SPEECH_SIZES[self.ui.as_ref()?.speech_size].0.into()),
             Cutaway => ("See inside buildings", on(v.cutaway)),
             Roofs => ("Roofs", if v.opts.roofs { "shown" } else { "hidden" }.into()),
             Follow => ("Camera", if v.follow { "on the Avatar" } else { "free" }.into()),
@@ -340,6 +345,15 @@ impl App {
             TextStyle => {
                 if let Some(ui) = &mut self.ui {
                     ui.toggle_style();
+                }
+            }
+            SpeechFont | SpeechSize => {
+                if let Some(ui) = &mut self.ui {
+                    let (on, n) = (ui.typed(), ui.speech_size);
+                    match s {
+                        SpeechFont => ui.set_speech(!on, n),
+                        _ => ui.set_speech(on, by(n as f32, 1.0, 0.0, (ui::SPEECH_SIZES.len() - 1) as f32) as usize),
+                    }
                 }
             }
             Cutaway => flip(&mut v.cutaway),

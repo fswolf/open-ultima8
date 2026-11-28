@@ -33,6 +33,9 @@ pub enum Setting {
     /// The buttons a touch screen shows on the right edge.
     TouchButtons,
     TextStyle,
+    /// Speech and replies in the readable type, and its size (ours).
+    SpeechFont,
+    SpeechSize,
     Cutaway,
     Roofs,
     Follow,
@@ -53,7 +56,7 @@ pub const ON_TAB: [&[Setting]; 4] = {
         &[Upscaler, Scale, Zoom, Fullscreen, Brightness, ColourFix, SmoothCamera, FrameTime],
         &[Music, Volume, Song, Effects, Footsteps, Ambience],
         &[Buttons, Pad, PadSpeed, Deadzone, SwapSticks, TouchButtons],
-        &[TextStyle, Cutaway, Roofs, Follow, Cheats, Restored, Discord, Editor, Language],
+        &[TextStyle, SpeechFont, SpeechSize, Cutaway, Roofs, Follow, Cheats, Restored, Discord, Editor, Language],
     ]
 };
 const KEYS_TAB: usize = 4;
@@ -414,7 +417,7 @@ mod tests {
         for (i, s) in all.iter().enumerate() {
             assert!(!all[i + 1..].contains(s), "{s:?} twice");
         }
-        assert_eq!(all.len(), 29);
+        assert_eq!(all.len(), 31);
     }
 
     /// The keys: up and down choose, left and right change (stopping at the ends), Enter goes on

@@ -116,7 +116,9 @@ impl App {
         let world_ss = self.world_ss();
         let world_xbrz = xbrz && world_ss > 1;
         let reading = self.ui.as_ref().is_some_and(|u| u.reading()) || self.panel.is_some();
-        let ui_ss = if xbrz || reading { self.view.scale } else { 1 };
+        // (Speech in the readable type is set at the screen's resolution too.)
+        let typed = self.ui.as_ref().is_some_and(|u| u.typed());
+        let ui_ss = if xbrz || reading || typed { self.view.scale } else { 1 };
         let up = |smooth: bool| -> u8render::Upscaler {
             if smooth {
                 Box::new(upscale::xbrz)
@@ -128,8 +130,11 @@ impl App {
             self.cache.set_scale(world_ss, up(world_xbrz));
             self.world_xbrz = world_xbrz;
         }
-        if self.ui_cache.scale != ui_ss {
-            self.ui_cache.set_scale(ui_ss, up(ui_ss > 1));
+        // (Things in windows as smooth as the windows' art: only with xBRZ sprites.)
+        let ui_xbrz = xbrz && ui_ss > 1;
+        if (self.ui_cache.scale, self.ui_xbrz) != (ui_ss, ui_xbrz) {
+            self.ui_cache.set_scale(ui_ss, up(ui_xbrz));
+            self.ui_xbrz = ui_xbrz;
         }
         (world_ss, ui_ss)
     }

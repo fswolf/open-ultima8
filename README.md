@@ -328,6 +328,9 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 - Books and scrolls in a modern typeface (the page art and paging are the original's). Books
   get a leather cover round the original's open pages, and the page corners turn up where
   there are more pages; the left one turns back, which the original can't.
+- Optional readable speech (Settings, Game: Speech type, Speech size): speech and replies in a
+  clean modern typeface, small to huge, in each speaker's colour. Off by default: the
+  original's fonts.
 - Background loops (fires, water drips) at half volume. The original plays them twice as loud as
   everything else.
 - Speech and sound from another floor (the hall under the roof you're on) are hidden.
@@ -433,7 +436,8 @@ How the pieces fit and where to add things: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 - What's known about the game's file formats and engine comes from the **Pentagram** and
   **ScummVM** projects. Thank you!
-- Book text is set in **EB Garamond** by Georg Duffner (SIL Open Font License;
+- Book text is set in **EB Garamond** by Georg Duffner, and readable speech in **Atkinson
+  Hyperlegible** by the Braille Institute (both SIL Open Font License;
   [crates/u8view/assets/OFL.txt](crates/u8view/assets/OFL.txt)).
 - Ultima VIII: Pagan was made by Origin Systems. Ultima is a trademark of Electronic Arts. This
   is an unofficial fan project, not affiliated with or endorsed by Electronic Arts.
