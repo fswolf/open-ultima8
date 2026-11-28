@@ -58,7 +58,7 @@ pub enum Style {
 /// An option rendered plain and highlighted.
 type Choice = (Words, Words);
 
-/// The readable type's sizes (game pixels to the em; Settings: Speech size), and how wide its
+/// The readable type's sizes (game pixels to the em; Settings: Text size), and how wide its
 /// speech is let run: as many letters a line as the original's 194.
 pub const SPEECH_SIZES: [(&str, f32); 4] = [("small", 9.0), ("medium", 11.0), ("large", 13.0), ("huge", 16.0)];
 const fn speech_width(size: f32) -> u32 {

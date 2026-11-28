@@ -328,7 +328,7 @@ monsters, jumping and climbing, music, sound and voices, the intro and ending fi
 - Books and scrolls in a modern typeface (the page art and paging are the original's). Books
   get a leather cover round the original's open pages, and the page corners turn up where
   there are more pages; the left one turns back, which the original can't.
-- Optional readable speech (Settings, Game: Speech type, Speech size): speech and replies in a
+- Optional enhanced speech text (Settings, Game: Speech text, Text size): speech and replies in a
   clean modern typeface, small to huge, in each speaker's colour. Off by default: the
   original's fonts.
 - Background loops (fires, water drips) at half volume. The original plays them twice as loud as

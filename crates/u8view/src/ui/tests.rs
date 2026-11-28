@@ -309,7 +309,7 @@ fn speech_moves_with_its_speaker() {
     assert_eq!((c[0] - a[0], c[1] - a[1]), (-550, -400), "off the view with him, not stuck at its edge");
 }
 
-/// Speech in the readable type (Settings: Speech type, size): five lines a page as wide as the
+/// Speech in the readable type (Settings: Speech text enhanced, Text size): five lines a page as wide as the
 /// size lets them run, set crisp at the screen's resolution in the speaker's colour with a dark
 /// ring; bigger sizes bigger; replies too; and back to the game's fonts when turned off.
 #[test]

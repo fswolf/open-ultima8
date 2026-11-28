@@ -266,8 +266,8 @@ impl App {
                 let classic = self.ui.as_ref().is_some_and(|u| u.style == ui::Style::Classic);
                 ("Replies", if classic { "classic" } else { "numbered" }.into())
             }
-            SpeechFont => ("Speech type", if self.ui.as_ref()?.typed() { "readable" } else { "original" }.into()),
-            SpeechSize => ("Speech size", ui::SPEECH_SIZES[self.ui.as_ref()?.speech_size].0.into()),
+            SpeechFont => ("Speech text", if self.ui.as_ref()?.typed() { "enhanced" } else { "original" }.into()),
+            SpeechSize => ("Text size", ui::SPEECH_SIZES[self.ui.as_ref()?.speech_size].0.into()),
             Cutaway => ("See inside buildings", on(v.cutaway)),
             Roofs => ("Roofs", if v.opts.roofs { "shown" } else { "hidden" }.into()),
             Follow => ("Camera", if v.follow { "on the Avatar" } else { "free" }.into()),
